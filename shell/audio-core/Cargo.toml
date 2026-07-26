@@ -19,7 +19,8 @@ silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "=0.15.3"
-cidre = { git = "https://github.com/yury/cidre", default-features = false, features = [
+# `macos_13_0` records a hard minimum-OS requirement: ScreenCaptureKit audio capture needs macOS 13.0.
+cidre = { git = "https://github.com/yury/cidre", rev = "9c20f5ee5abaad4598843a33e13d6e48822d1f30", default-features = false, features = [
   "av",
   "sc",
   "cat",

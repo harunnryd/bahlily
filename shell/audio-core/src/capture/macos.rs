@@ -242,11 +242,10 @@ fn run_capture_thread(
         }
     };
 
-    if ready.send(Ok(())).is_err() {
-        return;
+    if ready.send(Ok(())).is_ok() {
+        let _ = stop.recv();
     }
 
-    let _ = stop.recv();
     let _ = active
         .stream
         .remove_stream_output(active.sink.as_ref(), sc::OutputType::Audio);
