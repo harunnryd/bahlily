@@ -3,9 +3,13 @@ use crate::grpc::pb::DeviceType;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::mpsc::Sender;
 
-#[allow(dead_code)]
-struct SendStream(cpal::Stream);
+struct SendStream(#[allow(dead_code)] cpal::Stream);
 
+// SAFETY: audited against cpal 0.15.3 / coreaudio-rs 0.11.3, re-verify on version bump.
+// cpal's `!Send` marker on `Stream` is a zero-sized cross-platform-uniformity artifact, not
+// real CoreAudio thread-affinity; coreaudio-rs itself already asserts `Send` for `AudioUnit`;
+// and cpal already mutates `StreamInner` (`Arc<Mutex<_>>`) from its own callback thread. Only
+// `Send` is asserted, never `Sync`.
 unsafe impl Send for SendStream {}
 
 pub struct CpalMicCapture {

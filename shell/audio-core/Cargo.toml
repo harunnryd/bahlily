@@ -19,7 +19,7 @@ tokio-stream = "0.1"
 silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cpal = "0.15"
+cpal = "=0.15.3"
 
 [build-dependencies]
 tonic-build = "0.12"
