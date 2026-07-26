@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+pub mod resampler;
+
 pub struct MixerConfig {
     pub window_ms: u32,
     pub sample_rate: u32,
