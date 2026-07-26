@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.rs text
+*.py text
+*.ts text
+*.tsx text
+*.toml text
+*.md text
+
+*.lock -diff linguist-generated
+uv.lock -diff linguist-generated
+Cargo.lock -diff linguist-generated

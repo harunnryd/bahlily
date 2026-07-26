@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project standards
+    url: https://github.com/harunnryd/bahlily/blob/main/AGENTS.md
+    about: Read this before opening an issue or a PR.
+  - name: Contributing guide
+    url: https://github.com/harunnryd/bahlily/blob/main/CONTRIBUTING.md
+    about: Setup, branching model, and PR checklist.

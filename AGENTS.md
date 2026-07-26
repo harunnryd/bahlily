@@ -36,6 +36,14 @@ fix(audio-core): stop dropping samples on device switch
 docs: update roadmap phase 2 checklist
 ```
 
+`pre-commit` enforces the format on the `commit-msg` hook, and formatting/lint on the `pre-commit` hook. Run `pre-commit install` once per checkout so this happens automatically instead of getting caught in review.
+
+## Branching and CI
+
+Trunk-based: `main` stays releasable, branches are short-lived and named `type/short-desc` matching the commit types above. See `CONTRIBUTING.md` for the full branching model and how to use git worktrees when working on more than one service at a time.
+
+CI (`.github/workflows/ci.yml`) runs `cargo fmt --check` + `clippy` + `cargo check` for the Rust workspace, and `ruff format --check` + `ruff check` + `mypy` + `pytest` for every service under `services/`. Treat these as the actual bar, not `pre-commit` alone: `pre-commit` is the fast local approximation, CI on the PR is what's authoritative. Don't consider a change done until both are green.
+
 ## Licensing
 
 MIT is the project license. Keep dependencies permissively licensed (MIT, Apache-2.0, BSD). Avoid copyleft (GPL, LGPL) in anything linked into a shipped binary; if a GPL dependency is genuinely the best option for an optional, isolated feature, it needs to run as a separate process, not be imported directly, and it needs a note explaining why.
