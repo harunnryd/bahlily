@@ -3,6 +3,9 @@
 **/target/
 Cargo.lock.bak
 
+# Tauri codegen (regenerated on every build)
+shell/gen/
+
 # Python
 __pycache__/
 *.pyc
