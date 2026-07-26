@@ -88,6 +88,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "audio-core"
 version = "0.1.0"
 dependencies = [
+ "cidre",
  "cpal",
  "hound",
  "prost",
@@ -298,6 +299,22 @@ name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
+name = "cidre"
+version = "0.16.1"
+source = "git+https://github.com/yury/cidre#9c20f5ee5abaad4598843a33e13d6e48822d1f30"
+dependencies = [
+ "cc",
+ "cidre-macros",
+ "parking_lot",
+]
+
+[[package]]
+name = "cidre-macros"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f32b3f1473b6147c2cf3a3f76ad680f49c95fb36a0292425af5e019132f3236"
 
 [[package]]
 name = "clang-sys"

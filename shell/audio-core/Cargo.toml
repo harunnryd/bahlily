@@ -15,11 +15,18 @@ prost = "0.13"
 thiserror = "1"
 hound = "3.5"
 tokio-stream = "0.1"
-# cidre = { git = "https://github.com/yury/cidre" }
 silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "=0.15.3"
+cidre = { git = "https://github.com/yury/cidre", default-features = false, features = [
+  "av",
+  "sc",
+  "cat",
+  "blocks",
+  "async",
+  "macos_13_0",
+] }
 
 [build-dependencies]
 tonic-build = "0.12"
