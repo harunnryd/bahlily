@@ -1,5 +1,8 @@
 use crate::grpc::pb::DeviceType;
 
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureError {
     #[error("permission denied for device")]
