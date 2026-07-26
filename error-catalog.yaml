@@ -1,0 +1,36 @@
+- code: AUDIO_CAPTURE_DEVICE_LOST
+  domain: audio-capture
+  severity: error
+  description: Mic or system audio device disconnected or became unavailable mid-recording.
+- code: AUDIO_CAPTURE_STREAM_ERROR
+  domain: audio-capture
+  severity: error
+  description: cpal/CoreAudio input stream reported an error.
+- code: AUDIO_VAD_MODEL_LOAD_FAILED
+  domain: audio-vad
+  severity: error
+  description: Silero ONNX model failed to load from disk.
+- code: TRANSCRIPTION_RESERVED
+  domain: transcription
+  severity: info
+  description: Placeholder namespace reserved for the transcription service; no real codes emitted yet.
+- code: ORCHESTRATION_RESERVED
+  domain: orchestration
+  severity: info
+  description: Placeholder namespace reserved for the orchestration service; no real codes emitted yet.
+- code: CHAT_RESERVED
+  domain: chat
+  severity: info
+  description: Placeholder namespace reserved for the chat service; no real codes emitted yet.
+- code: CALENDAR_RESERVED
+  domain: calendar
+  severity: info
+  description: Placeholder namespace reserved for the calendar service; no real codes emitted yet.
+- code: EXPORT_RESERVED
+  domain: export
+  severity: info
+  description: Placeholder namespace reserved for the export service; no real codes emitted yet.
+- code: STORAGE_RESERVED
+  domain: storage
+  severity: info
+  description: Placeholder namespace reserved for the storage service; no real codes emitted yet.

@@ -1,0 +1,36 @@
+[project]
+name = "bahlily-logging"
+version = "0.1.0"
+description = "Shared structured logging, error base class, and error catalog utilities for bahlily services"
+authors = [
+    { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "structlog>=24.1",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+bahlily-logging-check-catalog = "bahlily_logging.catalog:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["ruff>=0.8", "pytest>=8", "mypy>=1.13", "types-pyyaml>=6.0"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
