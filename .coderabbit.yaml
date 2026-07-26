@@ -1,0 +1,35 @@
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  auto_review:
+    enabled: true
+    base_branches:
+      - main
+  path_instructions:
+    - path: "shell/**/*.rs"
+      instructions: >
+        Follow AGENTS.md: no comments explaining what code does, only for a genuinely
+        non-obvious why (an unsafe block's SAFETY invariant, a workaround for a specific
+        external bug). Flag speculative abstraction, premature generalization, and error
+        handling for cases that can't happen. Flag any unsafe impl or unsafe block that
+        lacks a SAFETY comment grounded in the actual invariant, not just restating the code.
+    - path: "services/**/*.py"
+      instructions: >
+        Follow AGENTS.md: no comments explaining what code does, only for non-obvious why.
+        Flag missing type hints, real tests replaced by over-mocked ones, and service
+        boundary violations (importing across services/ directories, or opening another
+        service's SQLite file directly instead of going through its API).
+    - path: "**/*.md"
+      instructions: >
+        No em-dashes. No formulaic repeated section templates padded for length.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
