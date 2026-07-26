@@ -34,3 +34,14 @@ jobs:
       - run: uv run ruff check .
       - run: uv run mypy .
       - run: uv run pytest
+
+  error-catalog:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/bahlily-logging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --all-extras
+      - run: uv run bahlily-logging-check-catalog --catalog ../../error-catalog.yaml --scan-root ../..
