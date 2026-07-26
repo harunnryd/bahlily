@@ -2,6 +2,8 @@
 
 This file sets the standard for any AI coding agent (or human) working in this repo. Read `docs/architecture.md` first for the why behind the service split; this file is about how code should look and behave once written.
 
+Writing a rule down here is not enough to guarantee it gets followed, by an agent or by a human. Where a rule can be checked mechanically (commit message format, formatting, lint, types, tests), it must be enforced by `pre-commit` and CI, not left to memory or good intentions. The first thing to do in a fresh checkout, before making any commit, is `uvx pre-commit install --hook-type pre-commit --hook-type commit-msg`. If you catch a rule in this repo that's documented but not enforced by a hook or CI check, that's a gap, fix the gap, don't just try harder to remember.
+
 ## Scope and boundaries
 
 - Each directory under `services/` is an independently runnable Python service with its own `pyproject.toml`. Don't add cross-service imports; if two services need to share logic, it belongs in a small published package, not a relative import across service boundaries.
