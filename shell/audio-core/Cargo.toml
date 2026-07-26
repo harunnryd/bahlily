@@ -15,7 +15,7 @@ prost = "0.13"
 thiserror = "1"
 # cpal = "0.15"
 # cidre = { git = "https://github.com/yury/cidre" }
-# silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
+silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
 
 [build-dependencies]
 tonic-build = "0.12"

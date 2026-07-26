@@ -40,6 +40,36 @@ impl<V: VadGate> SpeechSegmenter<V> {
     }
 }
 
+pub struct SileroVad {
+    session: silero_rs::VadSession,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SileroError {
+    #[error("failed to load silero model: {0}")]
+    ModelLoad(String),
+}
+
+impl SileroVad {
+    pub fn new(model_path: &std::path::Path) -> Result<Self, SileroError> {
+        let config = silero_rs::VadConfig::default();
+        let session = silero_rs::VadSession::new_from_path(model_path, config)
+            .map_err(|e| SileroError::ModelLoad(e.to_string()))?;
+        Ok(Self { session })
+    }
+}
+
+impl VadGate for SileroVad {
+    fn is_speech(&mut self, frame: &[f32]) -> bool {
+        // NOTE: is_speaking() reads back state after process(); the crate has no single-frame
+        // bool API and recommends this over matching transitions directly.
+        match self.session.process(frame) {
+            Ok(_) => self.session.is_speaking(),
+            Err(_) => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
