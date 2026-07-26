@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod grpc;
 pub mod mixer;
+pub mod recording;
 pub mod vad;
 
 pub fn placeholder() {
