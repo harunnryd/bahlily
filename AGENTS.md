@@ -38,7 +38,7 @@ fix(audio-core): stop dropping samples on device switch
 docs: update roadmap phase 2 checklist
 ```
 
-`pre-commit` enforces the format on the `commit-msg` hook, and formatting/lint on the `pre-commit` hook. Run `pre-commit install` once per checkout so this happens automatically instead of getting caught in review.
+`pre-commit` enforces this on the `commit-msg` hook (see the install command above).
 
 ## Branching and CI
 
