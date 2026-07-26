@@ -1,0 +1,13 @@
+[package]
+name = "bahlily-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+audio-core = { path = "audio-core" }
+# tauri = { version = "2", features = [] }
+
+[[bin]]
+name = "bahlily-shell"
+path = "src/main.rs"

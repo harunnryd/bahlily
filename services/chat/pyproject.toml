@@ -1,0 +1,16 @@
+[project]
+name = "bahlily-chat"
+version = "0.1.0"
+description = "RAG chat over meeting transcripts"
+authors = [
+    { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+bahlily-chat = "bahlily_chat:main"
+
+[build-system]
+requires = ["uv_build>=0.11.7,<0.12.0"]
+build-backend = "uv_build"

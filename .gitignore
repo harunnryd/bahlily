@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+**/.venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / frontend
+node_modules/
+**/node_modules/
+.next/
+out/
+.pnpm-store/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local models / data (large binaries, never commit)
+models/
+*.db
+*.sqlite
+*.sqlite3
