@@ -16,12 +16,19 @@ pub struct SpeechSegmenter<V: VadGate> {
 }
 
 impl<V: VadGate> SpeechSegmenter<V> {
-    pub fn new(vad: V, device_type: crate::grpc::pb::DeviceType, counter: Arc<AtomicU64>) -> Self {
+    /// NOTE: `start` must be one shared instant passed to every segmenter, or timestamps
+    /// across streams won't be comparable (`duration_since` silently saturates to zero, no panic).
+    pub fn new(
+        vad: V,
+        device_type: crate::grpc::pb::DeviceType,
+        counter: Arc<AtomicU64>,
+        start: Instant,
+    ) -> Self {
         Self {
             vad,
             device_type,
             counter,
-            start: Instant::now(),
+            start,
         }
     }
 
@@ -107,7 +114,8 @@ mod tests {
             index: 0,
         };
         let counter = Arc::new(AtomicU64::new(0));
-        let mut segmenter = SpeechSegmenter::new(vad, DeviceType::Microphone, counter);
+        let mut segmenter =
+            SpeechSegmenter::new(vad, DeviceType::Microphone, counter, Instant::now());
         assert!(segmenter.process(&chunk(DeviceType::Microphone)).is_none());
     }
 
@@ -118,7 +126,7 @@ mod tests {
             index: 0,
         };
         let counter = Arc::new(AtomicU64::new(0));
-        let mut segmenter = SpeechSegmenter::new(vad, DeviceType::System, counter);
+        let mut segmenter = SpeechSegmenter::new(vad, DeviceType::System, counter, Instant::now());
         let segment = segmenter.process(&chunk(DeviceType::System)).unwrap();
         assert_eq!(segment.device_type, DeviceType::System as i32);
     }
@@ -134,9 +142,11 @@ mod tests {
             answers: vec![true],
             index: 0,
         };
+        let start = Instant::now();
         let mut mic_segmenter =
-            SpeechSegmenter::new(mic_vad, DeviceType::Microphone, counter.clone());
-        let mut system_segmenter = SpeechSegmenter::new(system_vad, DeviceType::System, counter);
+            SpeechSegmenter::new(mic_vad, DeviceType::Microphone, counter.clone(), start);
+        let mut system_segmenter =
+            SpeechSegmenter::new(system_vad, DeviceType::System, counter, start);
 
         let first = mic_segmenter
             .process(&chunk(DeviceType::Microphone))

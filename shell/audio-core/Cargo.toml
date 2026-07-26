@@ -15,7 +15,12 @@ prost = "0.13"
 thiserror = "1"
 hound = "3.5"
 tokio-stream = "0.1"
-silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
+# `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
+# We only use `VadSession::new_from_path` (not the `static-model`-gated `new()`), and this crate
+# has its own resampler in `mixer::resampler`, so silero's `audio_resampler` is unused. Dropping it
+# also avoids pulling in the unrelated crates.io `audio-core` v0.2.1 package (a transitive dep of
+# silero's resampler), which collides with this crate's own name and makes `-p audio-core` ambiguous.
+silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "1283485dfd4ce6fda25248d52f6f68e27418d46c", package = "silero", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = "=0.15.3"

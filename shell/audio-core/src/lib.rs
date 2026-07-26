@@ -78,11 +78,13 @@ pub async fn run_pipeline_once(
         writer.write_samples(&mixed)?;
     }
 
+    // NOTE: `try_send` avoids blocking recording forever if no gRPC client drains the channel;
+    // dropped segments are fine, only the writer's I/O is fallible here.
     if let Some(segment) = mic_segmenter.process(mic_chunk) {
-        let _ = segment_tx.send(segment).await;
+        let _ = segment_tx.try_send(segment);
     }
     if let Some(segment) = system_segmenter.process(system_chunk) {
-        let _ = segment_tx.send(segment).await;
+        let _ = segment_tx.try_send(segment);
     }
     Ok(())
 }
@@ -155,10 +157,12 @@ mod pipeline_tests {
         });
         let mut writer = recording::Writer::create(&path, 1000).unwrap();
         let counter = Arc::new(AtomicU64::new(0));
+        // NOTE: one shared epoch for both segmenters, so their timestamps are comparable.
+        let start = std::time::Instant::now();
         let mut mic_segmenter =
-            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::Microphone, counter.clone());
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::Microphone, counter.clone(), start);
         let mut system_segmenter =
-            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter);
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter, start);
         let (tx, mut rx) = tokio::sync::mpsc::channel(8);
 
         let mic_chunk = capture::RawChunk {
