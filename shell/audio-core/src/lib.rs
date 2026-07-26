@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod grpc;
+pub mod mixer;
 
 pub fn placeholder() {
     println!("audio-core placeholder");
