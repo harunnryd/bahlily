@@ -63,6 +63,30 @@ impl Default for AudioCore {
     }
 }
 
+pub async fn run_pipeline_once(
+    mic_chunk: &capture::RawChunk,
+    system_chunk: &capture::RawChunk,
+    mixer: &mut mixer::AudioMixer,
+    writer: &mut recording::Writer,
+    mic_segmenter: &mut vad::SpeechSegmenter<impl vad::VadGate>,
+    system_segmenter: &mut vad::SpeechSegmenter<impl vad::VadGate>,
+    segment_tx: &tokio::sync::mpsc::Sender<grpc::pb::AudioSegment>,
+) -> std::io::Result<()> {
+    mixer.push_mic(&mic_chunk.data);
+    mixer.push_system(&system_chunk.data);
+    if let Some(mixed) = mixer.drain_mixed_window() {
+        writer.write_samples(&mixed)?;
+    }
+
+    if let Some(segment) = mic_segmenter.process(mic_chunk) {
+        let _ = segment_tx.send(segment).await;
+    }
+    if let Some(segment) = system_segmenter.process(system_chunk) {
+        let _ = segment_tx.send(segment).await;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod state_tests {
     use super::*;
@@ -102,5 +126,75 @@ mod state_tests {
         assert_eq!(core.state(), State::Stopping);
         core.finish_stop();
         assert_eq!(core.state(), State::Idle);
+    }
+}
+
+#[cfg(test)]
+mod pipeline_tests {
+    use super::*;
+    use crate::grpc::pb::DeviceType;
+    use crate::vad::VadGate;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::Arc;
+
+    struct AlwaysSpeech;
+    impl VadGate for AlwaysSpeech {
+        fn is_speech(&mut self, _frame: &[f32]) -> bool {
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn one_round_writes_recording_and_emits_two_segments() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("audio_core_pipeline_test.wav");
+
+        let mut mixer = mixer::AudioMixer::new(mixer::MixerConfig {
+            window_ms: 50,
+            sample_rate: 1000,
+        });
+        let mut writer = recording::Writer::create(&path, 1000).unwrap();
+        let counter = Arc::new(AtomicU64::new(0));
+        let mut mic_segmenter =
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::Microphone, counter.clone());
+        let mut system_segmenter =
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+
+        let mic_chunk = capture::RawChunk {
+            data: vec![0.2; 50],
+            sample_rate: 1000,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::Microphone,
+        };
+        let system_chunk = capture::RawChunk {
+            data: vec![0.1; 50],
+            sample_rate: 1000,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::System,
+        };
+
+        run_pipeline_once(
+            &mic_chunk,
+            &system_chunk,
+            &mut mixer,
+            &mut writer,
+            &mut mic_segmenter,
+            &mut system_segmenter,
+            &tx,
+        )
+        .await
+        .unwrap();
+        writer.finalize().unwrap();
+        drop(tx);
+
+        let first = rx.recv().await.unwrap();
+        let second = rx.recv().await.unwrap();
+        assert_eq!(first.segment_id, 0);
+        assert_eq!(second.segment_id, 1);
+
+        let mut reader = hound::WavReader::open(&path).unwrap();
+        assert_eq!(reader.samples::<f32>().count(), 50);
+        std::fs::remove_file(&path).unwrap();
     }
 }
