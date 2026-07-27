@@ -6,10 +6,14 @@ pub mod vad;
 
 /// A 128-bit ID in W3C Trace Context format (32 lowercase hex chars), generated
 /// once per recording session and shared by every segmenter and log event tied
-/// to that session.
+/// to that session. Retries on an all-zero draw, which W3C reserves as invalid.
 pub fn generate_trace_id() -> String {
-    let bytes: [u8; 16] = rand::random();
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    loop {
+        let bytes: [u8; 16] = rand::random();
+        if bytes.iter().any(|&b| b != 0) {
+            return bytes.iter().map(|b| format!("{:02x}", b)).collect();
+        }
+    }
 }
 
 pub fn placeholder() {
@@ -229,5 +233,10 @@ mod trace_id_tests {
         assert!(id
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn generate_trace_id_is_never_all_zero() {
+        assert_ne!(crate::generate_trace_id(), "0".repeat(32));
     }
 }
