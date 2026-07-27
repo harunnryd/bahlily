@@ -15,6 +15,7 @@ prost = "0.13"
 thiserror = "1"
 tracing = "0.1"
 rand = "0.8"
+crossbeam-channel = "0.5"
 hound = "3.5"
 tokio-stream = "0.1"
 # `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
