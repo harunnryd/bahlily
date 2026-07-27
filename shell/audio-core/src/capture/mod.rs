@@ -41,7 +41,7 @@ pub struct ChunkSender {
 
 impl ChunkSender {
     pub fn send(&self, chunk: RawChunk) {
-        if self.tx.try_send(chunk).is_err() {
+        if let Err(crossbeam_channel::TrySendError::Full(_)) = self.tx.try_send(chunk) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -132,5 +132,15 @@ mod tests {
         let expected: Vec<f32> = (0..CAPTURE_QUEUE_CAPACITY).map(|i| i as f32).collect();
         assert_eq!(received, expected);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn sender_does_not_count_a_disconnected_receiver_as_dropped() {
+        let (tx, rx) = bounded_chunk_channel();
+        drop(rx);
+
+        tx.send(chunk(0.0));
+
+        assert_eq!(tx.dropped_count(), 0);
     }
 }
