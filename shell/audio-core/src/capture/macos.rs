@@ -322,6 +322,7 @@ mod tests {
     #[ignore = "requires a real microphone and OS permission; run manually with `cargo test -- --ignored`"]
     fn captures_nonzero_energy_from_real_microphone() {
         let (tx, rx) = crate::capture::bounded_chunk_channel();
+        let probe = tx.clone();
         let mut capture = CpalMicCapture::new(crate::generate_trace_id()).unwrap();
         capture.start(tx).unwrap();
 
@@ -337,12 +338,17 @@ mod tests {
             received_any,
             "expected at least one chunk from the microphone"
         );
+        assert!(
+            probe.dropped_count() > 0,
+            "expected drops while nothing drained the mic queue"
+        );
     }
 
     #[test]
     #[ignore = "requires macOS screen recording permission and real system audio; run manually with `cargo test -- --ignored`"]
     fn captures_chunks_from_real_system_audio() {
         let (tx, rx) = crate::capture::bounded_chunk_channel();
+        let probe = tx.clone();
         let mut capture = ScreenCaptureKitSystemCapture::new().unwrap();
         capture.start(tx).unwrap();
 
@@ -358,6 +364,10 @@ mod tests {
         assert!(
             received_any,
             "expected at least one chunk from system audio"
+        );
+        assert!(
+            probe.dropped_count() > 0,
+            "expected drops while nothing drained the system audio queue"
         );
     }
 }
