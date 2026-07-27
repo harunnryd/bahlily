@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from bahlily_logging.catalog import CatalogEntry, check_consistency, load_catalog, scan_codes_in_use
+import pytest
+
+from bahlily_logging.catalog import (
+    CatalogEntry,
+    check_consistency,
+    load_catalog,
+    main,
+    scan_codes_in_use,
+)
 
 
 def test_load_catalog_parses_entries(tmp_path: Path) -> None:
@@ -66,3 +74,49 @@ def test_check_consistency_allows_unused_placeholder_codes(tmp_path: Path) -> No
     missing = check_consistency(catalog_path, scan_root)
 
     assert missing == []
+
+
+def test_load_catalog_rejects_malformed_code(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "error-catalog.yaml"
+    catalog_path.write_text(
+        "- code: not-a-valid-code\n"
+        "  domain: test-domain\n"
+        "  severity: error\n"
+        "  description: Bad code.\n"
+    )
+
+    with pytest.raises(ValueError, match="not-a-valid-code"):
+        load_catalog(catalog_path)
+
+
+def test_load_catalog_rejects_duplicate_codes(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "error-catalog.yaml"
+    catalog_path.write_text(
+        "- code: DUPLICATE_CODE\n"
+        "  domain: test-domain\n"
+        "  severity: error\n"
+        "  description: First.\n"
+        "- code: DUPLICATE_CODE\n"
+        "  domain: test-domain\n"
+        "  severity: error\n"
+        "  description: Second.\n"
+    )
+
+    with pytest.raises(ValueError, match="DUPLICATE_CODE"):
+        load_catalog(catalog_path)
+
+
+def test_main_exits_nonzero_on_missing_scan_root(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    catalog_path = tmp_path / "error-catalog.yaml"
+    catalog_path.write_text(
+        "- code: KNOWN_CODE\n  domain: test-domain\n  severity: error\n  description: Known.\n"
+    )
+    missing_root = tmp_path / "does-not-exist"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--catalog", str(catalog_path), "--scan-root", str(missing_root)])
+
+    assert exc_info.value.code == 1
+    assert "does not exist" in capsys.readouterr().err
