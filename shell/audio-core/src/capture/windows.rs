@@ -1,18 +1,17 @@
-use crate::capture::{CaptureError, CaptureSource, RawChunk};
-use std::sync::mpsc::Sender;
+use crate::capture::{CaptureError, CaptureSource, ChunkSender};
 
 pub struct WasapiMicCapture;
 pub struct WasapiSystemCapture;
 
 impl CaptureSource for WasapiMicCapture {
-    fn start(&mut self, _tx: Sender<RawChunk>) -> Result<(), CaptureError> {
+    fn start(&mut self, _tx: ChunkSender) -> Result<(), CaptureError> {
         Err(CaptureError::NotImplemented)
     }
     fn stop(&mut self) {}
 }
 
 impl CaptureSource for WasapiSystemCapture {
-    fn start(&mut self, _tx: Sender<RawChunk>) -> Result<(), CaptureError> {
+    fn start(&mut self, _tx: ChunkSender) -> Result<(), CaptureError> {
         Err(CaptureError::NotImplemented)
     }
     fn stop(&mut self) {}
@@ -24,7 +23,7 @@ mod tests {
 
     #[test]
     fn start_reports_not_implemented() {
-        let (tx, _rx) = std::sync::mpsc::channel();
+        let (tx, _rx) = crate::capture::bounded_chunk_channel();
         let mut capture = WasapiMicCapture;
         assert!(matches!(
             capture.start(tx),
