@@ -11,6 +11,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -28,6 +30,8 @@ jobs:
         working-directory: services/${{ matrix.service }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --all-extras
       - run: uv run ruff format --check .
@@ -42,6 +46,8 @@ jobs:
         working-directory: packages/bahlily-logging
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --all-extras
       - run: uv run ruff format --check .
