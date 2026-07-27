@@ -24,6 +24,10 @@ fn stop_recording(state: State<AppState>) -> Result<(), String> {
 }
 
 fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     tauri::Builder::default()
         .manage(AppState {
             core: Mutex::new(audio_core::AudioCore::new()),
