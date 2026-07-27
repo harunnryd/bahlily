@@ -86,9 +86,13 @@ pub async fn run_pipeline_once(
 ) -> std::io::Result<()> {
     mixer.push_mic(&mic_chunk.data);
     mixer.push_system(&system_chunk.data);
-    if let Some(mixed) = mixer.drain_mixed_window() {
-        writer.write_samples(&mixed)?;
-    }
+    // NOTE: a local disk-write failure shouldn't drop this iteration's segments from
+    // streaming too — those are two independent failure domains.
+    let write_result = if let Some(mixed) = mixer.drain_mixed_window() {
+        writer.write_samples(&mixed)
+    } else {
+        Ok(())
+    };
 
     // NOTE: `try_send` avoids blocking recording forever if no gRPC client drains the channel;
     // dropped segments are fine, only the writer's I/O is fallible here.
@@ -98,7 +102,7 @@ pub async fn run_pipeline_once(
     if let Some(segment) = system_segmenter.process(system_chunk) {
         let _ = segment_tx.try_send(segment);
     }
-    Ok(())
+    write_result
 }
 
 #[cfg(test)]
