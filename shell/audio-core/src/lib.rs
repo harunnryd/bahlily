@@ -168,6 +168,7 @@ mod pipeline_tests {
         // NOTE: one shared epoch for both segmenters, so their timestamps are comparable.
         let start = std::time::Instant::now();
         let trace_id = crate::generate_trace_id();
+        let trace_id_copy = trace_id.clone();
         let mut mic_segmenter = vad::SpeechSegmenter::new(
             AlwaysSpeech,
             DeviceType::Microphone,
@@ -210,9 +211,23 @@ mod pipeline_tests {
         let second = rx.recv().await.unwrap();
         assert_eq!(first.segment_id, 0);
         assert_eq!(second.segment_id, 1);
+        assert_eq!(first.trace_id, trace_id_copy);
+        assert_eq!(second.trace_id, trace_id_copy);
 
         let mut reader = hound::WavReader::open(&path).unwrap();
         assert_eq!(reader.samples::<f32>().count(), 50);
         std::fs::remove_file(&path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod trace_id_tests {
+    #[test]
+    fn generate_trace_id_is_32_lowercase_hex_chars() {
+        let id = crate::generate_trace_id();
+        assert_eq!(id.len(), 32);
+        assert!(id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 }
