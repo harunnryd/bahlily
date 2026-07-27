@@ -96,19 +96,37 @@ pub async fn run_pipeline_once(
 
     // NOTE: `try_send` avoids blocking recording forever if no gRPC client drains the channel.
     if let Some(segment) = mic_segmenter.process(mic_chunk) {
-        if segment_tx.try_send(segment).is_err() {
-            tracing::warn!(
-                code = "AUDIO_SEGMENT_DROPPED",
-                "mic segment dropped: channel full or closed"
-            );
+        match segment_tx.try_send(segment) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(
+                    code = "AUDIO_SEGMENT_DROPPED",
+                    "mic segment dropped: channel full"
+                );
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!(
+                    code = "AUDIO_SEGMENT_DROPPED",
+                    "mic segment dropped: channel closed"
+                );
+            }
         }
     }
     if let Some(segment) = system_segmenter.process(system_chunk) {
-        if segment_tx.try_send(segment).is_err() {
-            tracing::warn!(
-                code = "AUDIO_SEGMENT_DROPPED",
-                "system segment dropped: channel full or closed"
-            );
+        match segment_tx.try_send(segment) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(
+                    code = "AUDIO_SEGMENT_DROPPED",
+                    "system segment dropped: channel full"
+                );
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                tracing::debug!(
+                    code = "AUDIO_SEGMENT_DROPPED",
+                    "system segment dropped: channel closed"
+                );
+            }
         }
     }
     write_result
