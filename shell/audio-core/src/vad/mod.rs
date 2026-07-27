@@ -76,7 +76,14 @@ impl VadGate for SileroVad {
         // bool API and recommends this over matching transitions directly.
         match self.session.process(frame) {
             Ok(_) => self.session.is_speaking(),
-            Err(_) => false,
+            Err(err) => {
+                tracing::warn!(
+                    code = "AUDIO_VAD_PROCESSING_FAILED",
+                    error = %err,
+                    "silero vad failed to process frame, treating as non-speech"
+                );
+                false
+            }
         }
     }
 }
