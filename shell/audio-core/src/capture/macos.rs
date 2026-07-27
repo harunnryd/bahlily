@@ -15,11 +15,15 @@ unsafe impl Send for SendStream {}
 
 pub struct CpalMicCapture {
     stream: Option<SendStream>,
+    trace_id: String,
 }
 
 impl CpalMicCapture {
-    pub fn new() -> Result<Self, CaptureError> {
-        Ok(Self { stream: None })
+    pub fn new(trace_id: String) -> Result<Self, CaptureError> {
+        Ok(Self {
+            stream: None,
+            trace_id,
+        })
     }
 }
 
@@ -33,6 +37,7 @@ impl CaptureSource for CpalMicCapture {
             .default_input_config()
             .map_err(|_| CaptureError::DeviceNotFound)?;
         let sample_rate = config.sample_rate().0;
+        let trace_id = self.trace_id.clone();
 
         let stream = device
             .build_input_stream(
@@ -45,7 +50,14 @@ impl CaptureSource for CpalMicCapture {
                         device_type: DeviceType::Microphone,
                     });
                 },
-                move |_err| {},
+                move |err| {
+                    tracing::error!(
+                        code = "AUDIO_CAPTURE_STREAM_ERROR",
+                        trace_id = %trace_id,
+                        error = %err,
+                        "cpal input stream error"
+                    );
+                },
                 None,
             )
             .map_err(|_| CaptureError::DeviceInUse)?;
@@ -312,7 +324,7 @@ mod tests {
     #[ignore = "requires a real microphone and OS permission; run manually with `cargo test -- --ignored`"]
     fn captures_nonzero_energy_from_real_microphone() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let mut capture = CpalMicCapture::new().unwrap();
+        let mut capture = CpalMicCapture::new(crate::generate_trace_id()).unwrap();
         capture.start(tx).unwrap();
 
         std::thread::sleep(std::time::Duration::from_secs(2));
