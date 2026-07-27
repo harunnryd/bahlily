@@ -94,13 +94,22 @@ pub async fn run_pipeline_once(
         Ok(())
     };
 
-    // NOTE: `try_send` avoids blocking recording forever if no gRPC client drains the channel;
-    // dropped segments are fine, only the writer's I/O is fallible here.
+    // NOTE: `try_send` avoids blocking recording forever if no gRPC client drains the channel.
     if let Some(segment) = mic_segmenter.process(mic_chunk) {
-        let _ = segment_tx.try_send(segment);
+        if segment_tx.try_send(segment).is_err() {
+            tracing::warn!(
+                code = "AUDIO_SEGMENT_DROPPED",
+                "mic segment dropped: channel full or closed"
+            );
+        }
     }
     if let Some(segment) = system_segmenter.process(system_chunk) {
-        let _ = segment_tx.try_send(segment);
+        if segment_tx.try_send(segment).is_err() {
+            tracing::warn!(
+                code = "AUDIO_SEGMENT_DROPPED",
+                "system segment dropped: channel full or closed"
+            );
+        }
     }
     write_result
 }
@@ -224,6 +233,60 @@ mod pipeline_tests {
 
         let mut reader = hound::WavReader::open(&path).unwrap();
         assert_eq!(reader.samples::<f32>().count(), 50);
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn closed_channel_drops_segments_without_failing_the_round() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("audio_core_pipeline_dropped_segments_test.wav");
+
+        let mut mixer = mixer::AudioMixer::new(mixer::MixerConfig {
+            window_ms: 50,
+            sample_rate: 1000,
+        });
+        let mut writer = recording::Writer::create(&path, 1000).unwrap();
+        let counter = Arc::new(AtomicU64::new(0));
+        let start = std::time::Instant::now();
+        let trace_id = crate::generate_trace_id();
+        let mut mic_segmenter = vad::SpeechSegmenter::new(
+            AlwaysSpeech,
+            DeviceType::Microphone,
+            counter.clone(),
+            start,
+            trace_id.clone(),
+        );
+        let mut system_segmenter =
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter, start, trace_id);
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        drop(rx);
+
+        let mic_chunk = capture::RawChunk {
+            data: vec![0.2; 50],
+            sample_rate: 1000,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::Microphone,
+        };
+        let system_chunk = capture::RawChunk {
+            data: vec![0.1; 50],
+            sample_rate: 1000,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::System,
+        };
+
+        let result = run_pipeline_once(
+            &mic_chunk,
+            &system_chunk,
+            &mut mixer,
+            &mut writer,
+            &mut mic_segmenter,
+            &mut system_segmenter,
+            &tx,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        writer.finalize().unwrap();
         std::fs::remove_file(&path).unwrap();
     }
 }
