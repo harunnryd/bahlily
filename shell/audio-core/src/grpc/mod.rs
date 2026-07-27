@@ -57,6 +57,7 @@ mod tests {
             timestamp: 1.5,
             segment_id: 7,
             device_type: DeviceType::System as i32,
+            trace_id: "test-trace-id".to_string(),
         };
         assert_eq!(segment.segment_id, 7);
         assert_eq!(segment.device_type, DeviceType::System as i32);
@@ -82,6 +83,7 @@ mod service_tests {
             timestamp: 0.0,
             segment_id: 0,
             device_type: DeviceType::Microphone as i32,
+            trace_id: "test-trace-id".to_string(),
         })
         .await
         .unwrap();
@@ -91,6 +93,7 @@ mod service_tests {
             timestamp: 0.1,
             segment_id: 1,
             device_type: DeviceType::System as i32,
+            trace_id: "test-trace-id".to_string(),
         })
         .await
         .unwrap();

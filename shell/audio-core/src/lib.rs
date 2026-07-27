@@ -4,6 +4,14 @@ pub mod mixer;
 pub mod recording;
 pub mod vad;
 
+/// A 128-bit ID in W3C Trace Context format (32 lowercase hex chars), generated
+/// once per recording session and shared by every segmenter and log event tied
+/// to that session.
+pub fn generate_trace_id() -> String {
+    let bytes: [u8; 16] = rand::random();
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 pub fn placeholder() {
     println!("audio-core placeholder");
 }
@@ -159,10 +167,16 @@ mod pipeline_tests {
         let counter = Arc::new(AtomicU64::new(0));
         // NOTE: one shared epoch for both segmenters, so their timestamps are comparable.
         let start = std::time::Instant::now();
-        let mut mic_segmenter =
-            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::Microphone, counter.clone(), start);
+        let trace_id = crate::generate_trace_id();
+        let mut mic_segmenter = vad::SpeechSegmenter::new(
+            AlwaysSpeech,
+            DeviceType::Microphone,
+            counter.clone(),
+            start,
+            trace_id.clone(),
+        );
         let mut system_segmenter =
-            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter, start);
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter, start, trace_id);
         let (tx, mut rx) = tokio::sync::mpsc::channel(8);
 
         let mic_chunk = capture::RawChunk {

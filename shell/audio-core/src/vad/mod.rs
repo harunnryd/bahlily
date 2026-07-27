@@ -13,6 +13,7 @@ pub struct SpeechSegmenter<V: VadGate> {
     device_type: crate::grpc::pb::DeviceType,
     counter: Arc<AtomicU64>,
     start: Instant,
+    trace_id: String,
 }
 
 impl<V: VadGate> SpeechSegmenter<V> {
@@ -23,12 +24,14 @@ impl<V: VadGate> SpeechSegmenter<V> {
         device_type: crate::grpc::pb::DeviceType,
         counter: Arc<AtomicU64>,
         start: Instant,
+        trace_id: String,
     ) -> Self {
         Self {
             vad,
             device_type,
             counter,
             start,
+            trace_id,
         }
     }
 
@@ -43,6 +46,7 @@ impl<V: VadGate> SpeechSegmenter<V> {
             timestamp: chunk.timestamp.duration_since(self.start).as_secs_f64(),
             segment_id,
             device_type: self.device_type as i32,
+            trace_id: self.trace_id.clone(),
         })
     }
 }
@@ -114,8 +118,13 @@ mod tests {
             index: 0,
         };
         let counter = Arc::new(AtomicU64::new(0));
-        let mut segmenter =
-            SpeechSegmenter::new(vad, DeviceType::Microphone, counter, Instant::now());
+        let mut segmenter = SpeechSegmenter::new(
+            vad,
+            DeviceType::Microphone,
+            counter,
+            Instant::now(),
+            "test-trace-id".to_string(),
+        );
         assert!(segmenter.process(&chunk(DeviceType::Microphone)).is_none());
     }
 
@@ -126,7 +135,13 @@ mod tests {
             index: 0,
         };
         let counter = Arc::new(AtomicU64::new(0));
-        let mut segmenter = SpeechSegmenter::new(vad, DeviceType::System, counter, Instant::now());
+        let mut segmenter = SpeechSegmenter::new(
+            vad,
+            DeviceType::System,
+            counter,
+            Instant::now(),
+            "test-trace-id".to_string(),
+        );
         let segment = segmenter.process(&chunk(DeviceType::System)).unwrap();
         assert_eq!(segment.device_type, DeviceType::System as i32);
     }
@@ -143,10 +158,16 @@ mod tests {
             index: 0,
         };
         let start = Instant::now();
-        let mut mic_segmenter =
-            SpeechSegmenter::new(mic_vad, DeviceType::Microphone, counter.clone(), start);
+        let trace_id = "test-trace-id".to_string();
+        let mut mic_segmenter = SpeechSegmenter::new(
+            mic_vad,
+            DeviceType::Microphone,
+            counter.clone(),
+            start,
+            trace_id.clone(),
+        );
         let mut system_segmenter =
-            SpeechSegmenter::new(system_vad, DeviceType::System, counter, start);
+            SpeechSegmenter::new(system_vad, DeviceType::System, counter, start, trace_id);
 
         let first = mic_segmenter
             .process(&chunk(DeviceType::Microphone))
