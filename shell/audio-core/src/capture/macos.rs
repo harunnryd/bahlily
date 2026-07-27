@@ -1,8 +1,7 @@
-use crate::capture::{CaptureError, CaptureSource, RawChunk};
+use crate::capture::{CaptureError, CaptureSource, ChunkSender, RawChunk};
 use crate::grpc::pb::DeviceType;
 use cidre::{arc, cat, cm, dispatch, ns, sc};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use std::sync::mpsc::Sender;
 
 struct SendStream(#[allow(dead_code)] cpal::Stream);
 
@@ -28,7 +27,7 @@ impl CpalMicCapture {
 }
 
 impl CaptureSource for CpalMicCapture {
-    fn start(&mut self, tx: Sender<RawChunk>) -> Result<(), CaptureError> {
+    fn start(&mut self, tx: ChunkSender) -> Result<(), CaptureError> {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -43,7 +42,7 @@ impl CaptureSource for CpalMicCapture {
             .build_input_stream(
                 &config.into(),
                 move |data: &[f32], _| {
-                    let _ = tx.send(RawChunk {
+                    tx.send(RawChunk {
                         data: data.to_vec(),
                         sample_rate,
                         timestamp: std::time::Instant::now(),
@@ -124,13 +123,12 @@ fn downmix_to_mono(list: &cat::audio::BufList<MAX_AUDIO_CHANNELS>) -> Vec<f32> {
 // NOTE: `#[allow]` can't attach to the macro invocation, hence the wrapping module.
 #[allow(clippy::useless_transmute)]
 mod system_audio_sink {
-    use super::{downmix_to_mono, DeviceType, RawChunk, MAX_AUDIO_CHANNELS};
+    use super::{downmix_to_mono, ChunkSender, DeviceType, RawChunk, MAX_AUDIO_CHANNELS};
     use cidre::sc::stream::{Output, OutputImpl};
     use cidre::{cm, define_obj_type, objc, sc};
-    use std::sync::mpsc::Sender;
 
     pub struct SystemAudioSinkInner {
-        pub tx: Sender<RawChunk>,
+        pub tx: ChunkSender,
     }
 
     impl SystemAudioSinkInner {
@@ -152,7 +150,7 @@ mod system_audio_sink {
             if data.is_empty() {
                 return;
             }
-            let _ = self.tx.send(RawChunk {
+            self.tx.send(RawChunk {
                 data,
                 sample_rate,
                 timestamp: std::time::Instant::now(),
@@ -194,7 +192,7 @@ struct ActiveStream {
     queue: arc::R<dispatch::Queue>,
 }
 
-async fn build_and_start(tx: Sender<RawChunk>) -> Result<ActiveStream, CaptureError> {
+async fn build_and_start(tx: ChunkSender) -> Result<ActiveStream, CaptureError> {
     let content = sc::ShareableContent::current()
         .await
         .map_err(|_| CaptureError::PermissionDenied)?;
@@ -231,7 +229,7 @@ async fn build_and_start(tx: Sender<RawChunk>) -> Result<ActiveStream, CaptureEr
 }
 
 fn run_capture_thread(
-    tx: Sender<RawChunk>,
+    tx: ChunkSender,
     ready: std::sync::mpsc::Sender<Result<(), CaptureError>>,
     stop: std::sync::mpsc::Receiver<()>,
 ) {
@@ -279,7 +277,7 @@ impl ScreenCaptureKitSystemCapture {
 }
 
 impl CaptureSource for ScreenCaptureKitSystemCapture {
-    fn start(&mut self, tx: Sender<RawChunk>) -> Result<(), CaptureError> {
+    fn start(&mut self, tx: ChunkSender) -> Result<(), CaptureError> {
         if self.worker.is_some() {
             return Err(CaptureError::DeviceInUse);
         }
@@ -323,7 +321,7 @@ mod tests {
     #[test]
     #[ignore = "requires a real microphone and OS permission; run manually with `cargo test -- --ignored`"]
     fn captures_nonzero_energy_from_real_microphone() {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = crate::capture::bounded_chunk_channel();
         let mut capture = CpalMicCapture::new(crate::generate_trace_id()).unwrap();
         capture.start(tx).unwrap();
 
@@ -344,7 +342,7 @@ mod tests {
     #[test]
     #[ignore = "requires macOS screen recording permission and real system audio; run manually with `cargo test -- --ignored`"]
     fn captures_chunks_from_real_system_audio() {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = crate::capture::bounded_chunk_channel();
         let mut capture = ScreenCaptureKitSystemCapture::new().unwrap();
         capture.start(tx).unwrap();
 
