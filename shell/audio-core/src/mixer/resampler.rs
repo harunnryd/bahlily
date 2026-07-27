@@ -1,5 +1,8 @@
 pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
-    if from_rate == to_rate || samples.is_empty() {
+    // NOTE: from_rate/to_rate come from device/ASBD data that isn't validated as
+    // non-zero upstream; a zero rate would otherwise saturate `ratio` to infinity
+    // and `output_len` to usize::MAX, attempting a multi-exabyte allocation.
+    if from_rate == to_rate || samples.is_empty() || from_rate == 0 || to_rate == 0 {
         return samples.to_vec();
     }
     let ratio = to_rate as f64 / from_rate as f64;
@@ -39,5 +42,19 @@ mod tests {
         let input = vec![0.0, 0.5, 1.0, 0.5, 0.0, 0.5, 1.0, 0.5];
         let output = resample(&input, 16000, 8000);
         assert_eq!(output.len(), 4);
+    }
+
+    #[test]
+    fn zero_from_rate_returns_input_unchanged_instead_of_allocating() {
+        let input = vec![0.1, 0.2, 0.3];
+        let output = resample(&input, 0, 16000);
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn zero_to_rate_returns_input_unchanged_instead_of_allocating() {
+        let input = vec![0.1, 0.2, 0.3];
+        let output = resample(&input, 16000, 0);
+        assert_eq!(output, input);
     }
 }
