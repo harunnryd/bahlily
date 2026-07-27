@@ -34,19 +34,3 @@
   domain: storage
   severity: info
   description: Placeholder namespace reserved for the storage service; no real codes emitted yet.
-- code: TEST_CODE
-  domain: test
-  severity: info
-  description: Test code used in unit tests.
-- code: TEST_DOMAIN_FAILED
-  domain: test
-  severity: error
-  description: Test code for catalog validation tests.
-- code: IGNORED_TARGET_CODE
-  domain: test
-  severity: info
-  description: Test code used in target/ directory to verify it is correctly ignored.
-- code: UNKNOWN_CODE
-  domain: test
-  severity: error
-  description: Test code used to verify detection of codes missing from catalog.

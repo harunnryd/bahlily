@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 _SCAN_EXTENSIONS = (".rs", ".py")
-_SCAN_EXCLUDED_DIR_NAMES = {"target", ".venv", "__pycache__", ".git", "node_modules"}
+_SCAN_EXCLUDED_DIR_NAMES = {"target", ".venv", "__pycache__", ".git", "node_modules", "tests"}
 _CODE_PATTERN = re.compile(r'code\s*[=:]\s*"([A-Z][A-Z0-9_]*)"')
 
 
