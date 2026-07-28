@@ -1,5 +1,5 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::env::set_var("PROTOC", protoc_bin_vendored::protoc_bin_path()?);
-    tonic_build::compile_protos("proto/audio_core/audio.proto")?;
+    tonic_build::compile_protos("proto/audio_core/v1/audio.proto")?;
     Ok(())
 }

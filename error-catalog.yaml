@@ -18,6 +18,10 @@
   domain: audio-core
   severity: warn
   description: A speech segment was dropped because the gRPC streaming channel was full or closed.
+- code: AUDIO_STREAM_LAGGED
+  domain: audio-grpc
+  severity: warn
+  description: A gRPC client fell behind the broadcast segment stream and skipped segments.
 - code: TRANSCRIPTION_RESERVED
   domain: transcription
   severity: info

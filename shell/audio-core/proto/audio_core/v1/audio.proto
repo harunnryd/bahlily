@@ -1,9 +1,10 @@
 syntax = "proto3";
-package audio_core;
+package audio_core.v1;
 
 enum DeviceType {
-  MICROPHONE = 0;
-  SYSTEM = 1;
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_MICROPHONE = 1;
+  DEVICE_TYPE_SYSTEM = 2;
 }
 
 message AudioSegment {
@@ -17,6 +18,10 @@ message AudioSegment {
 
 message StreamAudioRequest {}
 
+message StreamAudioResponse {
+  AudioSegment segment = 1;
+}
+
 service AudioService {
-  rpc StreamAudio (StreamAudioRequest) returns (stream AudioSegment);
+  rpc StreamAudio (StreamAudioRequest) returns (stream StreamAudioResponse);
 }
