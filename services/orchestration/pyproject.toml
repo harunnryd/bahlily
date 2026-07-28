@@ -6,7 +6,7 @@ authors = [
     { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.13.4", "bahlily-logging"]
+dependencies = ["pydantic>=2.13.4", "bahlily-logging", "pyyaml>=6.0.3"]
 
 [tool.uv.sources]
 bahlily-logging = { path = "../../packages/bahlily-logging" }
