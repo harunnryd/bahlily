@@ -6,7 +6,7 @@ authors = [
     { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pydantic>=2.13.4"]
 
 [project.scripts]
 bahlily-orchestration = "bahlily_orchestration:main"
