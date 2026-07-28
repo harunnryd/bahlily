@@ -9,6 +9,34 @@ name = "audio_core"
 path = "src/lib.rs"
 
 [dependencies]
-# cpal = "0.15"
-# cidre = { git = "https://github.com/yury/cidre" }
-# silero_rs = { git = "https://github.com/emotechlab/silero-rs", package = "silero" }
+tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
+prost = "0.13"
+thiserror = "1"
+tracing = "0.1"
+rand = "0.8"
+crossbeam-channel = "0.5"
+hound = "3.5"
+tokio-stream = { version = "0.1", features = ["sync"] }
+# `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
+# We only use `VadSession::new_from_path` (not the `static-model`-gated `new()`), and this crate
+# has its own resampler in `mixer::resampler`, so silero's `audio_resampler` is unused. Dropping it
+# also avoids pulling in the unrelated crates.io `audio-core` v0.2.1 package (a transitive dep of
+# silero's resampler), which collides with this crate's own name and makes `-p audio-core` ambiguous.
+silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "1283485dfd4ce6fda25248d52f6f68e27418d46c", package = "silero", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cpal = "=0.15.3"
+# `macos_13_0` records a hard minimum-OS requirement: ScreenCaptureKit audio capture needs macOS 13.0.
+cidre = { git = "https://github.com/yury/cidre", rev = "9c20f5ee5abaad4598843a33e13d6e48822d1f30", default-features = false, features = [
+  "av",
+  "sc",
+  "cat",
+  "blocks",
+  "async",
+  "macos_13_0",
+] }
+
+[build-dependencies]
+tonic-build = "0.12"
+protoc-bin-vendored = "3"

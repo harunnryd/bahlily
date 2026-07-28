@@ -1,0 +1,27 @@
+syntax = "proto3";
+package audio_core.v1;
+
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_MICROPHONE = 1;
+  DEVICE_TYPE_SYSTEM = 2;
+}
+
+message AudioSegment {
+  repeated float data = 1;
+  uint32 sample_rate = 2;
+  double timestamp = 3;
+  uint64 segment_id = 4;
+  DeviceType device_type = 5;
+  string trace_id = 6;
+}
+
+message StreamAudioRequest {}
+
+message StreamAudioResponse {
+  AudioSegment segment = 1;
+}
+
+service AudioService {
+  rpc StreamAudio (StreamAudioRequest) returns (stream StreamAudioResponse);
+}

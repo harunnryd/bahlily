@@ -3,6 +3,9 @@
 **/target/
 Cargo.lock.bak
 
+# Tauri codegen (regenerated on every build)
+shell/gen/
+
 # Python
 __pycache__/
 *.pyc
@@ -37,3 +40,9 @@ models/
 *.db
 *.sqlite
 *.sqlite3
+
+# Local planning docs (specs/plans), not part of the shipped repo
+docs/superpowers/
+
+# Local git worktrees (scratch, per-plan)
+.worktrees/
