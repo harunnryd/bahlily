@@ -33,6 +33,8 @@ pub enum AudioCoreError {
     AlreadyRecording,
     #[error("not recording")]
     NotRecording,
+    #[error("not stopping")]
+    NotStopping,
 }
 
 pub struct AudioCore {
@@ -64,8 +66,12 @@ impl AudioCore {
         Ok(())
     }
 
-    pub fn finish_stop(&mut self) {
+    pub fn finish_stop(&mut self) -> Result<(), AudioCoreError> {
+        if self.state != State::Stopping {
+            return Err(AudioCoreError::NotStopping);
+        }
         self.state = State::Idle;
+        Ok(())
     }
 }
 
@@ -169,8 +175,22 @@ mod state_tests {
         core.begin_start().unwrap();
         core.begin_stop().unwrap();
         assert_eq!(core.state(), State::Stopping);
-        core.finish_stop();
+        core.finish_stop().unwrap();
         assert_eq!(core.state(), State::Idle);
+    }
+
+    #[test]
+    fn finish_stop_before_stopping_is_rejected() {
+        let mut core = AudioCore::new();
+        assert!(matches!(
+            core.finish_stop(),
+            Err(AudioCoreError::NotStopping)
+        ));
+        core.begin_start().unwrap();
+        assert!(matches!(
+            core.finish_stop(),
+            Err(AudioCoreError::NotStopping)
+        ));
     }
 }
 

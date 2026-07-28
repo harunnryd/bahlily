@@ -19,8 +19,7 @@ fn start_recording(state: State<AppState>) -> Result<(), String> {
 fn stop_recording(state: State<AppState>) -> Result<(), String> {
     let mut core = state.core.lock().map_err(|e| e.to_string())?;
     core.begin_stop().map_err(|e| e.to_string())?;
-    core.finish_stop();
-    Ok(())
+    core.finish_stop().map_err(|e| e.to_string())
 }
 
 fn main() {
