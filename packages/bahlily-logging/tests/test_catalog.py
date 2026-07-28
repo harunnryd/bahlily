@@ -46,6 +46,14 @@ def test_scan_codes_in_use_finds_rust_and_python_call_sites(tmp_path: Path) -> N
     assert codes == {"AUDIO_CAPTURE_STREAM_ERROR", "STORAGE_RESERVED"}
 
 
+def test_scan_codes_in_use_finds_single_quoted_call_sites(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text("raise BahlilyError('boom', code='UNREGISTERED_CODE')")
+
+    codes = scan_codes_in_use(tmp_path)
+
+    assert codes == {"UNREGISTERED_CODE"}
+
+
 def test_check_consistency_reports_codes_missing_from_catalog(tmp_path: Path) -> None:
     catalog_path = tmp_path / "error-catalog.yaml"
     catalog_path.write_text(

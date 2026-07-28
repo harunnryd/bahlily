@@ -13,7 +13,7 @@ _SCAN_EXTENSIONS = (".rs", ".py")
 # used only to assert on log output) don't pollute the codes-in-use scan and
 # force fake catalog entries for test-only values.
 _SCAN_EXCLUDED_DIR_NAMES = {"target", ".venv", "__pycache__", ".git", "node_modules", "tests"}
-_CODE_PATTERN = re.compile(r'code\s*[=:]\s*"([A-Z][A-Z0-9_]*)"')
+_CODE_PATTERN = re.compile(r'code\s*[=:]\s*[\'"]([A-Z][A-Z0-9_]*)[\'"]')
 _CODE_FORMAT_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
