@@ -59,3 +59,23 @@ jobs:
       - run: uv run mypy .
       - run: uv run pytest
       - run: uv run bahlily-logging-check-catalog --catalog ../../error-catalog.yaml --scan-root ../..
+
+  orchestration-eval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/orchestration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v3
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: Start Ollama and pull judge model
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5:7b
+      - run: uv sync --all-extras
+      - run: uv run pytest eval/ -v

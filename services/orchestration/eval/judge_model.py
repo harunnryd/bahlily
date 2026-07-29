@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import os
+
+from deepeval.models.base_model import DeepEvalBaseLLM
+from langchain.chat_models import init_chat_model
+
+_DEFAULT_JUDGE_MODEL = "ollama:qwen2.5:7b"
+
+
+class LangChainJudgeModel(DeepEvalBaseLLM):
+    def __init__(self, provider_model: str | None = None) -> None:
+        self._provider_model = provider_model or os.environ.get(
+            "BAHLILY_EVAL_JUDGE_MODEL", _DEFAULT_JUDGE_MODEL
+        )
+        super().__init__(model=self._provider_model)
+
+    def load_model(self):
+        return init_chat_model(self._provider_model)
+
+    def generate(self, prompt: str, *args: object, **kwargs: object) -> str:
+        return str(self.model.invoke(prompt).content)
+
+    async def a_generate(self, prompt: str, *args: object, **kwargs: object) -> str:
+        result = await self.model.ainvoke(prompt)
+        return str(result.content)
+
+    def get_model_name(self) -> str:
+        return self._provider_model
