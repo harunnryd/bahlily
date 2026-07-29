@@ -1,5 +1,5 @@
-from bahlily_orchestration import main
+from bahlily_orchestration.app import app
 
 
-def test_main_runs() -> None:
-    main()
+def test_app_is_a_fastapi_instance() -> None:
+    assert app.title == "bahlily-orchestration"
