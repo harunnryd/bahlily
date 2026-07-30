@@ -64,6 +64,10 @@ ignore_errors = true
 module = ["bahlily_transcription.whisper_engine"]
 warn_unused_ignores = false
 
+[[tool.mypy.overrides]]
+module = ["bahlily_transcription.parakeet_engine"]
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
