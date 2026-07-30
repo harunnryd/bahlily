@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 import yaml
 
-from bahlily_transcription.engine import TranscriptionEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
@@ -107,7 +106,7 @@ class ModelRegistry:
         tmp.unlink(missing_ok=True)
         self._status[name] = ModelStatus.MISSING
 
-    def remove(self, name: str, engine_instance: TranscriptionEngine | None = None) -> None:
+    def remove(self, name: str) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
         model_dir = self._models_dir / name
@@ -137,16 +136,26 @@ class ModelRegistry:
         }
 
     def _scan_existing(self) -> None:
-        for name in self._manifest:
+        for name, info in self._manifest.items():
             model_path = self._models_dir / name / "model.bin"
             tmp_path = self._models_dir / name / "model.bin.tmp"
             if tmp_path.exists():
                 tmp_path.unlink()
                 self._status[name] = ModelStatus.MISSING
             elif model_path.exists():
-                self._status[name] = ModelStatus.AVAILABLE
+                if self._verify_checksum(model_path, info.checksum_sha256):
+                    self._status[name] = ModelStatus.AVAILABLE
+                else:
+                    self._status[name] = ModelStatus.CORRUPTED
             else:
                 self._status[name] = ModelStatus.MISSING
+
+    def _verify_checksum(self, path: Path, expected: str) -> bool:
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest() == expected
 
     def _refresh_status(self, name: str) -> None:
         model_path = self._models_dir / name / "model.bin"

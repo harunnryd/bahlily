@@ -124,7 +124,7 @@ def load_model(engine: str, req: LoadModelRequest) -> dict[str, str]:
 
 
 @app.post("/models/{engine}/download/{name}")
-async def download_model(engine: str, name: str, request: Request) -> EventSourceResponse:
+async def download_model(engine: str, name: str) -> EventSourceResponse:
     if engine not in _ENGINES:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
     _, registry = _ENGINES[engine]
@@ -190,11 +190,15 @@ def _start_worker_task(
     from bahlily_transcription.grpc_client import AudioCoreClient
 
     client = AudioCoreClient(addr=os.environ.get("AUDIO_CORE_GRPC_ADDR", "localhost:50051"))
+    # TODO: creates one AudioCoreClient per session; spec intends one shared client
+    # with per-session workers subscribing to the same broadcast. Refactor when a
+    # shared client is added.
     worker = SessionWorker(
         recording_id=recording_id,
         engine=engine,
         broadcast=_broadcast,
         executor=_executor,
+        language=language,
     )
     _sessions[recording_id] = {"status": "started", "worker": worker}
 

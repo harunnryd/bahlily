@@ -32,6 +32,7 @@ class SessionWorker:
         executor: ThreadPoolExecutor,
         batch_window_s: float = 0.3,
         max_batch_size: int = 8,
+        language: str | None = None,
     ) -> None:
         self._recording_id = recording_id
         self._engine = engine
@@ -39,19 +40,24 @@ class SessionWorker:
         self._executor = executor
         self._batch_window_s = batch_window_s
         self._max_batch_size = max_batch_size
+        self._language = language
         self._queue: asyncio.Queue[audio_pb2.AudioSegment] = asyncio.Queue()
         self._stop_event = asyncio.Event()
         self._batch_task: asyncio.Task[None] | None = None
+        self._ingest_task: asyncio.Task[None] | None = None
         self.segments_received = 0
         self.segments_transcribed = 0
 
     async def run(self, audio_stream: AsyncIterator[audio_pb2.AudioSegment]) -> None:
         self._batch_task = asyncio.create_task(self._batch_loop())
-        ingest_task = asyncio.create_task(self._ingest(audio_stream))
+        self._ingest_task = asyncio.create_task(self._ingest(audio_stream))
         try:
-            await asyncio.gather(ingest_task, self._batch_task)
+            await asyncio.gather(self._ingest_task, self._batch_task)
         except Exception:
-            ingest_task.cancel()
+            if self._ingest_task is not None:
+                self._ingest_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._ingest_task
             self._batch_task.cancel()
             raise
 
@@ -60,6 +66,10 @@ class SessionWorker:
         if self._batch_task is not None:
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await self._batch_task
+        if self._ingest_task is not None:
+            self._ingest_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._ingest_task
         return self.segments_transcribed
 
     async def _ingest(self, stream: AsyncIterator[audio_pb2.AudioSegment]) -> None:
@@ -106,7 +116,7 @@ class SessionWorker:
     )
     async def _transcribe_with_retry(self, audios: list[np.ndarray]) -> list[Any]:
         loop = asyncio.get_running_loop()
-        fn = functools.partial(self._engine.transcribe_batch, audios, None)
+        fn = functools.partial(self._engine.transcribe_batch, audios, self._language)
         return await loop.run_in_executor(self._executor, fn)
 
     async def _emit_error(self, segment_id: int) -> None:
@@ -121,6 +131,12 @@ class SessionWorker:
         seg.text = ""
         seg.is_partial = False
         seg.recording_id = self._recording_id
+        _engine_name_map = {
+            "whisper": transcription_pb2.ENGINE_WHISPER,
+            "parakeet": transcription_pb2.ENGINE_PARAKEET,
+        }
+        seg.engine = _engine_name_map.get(self._engine.name, transcription_pb2.ENGINE_UNSPECIFIED)
+        seg.model_name = self._engine.current_model() or ""
         await self._broadcast.publish(seg)
 
     def _to_numpy(self, seg: audio_pb2.AudioSegment) -> np.ndarray:
@@ -155,4 +171,12 @@ class SessionWorker:
             if orig_seg.segment_id == segment_id:
                 seg_proto.trace_id = orig_seg.trace_id
                 break
+        _engine_name_map = {
+            "whisper": transcription_pb2.ENGINE_WHISPER,
+            "parakeet": transcription_pb2.ENGINE_PARAKEET,
+        }
+        seg_proto.engine = _engine_name_map.get(
+            self._engine.name, transcription_pb2.ENGINE_UNSPECIFIED
+        )
+        seg_proto.model_name = self._engine.current_model() or ""
         return seg_proto

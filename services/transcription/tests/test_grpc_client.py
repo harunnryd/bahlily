@@ -26,7 +26,7 @@ class FakeAudioCoreServicer(audio_pb2_grpc.AudioServiceServicer):
     async def StreamAudio(
         self,
         request: audio_pb2.StreamAudioRequest,
-        context: grpc.aio.ServicerContext,  # type: ignore[type-arg]
+        context: grpc.aio.ServicerContext,
     ) -> AsyncIterator[audio_pb2.StreamAudioResponse]:
         for seg in self._segments:
             yield audio_pb2.StreamAudioResponse(segment=seg)
@@ -36,7 +36,7 @@ class FakeAudioCoreServicer(audio_pb2_grpc.AudioServiceServicer):
 async def fake_server(unused_tcp_port: int) -> AsyncIterator[str]:
     segments = [_make_audio_segment(i) for i in range(3)]
     server = grpc.aio.server()
-    audio_pb2_grpc.add_AudioServiceServicer_to_server(FakeAudioCoreServicer(segments), server)
+    audio_pb2_grpc.add_AudioServiceServicer_to_server(FakeAudioCoreServicer(segments), server)  # type: ignore[no-untyped-call]
     server.add_insecure_port(f"localhost:{unused_tcp_port}")
     await server.start()
     yield f"localhost:{unused_tcp_port}"

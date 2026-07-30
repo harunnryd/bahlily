@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -72,3 +72,27 @@ def test_post_session_no_model_returns_409(client: TestClient) -> None:
 def test_get_session_not_found_returns_404(client: TestClient) -> None:
     response = client.get("/sessions/nonexistent-id")
     assert response.status_code == 404
+
+
+def test_delete_model_calls_remove(client: TestClient) -> None:
+    mock_registry = MagicMock()
+    mock_engine = MagicMock()
+    mock_engine.current_model.return_value = None
+
+    with patch("bahlily_transcription.app._ENGINES", {"whisper": (mock_engine, mock_registry)}):
+        response = client.delete("/models/whisper/tiny")
+    assert response.status_code == 200
+    mock_registry.remove.assert_called_once_with("tiny")
+
+
+def test_stop_session_returns_segment_count(client: TestClient) -> None:
+    mock_worker = MagicMock()
+    mock_worker.stop = AsyncMock(return_value=5)
+
+    with patch(
+        "bahlily_transcription.app._sessions",
+        {"test-id": {"status": "started", "worker": mock_worker}},
+    ):
+        response = client.post("/sessions/test-id/stop")
+    assert response.status_code == 200
+    assert response.json()["segments_transcribed"] == 5

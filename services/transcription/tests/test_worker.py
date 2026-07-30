@@ -115,13 +115,15 @@ async def test_worker_emits_error_segment_after_engine_exhaustion() -> None:
         def unload_model(self) -> None:
             self._loaded = None
 
-        def transcribe(self, audio: np.ndarray, language: str | None) -> None:  # type: ignore[override]
+        def transcribe(self, audio: np.ndarray, language: str | None) -> None:
             from bahlily_transcription.errors import TranscriptionEngineFailedError
 
             raise TranscriptionEngineFailedError("fake", "always fails")
 
-        def transcribe_batch(self, audios: list[np.ndarray], language: str | None) -> list[None]:  # type: ignore[override]
-            return [self.transcribe(a, language) for a in audios]
+        def transcribe_batch(self, audios: list[np.ndarray], language: str | None) -> list[None]:
+            for a in audios:
+                self.transcribe(a, language)
+            return []
 
     broadcast = BroadcastChannel(capacity=50)
     q = broadcast.subscribe()
@@ -148,3 +150,47 @@ async def test_worker_emits_error_segment_after_engine_exhaustion() -> None:
     result = q.get_nowait()
     assert result.text == ""
     assert not result.is_partial
+
+
+@pytest.mark.asyncio
+async def test_worker_retries_and_succeeds_on_third_attempt(fake_engine) -> None:  # type: ignore[no-untyped-def]
+    fake_engine.load_model("test-model")
+    call_count = 0
+
+    original_transcribe_batch = fake_engine.transcribe_batch
+
+    def flaky_transcribe_batch(audios: list[np.ndarray], language: str | None) -> object:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            from bahlily_transcription.errors import TranscriptionEngineFailedError
+
+            raise TranscriptionEngineFailedError("fake", "transient failure")
+        return original_transcribe_batch(audios, language)
+
+    fake_engine.transcribe_batch = flaky_transcribe_batch
+
+    broadcast = BroadcastChannel(capacity=50)
+    q = broadcast.subscribe()
+    executor = ThreadPoolExecutor(max_workers=1)
+
+    worker = SessionWorker(
+        recording_id="rec-1",
+        engine=fake_engine,
+        broadcast=broadcast,
+        executor=executor,
+        batch_window_s=0.05,
+        max_batch_size=4,
+    )
+
+    segments = [_make_audio_segment(0)]
+    task = asyncio.create_task(worker.run(_stream_segments(segments)))
+    await asyncio.sleep(0.5)
+    count = await worker.stop()
+    await task
+
+    assert call_count == 3
+    assert count == 1
+    result = q.get_nowait()
+    assert result.text == "fake transcription"
+    assert result.segment_id == 0
