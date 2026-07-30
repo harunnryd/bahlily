@@ -125,3 +125,12 @@ def test_summarize_maps_provider_auth_failure_to_provider_auth_error() -> None:
     with patch("bahlily_orchestration.summarize.init_chat_model", return_value=RaisingModel()):
         with pytest.raises(ProviderAuthError):
             summarize(_request())
+
+
+def test_summarize_does_not_swallow_internal_errors_as_provider_errors() -> None:
+    with patch(
+        "bahlily_orchestration.summarize.init_chat_model",
+        side_effect=RuntimeError("internal bug"),
+    ):
+        with pytest.raises(RuntimeError):
+            summarize(_request())

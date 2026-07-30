@@ -60,7 +60,7 @@ def test_summarize_returns_200_with_structured_response() -> None:
 def test_summarize_returns_400_for_unsupported_provider() -> None:
     with patch(
         "bahlily_orchestration.summarize.init_chat_model",
-        side_effect=Exception("unsupported provider"),
+        side_effect=ValueError("unsupported provider"),
     ):
         response = client.post(
             "/summarize",

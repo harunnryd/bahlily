@@ -19,6 +19,8 @@ from bahlily_orchestration.prompt import build_prompt
 
 _RECURSION_LIMIT = 8
 _SUMMARIZATION_TOKEN_TRIGGER = 4000
+_PROVIDER_TIMEOUT = 30
+_PROVIDER_MAX_RETRIES = 2
 
 _tracer = trace.get_tracer("bahlily.orchestration")
 
@@ -40,8 +42,12 @@ def summarize(request: SummarizeRequest) -> SummarizeResponse:
 
         start = time.monotonic()
         try:
-            model = init_chat_model(f"{request.provider}:{request.model}")
-        except Exception as exc:
+            model = init_chat_model(
+                f"{request.provider}:{request.model}",
+                timeout=_PROVIDER_TIMEOUT,
+                max_retries=_PROVIDER_MAX_RETRIES,
+            )
+        except (ValueError, ImportError) as exc:
             raise UnsupportedProviderError(
                 f"unsupported provider/model: {request.provider}:{request.model}"
             ) from exc
