@@ -5,9 +5,15 @@
 # directory to set them up.
 set -euo pipefail
 
-changed=$(git diff --name-only "@{upstream}...HEAD" 2>/dev/null \
-  || git diff --name-only "HEAD~1..HEAD" 2>/dev/null \
-  || true)
+if git rev-parse --verify "@{upstream}" >/dev/null 2>&1; then
+  changed=$(git diff --name-only "@{upstream}...HEAD")
+elif git rev-parse --verify "origin/main" >/dev/null 2>&1; then
+  base=$(git merge-base "origin/main" HEAD)
+  changed=$(git diff --name-only "${base}..HEAD")
+else
+  echo "mypy-push-check: no upstream tracking branch and no origin/main; cannot determine changed files" >&2
+  exit 1
+fi
 
 if [ -z "$changed" ]; then
   exit 0
@@ -17,10 +23,10 @@ failed=0
 
 run_mypy() {
   local dir="$1"
-  if echo "$changed" | grep -q "^${dir}/" && [ -d "${dir}/.venv" ]; then
+  if grep -q "^${dir}/" <<< "$changed" && [ -d "${dir}/.venv" ]; then
     echo "mypy: ${dir}"
     (cd "$dir" && uv run mypy .) || failed=1
-  elif echo "$changed" | grep -q "^${dir}/" && [ ! -d "${dir}/.venv" ]; then
+  elif grep -q "^${dir}/" <<< "$changed" && [ ! -d "${dir}/.venv" ]; then
     echo "mypy: ${dir} — skipped (run 'uv sync' inside ${dir} to enable)"
   fi
 }

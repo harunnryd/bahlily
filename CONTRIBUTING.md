@@ -15,13 +15,13 @@ uvx pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type
 ```
 
 What each hook type does:
-- **pre-commit** — ruff format + lint, cargo fmt, actionlint (CI YAML correctness), zizmor (CI security)
-- **commit-msg** — conventional commit format check
-- **pre-push** — mypy strict in every Python service you changed; skips services whose venv is not set up
+- **pre-commit**: ruff format + lint, cargo fmt, actionlint (CI YAML correctness), zizmor (CI security)
+- **commit-msg**: conventional commit format check
+- **pre-push**: mypy strict in every Python service you changed; skips services whose venv is not set up
 
 ## Before opening a PR
 
-Run these in the service directory before marking the PR ready:
+Run these from the service directory before marking the PR ready:
 
 ```bash
 # format + lint (pre-commit runs this too, but good to run explicitly)
@@ -32,13 +32,16 @@ uv run mypy .
 
 # tests
 uv run pytest
+```
 
-# if you touched .github/workflows/
+If you touched `.github/workflows/`, run these from the repository root:
+
+```bash
 actionlint .github/workflows/*.yml
 uvx zizmor .github/workflows/*.yml
 ```
 
-If you touched the Rust workspace:
+If you touched the Rust workspace, run these from the repository root:
 
 ```bash
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace

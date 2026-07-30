@@ -59,7 +59,7 @@ If you catch a rule that's documented here but not enforced by a hook or CI chec
 
 Conventional Commits, lowercase, one line, no period: `type(scope): short description`. Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `style`, `perf`. Keep the summary under about 60 characters; if more context is needed, a short body is fine. No em-dashes, no filler like "this commit adds..." Say what changed, plainly.
 
-```
+```text
 feat(transcription): add parakeet model registry
 fix(audio-core): stop dropping samples on device switch
 docs: update roadmap phase 2 checklist

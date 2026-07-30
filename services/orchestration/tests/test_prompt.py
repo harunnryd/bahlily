@@ -1,5 +1,5 @@
 from bahlily_orchestration.models import FewShotExample, TemplateSpec, TranscriptSegment
-from bahlily_orchestration.prompt import build_prompt
+from bahlily_orchestration.prompt import _TRANSCRIPT_GUARD, build_prompt
 
 
 def test_first_message_is_system_prompt() -> None:
@@ -62,6 +62,8 @@ def test_transcript_is_wrapped_in_delimiters_with_injection_guard() -> None:
     segments = [TranscriptSegment(text="Normal meeting note.", segment_id=0, speaker="Alice")]
     messages = build_prompt(segments, template)
     user_content = messages[-1]["content"]
+    assert _TRANSCRIPT_GUARD in user_content
+    assert user_content.index(_TRANSCRIPT_GUARD) < user_content.index("<transcript>")
     assert "<transcript>" in user_content
     assert "</transcript>" in user_content
     assert "[Alice] Normal meeting note." in user_content
@@ -77,9 +79,10 @@ def test_adversarial_transcript_instruction_is_not_treated_as_policy() -> None:
     segments = [TranscriptSegment(text=adversarial, segment_id=0, speaker="Attacker")]
     messages = build_prompt(segments, template)
     user_content = messages[-1]["content"]
-    # The adversarial text must appear inside the transcript delimiters, not
-    # outside them where it could be mistaken for a real instruction.
     transcript_start = user_content.index("<transcript>")
     transcript_end = user_content.index("</transcript>")
     adversarial_pos = user_content.index(adversarial)
     assert transcript_start < adversarial_pos < transcript_end
+    guard_pos = user_content.index(_TRANSCRIPT_GUARD)
+    assert guard_pos < transcript_start
+    assert guard_pos < adversarial_pos

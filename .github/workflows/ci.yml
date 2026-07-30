@@ -144,14 +144,16 @@ jobs:
           key: ollama-qwen2.5-7b
       - name: Install Ollama
         run: |
+          set -euo pipefail
           curl -fsSL -o /tmp/ollama_install.sh https://ollama.com/install.sh
           chmod +x /tmp/ollama_install.sh
           /tmp/ollama_install.sh
       - name: Start Ollama and pull judge model
         run: |
+          set -euo pipefail
           ollama serve &
           for i in $(seq 1 30); do
-            curl -sf http://localhost:11434/api/tags && break
+            if curl -sf http://localhost:11434/api/tags; then break; fi
             if [ "$i" -eq 30 ]; then
               echo "Ollama did not become ready after 30s" >&2
               exit 1
