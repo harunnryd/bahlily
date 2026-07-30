@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   # Detects which parts of the repo changed so downstream jobs can skip
@@ -25,6 +26,7 @@ jobs:
       python: ${{ steps.filter.outputs.python }}
       catalog: ${{ steps.filter.outputs.catalog }}
       orchestration: ${{ steps.filter.outputs.orchestration }}
+      workflow: ${{ steps.filter.outputs.workflow }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -47,6 +49,23 @@ jobs:
             orchestration:
               - 'services/orchestration/**'
               - 'packages/bahlily-logging/**'
+            workflow:
+              - '.github/workflows/**'
+
+  validate-workflows:
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - run: |
+          set -euo pipefail
+          uvx actionlint .github/workflows/*.yml
+          uvx zizmor .github/workflows/*.yml
 
   rust:
     needs: changes
@@ -143,9 +162,14 @@ jobs:
           path: ~/.ollama/models
           key: ollama-qwen2.5-7b
       - name: Install Ollama
+        env:
+          OLLAMA_VERSION: "0.32.5"
+          OLLAMA_INSTALL_SHA256: "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f"
         run: |
           set -euo pipefail
-          curl -fsSL -o /tmp/ollama_install.sh https://ollama.com/install.sh
+          curl -fsSL -o /tmp/ollama_install.sh \
+            "https://raw.githubusercontent.com/ollama/ollama/v${OLLAMA_VERSION}/scripts/install.sh"
+          echo "${OLLAMA_INSTALL_SHA256}  /tmp/ollama_install.sh" | sha256sum -c
           chmod +x /tmp/ollama_install.sh
           /tmp/ollama_install.sh
       - name: Start Ollama and pull judge model

@@ -6,6 +6,7 @@ import structlog
 from langchain.agents import create_agent
 from langchain.agents.middleware import PIIMiddleware, SummarizationMiddleware
 from langchain.chat_models import init_chat_model
+from langchain_core.exceptions import OutputParserException
 from langgraph.errors import GraphRecursionError
 from opentelemetry import trace
 
@@ -85,6 +86,16 @@ def summarize(request: SummarizeRequest) -> SummarizeResponse:
             )
             raise StructuredOutputValidationFailedError(
                 "structured output failed after retry budget exhausted"
+            ) from exc
+        except OutputParserException as exc:
+            logger.warning(
+                "summarize.failed",
+                code="ORCHESTRATION_STRUCTURED_OUTPUT_FAILED",
+                provider=request.provider,
+                model=request.model,
+            )
+            raise StructuredOutputValidationFailedError(
+                "structured output parsing or validation failed"
             ) from exc
         except Exception as exc:
             classified = classify_provider_exception(exc)

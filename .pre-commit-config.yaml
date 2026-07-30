@@ -47,7 +47,7 @@ repos:
 
       - id: conventional-commit-msg
         name: conventional commit message
-        entry: '^(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z].{0,68}$'
+        entry: '^(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z][^A-Z.\n]{0,67}$'
         language: pygrep
         stages: [commit-msg]
         args: [--multiline, --negate]

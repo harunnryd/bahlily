@@ -27,7 +27,8 @@ run_mypy() {
     echo "mypy: ${dir}"
     (cd "$dir" && uv run mypy .) || failed=1
   elif grep -q "^${dir}/" <<< "$changed" && [ ! -d "${dir}/.venv" ]; then
-    echo "mypy: ${dir} — skipped (run 'uv sync' inside ${dir} to enable)"
+    echo "mypy: ${dir} — no .venv found; run 'uv sync' inside ${dir} before pushing" >&2
+    failed=1
   fi
 }
 

@@ -18,8 +18,9 @@ def correctness_metric() -> GEval:
     return GEval(
         name="Correctness",
         criteria=(
-            "Determine if the summary's key points and overview reflect facts actually "
-            "present in the transcript, without inventing names, dates, or decisions."
+            "Determine if the summary covers all expected key points listed in the expected output "
+            "and reflects only facts present in the transcript, without inventing names, dates, or "
+            "decisions. Penalize summaries that omit key points from the expected output."
         ),
         evaluation_params=[
             SingleTurnParams.INPUT,

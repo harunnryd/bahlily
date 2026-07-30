@@ -26,4 +26,4 @@ def load_template(name: str) -> TemplateSpec:
 
 def _load_from_yaml(content: str) -> TemplateSpec:
     data = yaml.safe_load(content)
-    return TemplateSpec(**data)
+    return TemplateSpec.model_validate(data)

@@ -79,7 +79,64 @@ def test_summarize_returns_400_for_unsupported_provider() -> None:
     assert response.json()["code"] == "ORCHESTRATION_UNSUPPORTED_PROVIDER"
 
 
-def test_summarize_returns_502_for_provider_unavailable() -> None:
+def test_summarize_returns_422_for_missing_segments() -> None:
+    response = client.post(
+        "/summarize",
+        json={
+            "template": {"name": "general", "version": "1.0.0", "system_prompt": "Summarize."},
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_summarize_returns_422_for_empty_segments() -> None:
+    response = client.post(
+        "/summarize",
+        json={
+            "segments": [],
+            "template": {"name": "general", "version": "1.0.0", "system_prompt": "Summarize."},
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_summarize_returns_401_for_provider_auth_failure() -> None:
+    class FakeAuthFailModel:
+        _llm_type: str = "anthropic-chat"
+
+        def bind_tools(self, *args: object, **kwargs: object) -> "FakeAuthFailModel":
+            return self
+
+        def invoke(self, *args: object, **kwargs: object) -> object:
+            class AuthError(Exception):
+                status_code = 401
+
+            raise AuthError("api key invalid")
+
+    with patch(
+        "bahlily_orchestration.summarize.init_chat_model",
+        return_value=FakeAuthFailModel(),
+    ):
+        response = client.post(
+            "/summarize",
+            json={
+                "segments": [{"text": "Hi", "segment_id": 0}],
+                "template": {
+                    "name": "general",
+                    "version": "1.0.0",
+                    "system_prompt": "Summarize.",
+                },
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+            },
+        )
+    assert response.status_code == 401
+    assert response.json()["code"] == "ORCHESTRATION_PROVIDER_AUTH_FAILED"
+
     class FakeUnavailableModel:
         _llm_type: str = "anthropic-chat"
 

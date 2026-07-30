@@ -17,7 +17,7 @@ uvx pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type
 What each hook type does:
 - **pre-commit**: ruff format + lint, cargo fmt, actionlint (CI YAML correctness), zizmor (CI security)
 - **commit-msg**: conventional commit format check
-- **pre-push**: mypy strict in every Python service you changed; skips services whose venv is not set up
+- **pre-push**: mypy strict in every Python service you changed; run `uv sync` inside each service directory before pushing
 
 ## Before opening a PR
 
