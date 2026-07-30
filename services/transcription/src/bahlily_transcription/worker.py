@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
@@ -57,7 +58,8 @@ class SessionWorker:
     async def stop(self) -> int:
         self._stop_event.set()
         if self._batch_task is not None:
-            await self._batch_task
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await self._batch_task
         return self.segments_transcribed
 
     async def _ingest(self, stream: AsyncIterator[audio_pb2.AudioSegment]) -> None:
