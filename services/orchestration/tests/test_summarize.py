@@ -15,8 +15,7 @@ from bahlily_orchestration.models import (
     TranscriptSegment,
 )
 from bahlily_orchestration.summarize import summarize
-
-from .conftest import tool_call_message
+from tests.utils import FakeToolCallingModel, tool_call_message
 
 
 def _request(provider: str = "anthropic", model: str = "claude-sonnet-4-6") -> SummarizeRequest:
@@ -99,7 +98,6 @@ def test_summarize_raises_unsupported_provider_error_for_bad_provider_string() -
 
 
 def test_summarize_raises_structured_output_validation_failed_when_retries_exhausted() -> None:
-    from .conftest import FakeToolCallingModel
 
     def always_invalid() -> Any:
         while True:

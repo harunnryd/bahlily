@@ -71,7 +71,10 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v3
       - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | sh
+        run: |
+          curl -fsSL -o /tmp/ollama_install.sh https://ollama.com/install.sh
+          chmod +x /tmp/ollama_install.sh
+          /tmp/ollama_install.sh
       - name: Start Ollama and pull judge model
         run: |
           ollama serve &

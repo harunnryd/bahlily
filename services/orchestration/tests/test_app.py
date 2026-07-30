@@ -1,10 +1,10 @@
+import itertools
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from bahlily_orchestration.app import app
-from bahlily_orchestration.errors import UnsupportedProviderError
-from bahlily_orchestration.models import StructuredSummary, SummarizeResponse
+from tests.utils import FakeToolCallingModel, tool_call_message
 
 client = TestClient(app)
 
@@ -23,18 +23,22 @@ def test_templates_lists_built_in_templates() -> None:
 
 
 def test_summarize_returns_200_with_structured_response() -> None:
-    fake_response = SummarizeResponse(
-        summary=StructuredSummary(
-            title="Standup",
-            overview="Quick sync.",
-            key_points=[],
-            action_items=[],
-        ),
-        attempts=1,
-        provider="anthropic",
-        model="claude-sonnet-4-6",
+    fake_model = FakeToolCallingModel(
+        messages=itertools.cycle(
+            [
+                tool_call_message(
+                    "StructuredSummary",
+                    {
+                        "title": "Standup",
+                        "overview": "Quick sync.",
+                        "key_points": [],
+                        "action_items": [],
+                    },
+                )
+            ]
+        )
     )
-    with patch("bahlily_orchestration.app.summarize", return_value=fake_response):
+    with patch("bahlily_orchestration.summarize.init_chat_model", return_value=fake_model):
         response = client.post(
             "/summarize",
             json={
@@ -50,12 +54,13 @@ def test_summarize_returns_200_with_structured_response() -> None:
         )
     assert response.status_code == 200
     assert response.json()["summary"]["title"] == "Standup"
+    assert response.json()["attempts"] >= 1
 
 
 def test_summarize_returns_400_for_unsupported_provider() -> None:
     with patch(
-        "bahlily_orchestration.app.summarize",
-        side_effect=UnsupportedProviderError("bad provider"),
+        "bahlily_orchestration.summarize.init_chat_model",
+        side_effect=Exception("unsupported provider"),
     ):
         response = client.post(
             "/summarize",
