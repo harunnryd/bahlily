@@ -1,6 +1,7 @@
 # Bahlily
 
 [![CI](https://github.com/harunnryd/bahlily/actions/workflows/ci.yml/badge.svg)](https://github.com/harunnryd/bahlily/actions/workflows/ci.yml)
+[![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/harunnryd/bahlily?utm_source=oss&utm_medium=github&utm_campaign=harunnryd%2Fbahlily&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)](https://coderabbit.ai)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: early development](https://img.shields.io/badge/status-early%20development-orange)](docs/roadmap.md)
 

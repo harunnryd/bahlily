@@ -15,6 +15,16 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.28.0
+    hooks:
+      - id: zizmor
+
   - repo: local
     hooks:
       - id: cargo-fmt
@@ -24,9 +34,26 @@ repos:
         files: \.rs$
         pass_filenames: false
 
+      - id: branch-name-check
+        name: branch name convention
+        entry: bash -c 'branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD"); case "$branch" in main|HEAD) exit 0;; esac; echo "$branch" | grep -qE "^(feat|fix|docs|refactor|test|chore|style|perf)/[a-z0-9][a-z0-9-]*$" || { echo "branch name \"$branch\" must match type/short-desc (e.g. feat/add-login, fix/null-crash)" >&2; exit 1; }'
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+
       - id: conventional-commit-msg
         name: conventional commit message
-        entry: '^(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z].{0,68}$'
+        entry: '\A(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z][^A-Z.\n]{0,67}(\n[\s\S]*)?\Z'
         language: pygrep
         stages: [commit-msg]
         args: [--multiline, --negate]
+
+      # Fails if a changed service or package has no .venv; run `uv sync` first.
+      - id: mypy-services
+        name: mypy (changed Python services)
+        entry: scripts/mypy-push-check.sh
+        language: script
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

@@ -1,2 +1,4 @@
 def main() -> None:
-    print("Hello from bahlily-orchestration!")
+    import uvicorn
+
+    uvicorn.run("bahlily_orchestration.app:app", host="127.0.0.1", port=8001)

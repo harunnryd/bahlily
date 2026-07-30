@@ -26,10 +26,22 @@
   domain: transcription
   severity: info
   description: Placeholder namespace reserved for the transcription service; no real codes emitted yet.
-- code: ORCHESTRATION_RESERVED
+- code: ORCHESTRATION_UNSUPPORTED_PROVIDER
   domain: orchestration
-  severity: info
-  description: Placeholder namespace reserved for the orchestration service; no real codes emitted yet.
+  severity: error
+  description: The requested LLM provider string does not match a supported integration.
+- code: ORCHESTRATION_PROVIDER_AUTH_FAILED
+  domain: orchestration
+  severity: error
+  description: The selected LLM provider rejected the request due to a missing or invalid API key.
+- code: ORCHESTRATION_PROVIDER_UNAVAILABLE
+  domain: orchestration
+  severity: error
+  description: The selected LLM provider was unreachable or timed out after retries were exhausted.
+- code: ORCHESTRATION_STRUCTURED_OUTPUT_FAILED
+  domain: orchestration
+  severity: error
+  description: The model could not produce a schema-valid summary within the bounded retry budget.
 - code: CHAT_RESERVED
   domain: chat
   severity: info
