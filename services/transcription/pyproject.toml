@@ -60,6 +60,10 @@ strict = true
 module = ["bahlily_transcription.pb.*"]
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = ["bahlily_transcription.whisper_engine"]
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

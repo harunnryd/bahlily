@@ -47,4 +47,4 @@ class FakeEngine:
 
 @pytest.fixture
 def fake_engine() -> TranscriptionEngine:
-    return FakeEngine()  # type: ignore[return-value]
+    return FakeEngine()
