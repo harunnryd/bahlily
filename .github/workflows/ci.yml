@@ -97,6 +97,8 @@ jobs:
       - run: cargo test --workspace
 
   discover-services:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

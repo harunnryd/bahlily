@@ -20,10 +20,12 @@ class LangChainJudgeModel(DeepEvalBaseLLM):  # type: ignore[misc, no-untyped-cal
         return init_chat_model(self._provider_model)
 
     def generate(self, prompt: str, *args: object, **kwargs: object) -> str:
-        return str(self.load_model().invoke(prompt).content)
+        model: BaseChatModel = self.model  # type: ignore[assignment]
+        return str(model.invoke(prompt).content)
 
     async def a_generate(self, prompt: str, *args: object, **kwargs: object) -> str:
-        result = await self.load_model().ainvoke(prompt)
+        model: BaseChatModel = self.model  # type: ignore[assignment]
+        result = await model.ainvoke(prompt)
         return str(result.content)
 
     def get_model_name(self, *args: object, **kwargs: object) -> str:
