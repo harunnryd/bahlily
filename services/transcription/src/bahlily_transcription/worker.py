@@ -40,16 +40,24 @@ class SessionWorker:
         self._max_batch_size = max_batch_size
         self._queue: asyncio.Queue[audio_pb2.AudioSegment] = asyncio.Queue()
         self._stop_event = asyncio.Event()
+        self._batch_task: asyncio.Task[None] | None = None
         self.segments_received = 0
         self.segments_transcribed = 0
 
     async def run(self, audio_stream: AsyncIterator[audio_pb2.AudioSegment]) -> None:
+        self._batch_task = asyncio.create_task(self._batch_loop())
         ingest_task = asyncio.create_task(self._ingest(audio_stream))
-        batch_task = asyncio.create_task(self._batch_loop())
-        await asyncio.gather(ingest_task, batch_task, return_exceptions=True)
+        try:
+            await asyncio.gather(ingest_task, self._batch_task)
+        except Exception:
+            ingest_task.cancel()
+            self._batch_task.cancel()
+            raise
 
     async def stop(self) -> int:
         self._stop_event.set()
+        if self._batch_task is not None:
+            await self._batch_task
         return self.segments_transcribed
 
     async def _ingest(self, stream: AsyncIterator[audio_pb2.AudioSegment]) -> None:
@@ -91,8 +99,8 @@ class SessionWorker:
     @stamina.retry(
         on=TranscriptionEngineFailedError,
         attempts=3,
-        wait_initial=1.0,
-        wait_max=4.0,
+        wait_initial=0.1,
+        wait_max=1.0,
     )
     async def _transcribe_with_retry(self, audios: list[np.ndarray]) -> list[Any]:
         loop = asyncio.get_running_loop()

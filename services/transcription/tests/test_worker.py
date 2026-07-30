@@ -48,7 +48,7 @@ async def test_worker_transcribes_segments_in_order(fake_engine) -> None:  # typ
     segments = [_make_audio_segment(i) for i in range(3)]
     task = asyncio.create_task(worker.run(_stream_segments(segments)))
     await asyncio.sleep(0.3)
-    await worker.stop()
+    count = await worker.stop()
     await task
 
     received_ids = []
@@ -57,6 +57,7 @@ async def test_worker_transcribes_segments_in_order(fake_engine) -> None:  # typ
         received_ids.append(seg.segment_id)
 
     assert received_ids == sorted(received_ids)
+    assert count == 3
     assert worker.segments_transcribed == 3
 
 
@@ -81,9 +82,10 @@ async def test_worker_resamples_non_16k_audio(fake_engine) -> None:  # type: ign
 
     task = asyncio.create_task(worker.run(_stream_segments([seg])))
     await asyncio.sleep(0.3)
-    await worker.stop()
+    count = await worker.stop()
     await task
 
+    assert count == 1
     assert not q.empty()
     result = q.get_nowait()
     assert result.segment_id == 0
@@ -138,8 +140,10 @@ async def test_worker_emits_error_segment_after_engine_exhaustion() -> None:
     with stamina.set_testing(True):
         task = asyncio.create_task(worker.run(_stream_segments([_make_audio_segment(0)])))
         await asyncio.sleep(0.3)
-        await worker.stop()
+        count = await worker.stop()
         await task
+
+    assert count == 0
 
     result = q.get_nowait()
     assert result.text == ""
