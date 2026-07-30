@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run mypy in every Python service and package that changed between the local
-# branch and the remote tracking branch. Services whose venv is not yet set
-# up (no .venv/) are skipped with a notice — run `uv sync` inside the service
-# directory to set them up.
+# branch and the remote tracking branch. Fails if any changed service or
+# package has no .venv — run `uv sync` inside the directory before pushing.
 set -euo pipefail
 
 if git rev-parse --verify "@{upstream}" >/dev/null 2>&1; then
@@ -40,4 +39,4 @@ run_mypy "services/storage"
 run_mypy "services/transcription"
 run_mypy "packages/bahlily-logging"
 
-exit $failed
+exit "$failed"

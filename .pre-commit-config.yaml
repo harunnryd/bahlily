@@ -15,14 +15,11 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # Lints GitHub Actions workflow YAML for syntax and logic errors.
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
       - id: actionlint
 
-  # Audits GitHub Actions workflows for security issues (unpinned actions,
-  # dangerous patterns, permission escalations).
   - repo: https://github.com/woodruffw/zizmor-pre-commit
     rev: v1.28.0
     hooks:
@@ -39,7 +36,7 @@ repos:
 
       - id: branch-name-check
         name: branch name convention
-        entry: bash -c 'branch=$(git symbolic-ref --short HEAD 2>/dev/null); case "$branch" in main|HEAD) exit 0;; esac; echo "$branch" | grep -qE "^(feat|fix|docs|refactor|test|chore|style|perf)/.+" || { echo "branch name \"$branch\" must match type/short-desc (e.g. feat/add-login, fix/null-crash)" >&2; exit 1; }'
+        entry: bash -c 'branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD"); case "$branch" in main|HEAD) exit 0;; esac; echo "$branch" | grep -qE "^(feat|fix|docs|refactor|test|chore|style|perf)/.+" || { echo "branch name \"$branch\" must match type/short-desc (e.g. feat/add-login, fix/null-crash)" >&2; exit 1; }'
         language: system
         stages: [pre-commit]
         pass_filenames: false
@@ -52,9 +49,7 @@ repos:
         stages: [commit-msg]
         args: [--multiline, --negate]
 
-      # Runs mypy in every Python service and package that changed in this
-      # push. Skipped for a service if its venv is not yet set up. Run
-      # `uv sync` inside the service directory to set it up.
+      # Fails if a changed service or package has no .venv; run `uv sync` first.
       - id: mypy-services
         name: mypy (changed Python services)
         entry: scripts/mypy-push-check.sh

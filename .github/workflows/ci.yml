@@ -50,7 +50,8 @@ jobs:
               - 'services/orchestration/**'
               - 'packages/bahlily-logging/**'
             workflow:
-              - '.github/workflows/**'
+              - '.github/workflows/*.yml'
+              - '.github/workflows/*.yaml'
 
   validate-workflows:
     needs: changes
