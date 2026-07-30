@@ -1,0 +1,30 @@
+syntax = "proto3";
+package transcription.v1;
+
+enum Engine {
+  ENGINE_UNSPECIFIED = 0;
+  ENGINE_WHISPER     = 1;
+  ENGINE_PARAKEET    = 2;
+}
+
+message TranscriptSegment {
+  string          text             = 1;
+  uint64          segment_id       = 2;
+  optional float  confidence       = 3;
+  bool            is_partial       = 4;
+  Engine          engine           = 5;
+  string          model_name       = 6;
+  double          audio_start_time = 7;
+  double          audio_end_time   = 8;
+  optional string language         = 9;
+  string          recording_id     = 10;
+  string          trace_id         = 11;
+}
+
+message StreamTranscriptsRequest  {}
+message StreamTranscriptsResponse { TranscriptSegment segment = 1; }
+
+service TranscriptionService {
+  rpc StreamTranscripts(StreamTranscriptsRequest)
+      returns (stream StreamTranscriptsResponse);
+}

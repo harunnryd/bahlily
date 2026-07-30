@@ -1,12 +1,30 @@
 [project]
 name = "bahlily-transcription"
 version = "0.1.0"
-description = "Whisper + Parakeet transcription and speaker diarization"
-authors = [
-    { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
-]
+description = "Whisper + Parakeet transcription service"
+authors = [{ name = "Harun", email = "harun.sigmawaveai@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "grpcio>=1.83.0",
+    "fastapi>=0.140.13",
+    "uvicorn[standard]>=0.51.0",
+    "httpx>=0.28.1",
+    "sse-starlette>=3.4.6",
+    "stamina>=26.1.0",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.13.4",
+    "numpy>=2.0",
+    "scipy>=1.18.0",
+    "structlog>=24.1",
+    "bahlily-logging>=0.1.0",
+    "faster-whisper>=1.2.1; sys_platform != 'darwin' or platform_machine != 'arm64'",
+    "mlx-whisper>=0.4.3;   sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "onnxruntime>=1.28.0",
+    "onnx-asr>=0.12.0",
+]
+
+[tool.uv.sources]
+bahlily-logging = { path = "../../packages/bahlily-logging" }
 
 [project.scripts]
 bahlily-transcription = "bahlily_transcription:main"
@@ -16,11 +34,20 @@ requires = ["uv_build>=0.11.7,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["ruff>=0.8", "pytest>=8", "mypy>=1.13"]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8",
+    "mypy>=1.13",
+    "grpcio-tools>=1.83.0",
+    "respx>=0.23.1",
+    "types-pyyaml>=6.0",
+    "pytest-asyncio>=0.23",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["src/bahlily_transcription/pb/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -31,3 +58,4 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
