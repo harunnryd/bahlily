@@ -61,6 +61,7 @@ jobs:
       - run: uv run bahlily-logging-check-catalog --catalog ../../error-catalog.yaml --scan-root ../..
 
   orchestration-eval:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -70,6 +71,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v3
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-qwen2.5-7b
       - name: Install Ollama
         run: |
           curl -fsSL -o /tmp/ollama_install.sh https://ollama.com/install.sh
