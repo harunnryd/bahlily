@@ -17,6 +17,12 @@ def test_transcript_segment_requires_text_and_segment_id() -> None:
     assert segment.speaker is None
     assert segment.start_time is None
 
+    with pytest.raises(ValidationError):
+        TranscriptSegment(segment_id=0)  # type: ignore[call-arg]
+
+    with pytest.raises(ValidationError):
+        TranscriptSegment(text="Let's ship Friday.")  # type: ignore[call-arg]
+
 
 def test_transcript_segment_accepts_optional_diarization_fields() -> None:
     segment = TranscriptSegment(

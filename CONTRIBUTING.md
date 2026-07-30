@@ -7,14 +7,44 @@ Each service is independent. Pick the one you're touching and set it up on its o
 - Rust: `cargo check` from the repo root (workspace covers `shell/` and `shell/audio-core/`).
 - Python services: `cd services/<name> && uv sync`, then `uv run pytest`.
 - Frontend: not scaffolded yet, see `docs/roadmap.md`.
-- Once per checkout: `uvx pre-commit install --hook-type pre-commit --hook-type commit-msg`, so formatting, lint, and commit message checks run locally before you push.
+
+Once per checkout, install the local hooks that enforce this project's standards automatically:
+
+```bash
+uvx pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+```
+
+What each hook type does:
+- **pre-commit** — ruff format + lint, cargo fmt, actionlint (CI YAML correctness), zizmor (CI security)
+- **commit-msg** — conventional commit format check
+- **pre-push** — mypy strict in every Python service you changed; skips services whose venv is not set up
 
 ## Before opening a PR
 
-- Format: `cargo fmt` for Rust, `ruff format` inside the relevant `services/<name>`.
-- Lint: `cargo clippy`, `ruff check`.
-- Tests pass for whatever service you touched. If you changed a shared contract (e.g. the `AudioSegment`/`TranscriptSegment` shapes in `docs/transcription-service.md`), check the other side of that contract still holds.
-- Docs updated if the change affects anything described in `docs/`.
+Run these in the service directory before marking the PR ready:
+
+```bash
+# format + lint (pre-commit runs this too, but good to run explicitly)
+uv run ruff format . && uv run ruff check .
+
+# types — must pass with zero errors
+uv run mypy .
+
+# tests
+uv run pytest
+
+# if you touched .github/workflows/
+actionlint .github/workflows/*.yml
+uvx zizmor .github/workflows/*.yml
+```
+
+If you touched the Rust workspace:
+
+```bash
+cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+```
+
+Docs updated if the change affects anything described in `docs/`.
 
 ## Commit messages
 
@@ -49,9 +79,14 @@ This is also the expected pattern for agents working on this repo: if two agents
 
 ## Pull requests
 
-Keep them scoped to one service or one concern where possible. Explain the why in the description; the diff already shows the what. Link the roadmap phase or feature note it relates to if there is one. Every PR uses the PR template's Definition of Done checklist; don't remove items from it, check them honestly.
+Open as draft first. Convert to ready only when:
+- All local checks above pass
+- CI is green on the branch
+- You've worked through the PR template's Definition of Done checklist honestly
 
-One issue, one PR. If an issue is too big to close with a single reviewable PR, split it into sub-issues first rather than opening one PR that closes several issues at once.
+Keep PRs scoped to one service or one concern. Explain the why in the description; the diff already shows the what. Link the roadmap phase or feature note if there is one.
+
+One issue, one PR. If an issue is too big to close with a single reviewable PR, split it into sub-issues first.
 
 ## Project board
 
@@ -61,8 +96,13 @@ Every tracked issue lives on the [project board](https://github.com/users/harunn
 - **In Progress**: a PR referencing the issue (`Closes #N`) is open, or someone has explicitly picked it up.
 - **Done**: the PR merged, CI was green on that merge, and the issue is closed. Not "code written", not "mostly works": merged and green.
 
-Reference the issue you're closing in the PR description (`Closes #N`) so the link between issue, PR, and board status stays automatic instead of something someone has to remember to update by hand.
+Reference the issue you're closing in the PR description (`Closes #N`) so the link between issue, PR, and board status stays automatic.
 
 ## Code review expectations
 
-Anyone reviewing should check against `AGENTS.md`, particularly: no unnecessary comments, no speculative abstraction, real tests over mocked-everything tests, and service boundaries respected (no reaching into another service's internals or opening its database directly).
+Anyone reviewing should check against `AGENTS.md`, particularly:
+- No comments explaining what code does; only non-obvious why
+- No speculative abstraction; built only for the feature at hand
+- Real tests over mocked-everything tests; own logic exercised for real
+- Service boundaries respected; no cross-service imports, no direct SQLite access outside `services/storage`
+- All GitHub Actions references pinned to SHA, shell steps use `set -euo pipefail`

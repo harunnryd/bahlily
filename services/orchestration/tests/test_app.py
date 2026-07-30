@@ -77,3 +77,37 @@ def test_summarize_returns_400_for_unsupported_provider() -> None:
         )
     assert response.status_code == 400
     assert response.json()["code"] == "ORCHESTRATION_UNSUPPORTED_PROVIDER"
+
+
+def test_summarize_returns_502_for_provider_unavailable() -> None:
+    class FakeUnavailableModel:
+        _llm_type: str = "anthropic-chat"
+
+        def bind_tools(self, *args: object, **kwargs: object) -> "FakeUnavailableModel":
+            return self
+
+        def invoke(self, *args: object, **kwargs: object) -> object:
+            class ServiceUnavailable(Exception):
+                status_code = 503
+
+            raise ServiceUnavailable("upstream timeout")
+
+    with patch(
+        "bahlily_orchestration.summarize.init_chat_model",
+        return_value=FakeUnavailableModel(),
+    ):
+        response = client.post(
+            "/summarize",
+            json={
+                "segments": [{"text": "Hi", "segment_id": 0}],
+                "template": {
+                    "name": "general",
+                    "version": "1.0.0",
+                    "system_prompt": "Summarize.",
+                },
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+            },
+        )
+    assert response.status_code == 502
+    assert response.json()["code"] == "ORCHESTRATION_PROVIDER_UNAVAILABLE"

@@ -19,10 +19,12 @@ jobs:
   # when their paths are unaffected.
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       python: ${{ steps.filter.outputs.python }}
       catalog: ${{ steps.filter.outputs.catalog }}
+      orchestration: ${{ steps.filter.outputs.orchestration }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -42,6 +44,9 @@ jobs:
               - 'packages/bahlily-logging/**'
               - 'error-catalog.yaml'
               - 'services/**'
+            orchestration:
+              - 'services/orchestration/**'
+              - 'packages/bahlily-logging/**'
 
   rust:
     needs: changes
@@ -115,7 +120,11 @@ jobs:
       - run: uv run bahlily-logging-check-catalog --catalog ../../error-catalog.yaml --scan-root ../..
 
   orchestration-eval:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: changes
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.changes.outputs.orchestration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:

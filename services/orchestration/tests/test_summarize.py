@@ -1,8 +1,12 @@
 import itertools
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatResult
 
 from bahlily_orchestration.errors import (
     ProviderAuthError,
@@ -31,7 +35,9 @@ def _request(provider: str = "anthropic", model: str = "claude-sonnet-4-6") -> S
     )
 
 
-def test_summarize_returns_structured_summary_on_first_attempt(make_fake_model: Any) -> None:
+def test_summarize_returns_structured_summary_on_first_attempt(
+    make_fake_model: Callable[[list[Any]], FakeToolCallingModel],
+) -> None:
     fake_model = make_fake_model(
         [
             tool_call_message(
@@ -60,7 +66,9 @@ def test_summarize_returns_structured_summary_on_first_attempt(make_fake_model: 
     assert response.provider == "anthropic"
 
 
-def test_summarize_counts_a_retry_as_two_attempts(make_fake_model: Any) -> None:
+def test_summarize_counts_a_retry_as_two_attempts(
+    make_fake_model: Callable[[list[Any]], FakeToolCallingModel],
+) -> None:
     fake_model = make_fake_model(
         [
             tool_call_message("StructuredSummary", {"title": "x"}),
@@ -136,11 +144,11 @@ def test_pii_middleware_redacts_email_and_phone_before_model_sees_them() -> None
     class RecordingModel(FakeToolCallingModel):
         def _generate(
             self,
-            messages: Any,
-            stop: Any = None,
-            run_manager: Any = None,
+            messages: list[BaseMessage],
+            stop: list[str] | None = None,
+            run_manager: CallbackManagerForLLMRun | None = None,
             **kwargs: Any,
-        ) -> Any:
+        ) -> ChatResult:
             for msg in messages:
                 content = getattr(msg, "content", "")
                 if isinstance(content, str) and content:

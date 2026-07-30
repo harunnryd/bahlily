@@ -15,6 +15,19 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # Lints GitHub Actions workflow YAML for syntax and logic errors.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  # Audits GitHub Actions workflows for security issues (unpinned actions,
+  # dangerous patterns, permission escalations).
+  - repo: https://github.com/woodruffw/zizmor-pre-commit
+    rev: v1.28.0
+    hooks:
+      - id: zizmor
+
   - repo: local
     hooks:
       - id: cargo-fmt
@@ -30,3 +43,14 @@ repos:
         language: pygrep
         stages: [commit-msg]
         args: [--multiline, --negate]
+
+      # Runs mypy in every Python service and package that changed in this
+      # push. Skipped for a service if its venv is not yet set up. Run
+      # `uv sync` inside the service directory to set it up.
+      - id: mypy-services
+        name: mypy (changed Python services)
+        entry: scripts/mypy-push-check.sh
+        language: script
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
