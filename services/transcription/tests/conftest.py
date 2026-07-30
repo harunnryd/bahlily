@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import socket
+
 import numpy as np
 import pytest
 
@@ -48,3 +50,10 @@ class FakeEngine:
 @pytest.fixture
 def fake_engine() -> TranscriptionEngine:
     return FakeEngine()
+
+
+@pytest.fixture
+def unused_tcp_port() -> int:
+    with socket.socket() as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
