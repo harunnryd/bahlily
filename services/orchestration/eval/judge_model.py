@@ -9,14 +9,14 @@ from langchain_core.language_models.chat_models import BaseChatModel
 _DEFAULT_JUDGE_MODEL = "ollama:qwen2.5:7b"
 
 
-class LangChainJudgeModel(DeepEvalBaseLLM):  # type: ignore[no-untyped-call]
+class LangChainJudgeModel(DeepEvalBaseLLM):
     def __init__(self, provider_model: str | None = None) -> None:
         self._provider_model = provider_model or os.environ.get(
             "BAHLILY_EVAL_JUDGE_MODEL", _DEFAULT_JUDGE_MODEL
         )
         super().__init__(model=self._provider_model)
 
-    def load_model(self, *args: object, **kwargs: object) -> BaseChatModel:  # type: ignore[override]
+    def load_model(self, *args: object, **kwargs: object) -> BaseChatModel:
         return init_chat_model(self._provider_model)
 
     def generate(self, prompt: str, *args: object, **kwargs: object) -> str:
