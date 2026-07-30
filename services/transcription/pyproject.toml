@@ -57,6 +57,10 @@ python_version = "3.12"
 strict = true
 
 [[tool.mypy.overrides]]
+module = ["grpc", "grpc.*", "grpc.aio"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["bahlily_transcription.pb.*"]
 ignore_errors = true
 
