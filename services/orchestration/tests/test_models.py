@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from bahlily_orchestration.models import (
     ActionItem,
     Quote,
@@ -76,3 +79,23 @@ def test_summarize_response_carries_attempts_and_provider() -> None:
         model="llama3.1",
     )
     assert response.attempts == 1
+
+
+def test_template_spec_rejects_malformed_few_shot_example() -> None:
+    with pytest.raises(ValidationError):
+        TemplateSpec(
+            name="general",
+            version="1.0.0",
+            system_prompt="Summarize.",
+            few_shot_examples=[{"wrong_key": "x"}],
+        )
+
+
+def test_summarize_request_rejects_empty_segments() -> None:
+    with pytest.raises(ValidationError):
+        SummarizeRequest(
+            segments=[],
+            template=TemplateSpec(name="general", version="1.0.0", system_prompt="S."),
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+        )

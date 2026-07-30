@@ -1,4 +1,4 @@
-from bahlily_orchestration.models import TemplateSpec, TranscriptSegment
+from bahlily_orchestration.models import FewShotExample, TemplateSpec, TranscriptSegment
 from bahlily_orchestration.prompt import build_prompt
 
 
@@ -25,7 +25,7 @@ def test_few_shot_examples_become_user_assistant_pairs() -> None:
         name="general",
         version="1.0.0",
         system_prompt="Summarize this.",
-        few_shot_examples=[{"input": "example transcript", "output": "example summary"}],
+        few_shot_examples=[FewShotExample(input="example transcript", output="example summary")],
     )
     messages = build_prompt([TranscriptSegment(text="Hi", segment_id=0)], template)
     assert messages[1] == {"role": "user", "content": "example transcript"}

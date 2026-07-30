@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TranscriptSegment(BaseModel):
@@ -12,12 +12,17 @@ class TranscriptSegment(BaseModel):
     language: str | None = None
 
 
+class FewShotExample(BaseModel):
+    input: str
+    output: str
+
+
 class TemplateSpec(BaseModel):
     name: str
     version: str
     system_prompt: str
     focus_instructions: str | None = None
-    few_shot_examples: list[dict[str, str]] = []
+    few_shot_examples: list[FewShotExample] = []
 
 
 class ActionItem(BaseModel):
@@ -41,7 +46,7 @@ class StructuredSummary(BaseModel):
 
 
 class SummarizeRequest(BaseModel):
-    segments: list[TranscriptSegment]
+    segments: list[TranscriptSegment] = Field(min_length=1)
     template: TemplateSpec
     provider: str
     model: str

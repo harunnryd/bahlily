@@ -11,8 +11,8 @@ def build_prompt(segments: list[TranscriptSegment], template: TemplateSpec) -> l
     messages = [{"role": "system", "content": system_content}]
 
     for example in template.few_shot_examples:
-        messages.append({"role": "user", "content": example["input"]})
-        messages.append({"role": "assistant", "content": example["output"]})
+        messages.append({"role": "user", "content": example.input})
+        messages.append({"role": "assistant", "content": example.output})
 
     ordered_segments = sorted(segments, key=lambda segment: segment.segment_id)
     transcript_text = "\n".join(
