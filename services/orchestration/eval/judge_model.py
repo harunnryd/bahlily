@@ -11,9 +11,9 @@ _DEFAULT_JUDGE_MODEL = "ollama:qwen2.5:7b"
 
 class LangChainJudgeModel(DeepEvalBaseLLM):  # type: ignore[misc, no-untyped-call]
     def __init__(self, provider_model: str | None = None) -> None:
-        self._provider_model = provider_model or os.environ.get(
-            "BAHLILY_EVAL_JUDGE_MODEL", _DEFAULT_JUDGE_MODEL
-        )
+        self._provider_model = (
+            provider_model or os.environ.get("BAHLILY_EVAL_JUDGE_MODEL", "")
+        ).strip() or _DEFAULT_JUDGE_MODEL
         super().__init__(model=self._provider_model)
 
     def load_model(self, *args: object, **kwargs: object) -> BaseChatModel:  # type: ignore[override]
