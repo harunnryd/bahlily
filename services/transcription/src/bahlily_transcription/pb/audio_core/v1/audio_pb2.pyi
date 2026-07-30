@@ -12,7 +12,6 @@ class DeviceType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DEVICE_TYPE_UNSPECIFIED: _ClassVar[DeviceType]
     DEVICE_TYPE_MICROPHONE: _ClassVar[DeviceType]
     DEVICE_TYPE_SYSTEM: _ClassVar[DeviceType]
-
 DEVICE_TYPE_UNSPECIFIED: DeviceType
 DEVICE_TYPE_MICROPHONE: DeviceType
 DEVICE_TYPE_SYSTEM: DeviceType
@@ -31,15 +30,7 @@ class AudioSegment(_message.Message):
     segment_id: int
     device_type: DeviceType
     trace_id: str
-    def __init__(
-        self,
-        data: _Optional[_Iterable[float]] = ...,
-        sample_rate: _Optional[int] = ...,
-        timestamp: _Optional[float] = ...,
-        segment_id: _Optional[int] = ...,
-        device_type: _Optional[_Union[DeviceType, str]] = ...,
-        trace_id: _Optional[str] = ...,
-    ) -> None: ...
+    def __init__(self, data: _Optional[_Iterable[float]] = ..., sample_rate: _Optional[int] = ..., timestamp: _Optional[float] = ..., segment_id: _Optional[int] = ..., device_type: _Optional[_Union[DeviceType, str]] = ..., trace_id: _Optional[str] = ...) -> None: ...
 
 class StreamAudioRequest(_message.Message):
     __slots__ = ()

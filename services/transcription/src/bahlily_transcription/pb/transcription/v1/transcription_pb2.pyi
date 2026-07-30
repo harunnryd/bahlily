@@ -11,25 +11,12 @@ class Engine(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ENGINE_UNSPECIFIED: _ClassVar[Engine]
     ENGINE_WHISPER: _ClassVar[Engine]
     ENGINE_PARAKEET: _ClassVar[Engine]
-
 ENGINE_UNSPECIFIED: Engine
 ENGINE_WHISPER: Engine
 ENGINE_PARAKEET: Engine
 
 class TranscriptSegment(_message.Message):
-    __slots__ = (
-        "text",
-        "segment_id",
-        "confidence",
-        "is_partial",
-        "engine",
-        "model_name",
-        "audio_start_time",
-        "audio_end_time",
-        "language",
-        "recording_id",
-        "trace_id",
-    )
+    __slots__ = ("text", "segment_id", "confidence", "is_partial", "engine", "model_name", "audio_start_time", "audio_end_time", "language", "recording_id", "trace_id")
     TEXT_FIELD_NUMBER: _ClassVar[int]
     SEGMENT_ID_FIELD_NUMBER: _ClassVar[int]
     CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
@@ -52,20 +39,7 @@ class TranscriptSegment(_message.Message):
     language: str
     recording_id: str
     trace_id: str
-    def __init__(
-        self,
-        text: _Optional[str] = ...,
-        segment_id: _Optional[int] = ...,
-        confidence: _Optional[float] = ...,
-        is_partial: _Optional[bool] = ...,
-        engine: _Optional[_Union[Engine, str]] = ...,
-        model_name: _Optional[str] = ...,
-        audio_start_time: _Optional[float] = ...,
-        audio_end_time: _Optional[float] = ...,
-        language: _Optional[str] = ...,
-        recording_id: _Optional[str] = ...,
-        trace_id: _Optional[str] = ...,
-    ) -> None: ...
+    def __init__(self, text: _Optional[str] = ..., segment_id: _Optional[int] = ..., confidence: _Optional[float] = ..., is_partial: _Optional[bool] = ..., engine: _Optional[_Union[Engine, str]] = ..., model_name: _Optional[str] = ..., audio_start_time: _Optional[float] = ..., audio_end_time: _Optional[float] = ..., language: _Optional[str] = ..., recording_id: _Optional[str] = ..., trace_id: _Optional[str] = ...) -> None: ...
 
 class StreamTranscriptsRequest(_message.Message):
     __slots__ = ()
