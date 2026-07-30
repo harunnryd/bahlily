@@ -59,4 +59,4 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = ["eval", "eval.*"]
-ignore_errors = true
+warn_unused_ignores = false

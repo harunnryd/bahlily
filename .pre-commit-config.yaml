@@ -36,7 +36,7 @@ repos:
 
       - id: branch-name-check
         name: branch name convention
-        entry: bash -c 'branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD"); case "$branch" in main|HEAD) exit 0;; esac; echo "$branch" | grep -qE "^(feat|fix|docs|refactor|test|chore|style|perf)/.+" || { echo "branch name \"$branch\" must match type/short-desc (e.g. feat/add-login, fix/null-crash)" >&2; exit 1; }'
+        entry: bash -c 'branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "HEAD"); case "$branch" in main|HEAD) exit 0;; esac; echo "$branch" | grep -qE "^(feat|fix|docs|refactor|test|chore|style|perf)/[a-z0-9][a-z0-9-]*$" || { echo "branch name \"$branch\" must match type/short-desc (e.g. feat/add-login, fix/null-crash)" >&2; exit 1; }'
         language: system
         stages: [pre-commit]
         pass_filenames: false
@@ -44,7 +44,7 @@ repos:
 
       - id: conventional-commit-msg
         name: conventional commit message
-        entry: '^(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z][^A-Z.\n]{0,67}$'
+        entry: '\A(feat|fix|docs|refactor|test|chore|style|perf)(\([a-z0-9-]+\))?: [a-z][^A-Z.\n]{0,67}(\n[\s\S]*)?\Z'
         language: pygrep
         stages: [commit-msg]
         args: [--multiline, --negate]

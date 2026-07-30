@@ -34,7 +34,7 @@ reviews:
       instructions: >
         Follow AGENTS.md: no comments explaining what code does, only for non-obvious why.
         Flag missing type hints, real tests replaced by over-mocked ones (mock only external
-        LLM providers and OS-level deps, not code you own), and service boundary violations
+        LLM providers, calendar API clients, and OS-level deps, not code you own), and service boundary violations
         (importing across services/ directories, or opening another service's SQLite file
         directly instead of going through its API).
 

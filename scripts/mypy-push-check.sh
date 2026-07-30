@@ -31,12 +31,8 @@ run_mypy() {
   fi
 }
 
-run_mypy "services/calendar"
-run_mypy "services/chat"
-run_mypy "services/export"
-run_mypy "services/orchestration"
-run_mypy "services/storage"
-run_mypy "services/transcription"
-run_mypy "packages/bahlily-logging"
+while IFS= read -r dir; do
+  run_mypy "$dir"
+done < <(find services packages -maxdepth 2 -name pyproject.toml -exec dirname {} \; | sort)
 
 exit "$failed"

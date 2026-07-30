@@ -15,6 +15,10 @@ permissions:
   contents: read
   pull-requests: read
 
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
 jobs:
   # Detects which parts of the repo changed so downstream jobs can skip
   # when their paths are unaffected.
@@ -92,15 +96,31 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  discover-services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.list.outputs.services }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - id: list
+        run: |
+          services=$(find services -maxdepth 2 -name pyproject.toml \
+            -exec sh -c 'basename "$(dirname "$1")"' _ {} \; |
+            sort | jq -R . | jq -sc .)
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+
   python:
-    needs: changes
+    needs: [changes, discover-services]
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        service: [transcription, orchestration, chat, calendar, export, storage]
+        service: ${{ fromJson(needs.discover-services.outputs.services) }}
     defaults:
       run:
         working-directory: services/${{ matrix.service }}

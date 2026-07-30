@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from deepeval import assert_test
+from deepeval import assert_test  # type: ignore[attr-defined]
 from deepeval.metrics import GEval
 from deepeval.test_case import LLMTestCase, SingleTurnParams
 
@@ -22,6 +22,12 @@ def correctness_metric() -> GEval:
             "and reflects only facts present in the transcript, without inventing names, dates, or "
             "decisions. Penalize summaries that omit key points from the expected output."
         ),
+        evaluation_steps=[
+            "Check that every key point in the expected output appears in the actual summary.",
+            "Penalize any key points from the expected output that are missing from the summary.",
+            "Verify every claim in the summary is grounded in a fact present in the transcript.",
+            "Penalize any names, dates, or decisions in the summary not present in the transcript.",
+        ],
         evaluation_params=[
             SingleTurnParams.INPUT,
             SingleTurnParams.ACTUAL_OUTPUT,

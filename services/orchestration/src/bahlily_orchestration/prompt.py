@@ -13,6 +13,10 @@ _TRANSCRIPT_GUARD = (
 )
 
 
+def _escape_tag_content(text: str) -> str:
+    return text.replace("<", "&lt;")
+
+
 def build_prompt(segments: list[TranscriptSegment], template: TemplateSpec) -> list[dict[str, str]]:
     system_content = template.system_prompt
     if template.focus_instructions:
@@ -26,7 +30,8 @@ def build_prompt(segments: list[TranscriptSegment], template: TemplateSpec) -> l
 
     ordered_segments = sorted(segments, key=lambda segment: segment.segment_id)
     transcript_text = "\n".join(
-        f"[{segment.speaker or 'Unknown'}] {segment.text}" for segment in ordered_segments
+        f"[{_escape_tag_content(segment.speaker or 'Unknown')}] {_escape_tag_content(segment.text)}"
+        for segment in ordered_segments
     )
     messages.append(
         {
