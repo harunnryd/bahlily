@@ -61,6 +61,10 @@ module = ["grpc", "grpc.*", "grpc.aio"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["scipy", "scipy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["bahlily_transcription.pb.*"]
 ignore_errors = true
 
