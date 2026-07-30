@@ -50,6 +50,7 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [[tool.mypy.overrides]]
 module = ["deepeval", "deepeval.*"]
