@@ -143,6 +143,10 @@ jobs:
           ollama serve &
           for i in $(seq 1 30); do
             curl -sf http://localhost:11434/api/tags && break
+            if [ "$i" -eq 30 ]; then
+              echo "Ollama did not become ready after 30s" >&2
+              exit 1
+            fi
             sleep 1
           done
           ollama pull qwen2.5:7b
