@@ -1,5 +1,6 @@
+import itertools
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -9,12 +10,15 @@ from bahlily_orchestration.errors import (
     UnsupportedProviderError,
 )
 from bahlily_orchestration.models import (
-    StructuredSummary,
     SummarizeRequest,
     TemplateSpec,
     TranscriptSegment,
 )
-from bahlily_orchestration.summarize import summarize
+from bahlily_orchestration.summarize import (
+    _PROVIDER_MAX_RETRIES,
+    _PROVIDER_TIMEOUT,
+    summarize,
+)
 from tests.utils import FakeToolCallingModel, tool_call_message
 
 
@@ -41,27 +45,25 @@ def test_summarize_returns_structured_summary_on_first_attempt(make_fake_model: 
             )
         ]
     )
-    with patch("bahlily_orchestration.summarize.init_chat_model", return_value=fake_model):
+    with patch(
+        "bahlily_orchestration.summarize.init_chat_model", return_value=fake_model
+    ) as mock_init:
         response = summarize(_request())
 
+    mock_init.assert_called_once_with(
+        "anthropic:claude-sonnet-4-6",
+        timeout=_PROVIDER_TIMEOUT,
+        max_retries=_PROVIDER_MAX_RETRIES,
+    )
     assert response.summary.title == "Standup"
     assert response.attempts == 1
     assert response.provider == "anthropic"
 
 
-def test_summarize_counts_a_retry_as_two_attempts() -> None:
-    fake_agent: Any = MagicMock()
-    fake_result = {
-        "messages": [
-            tool_call_message(
-                "StructuredSummary",
-                {
-                    "title": "Standup",
-                    "overview": "Quick sync on shipping.",
-                    "key_points": ["Ship Friday"],
-                    "action_items": [],
-                },
-            ),
+def test_summarize_counts_a_retry_as_two_attempts(make_fake_model: Any) -> None:
+    fake_model = make_fake_model(
+        [
+            tool_call_message("StructuredSummary", {"title": "x"}),
             tool_call_message(
                 "StructuredSummary",
                 {
@@ -71,18 +73,10 @@ def test_summarize_counts_a_retry_as_two_attempts() -> None:
                     "action_items": [],
                 },
             ),
-        ],
-        "structured_response": StructuredSummary(
-            title="Standup",
-            overview="Fixed on retry.",
-            key_points=[],
-            action_items=[],
-        ),
-    }
-    with patch("bahlily_orchestration.summarize.init_chat_model"):
-        with patch("bahlily_orchestration.summarize.create_agent", return_value=fake_agent):
-            fake_agent.invoke.return_value = fake_result
-            response = summarize(_request())
+        ]
+    )
+    with patch("bahlily_orchestration.summarize.init_chat_model", return_value=fake_model):
+        response = summarize(_request())
 
     assert response.attempts == 2
     assert response.summary.overview == "Fixed on retry."
@@ -134,3 +128,56 @@ def test_summarize_does_not_swallow_internal_errors_as_provider_errors() -> None
     ):
         with pytest.raises(RuntimeError):
             summarize(_request())
+
+
+def test_pii_middleware_redacts_email_and_phone_before_model_sees_them() -> None:
+    received_content: list[str] = []
+
+    class RecordingModel(FakeToolCallingModel):
+        def _generate(
+            self,
+            messages: Any,
+            stop: Any = None,
+            run_manager: Any = None,
+            **kwargs: Any,
+        ) -> Any:
+            for msg in messages:
+                content = getattr(msg, "content", "")
+                if isinstance(content, str) and content:
+                    received_content.append(content)
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    fake_model = RecordingModel(
+        messages=itertools.cycle(
+            [
+                tool_call_message(
+                    "StructuredSummary",
+                    {
+                        "title": "Standup",
+                        "overview": "Quick sync.",
+                        "key_points": [],
+                        "action_items": [],
+                    },
+                )
+            ]
+        )
+    )
+
+    request = SummarizeRequest(
+        segments=[
+            TranscriptSegment(
+                text="Contact alice@example.com or call 555-123-4567 about the report.",
+                segment_id=0,
+                speaker="Bob",
+            )
+        ],
+        template=TemplateSpec(name="general", version="1.0.0", system_prompt="Summarize."),
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+    )
+    with patch("bahlily_orchestration.summarize.init_chat_model", return_value=fake_model):
+        summarize(request)
+
+    all_text = "\n".join(received_content)
+    assert "alice@example.com" not in all_text
+    assert "555-123-4567" not in all_text

@@ -17,7 +17,7 @@ from bahlily_orchestration.errors import (
 from bahlily_orchestration.models import StructuredSummary, SummarizeRequest, SummarizeResponse
 from bahlily_orchestration.prompt import build_prompt
 
-_RECURSION_LIMIT = 8
+_RECURSION_LIMIT = 25
 _SUMMARIZATION_TOKEN_TRIGGER = 4000
 _PROVIDER_TIMEOUT = 30
 _PROVIDER_MAX_RETRIES = 2
@@ -82,9 +82,10 @@ def summarize(request: SummarizeRequest) -> SummarizeResponse:
                 code="ORCHESTRATION_STRUCTURED_OUTPUT_FAILED",
                 provider=request.provider,
                 model=request.model,
-                error=str(exc),
             )
-            raise StructuredOutputValidationFailedError(str(exc)) from exc
+            raise StructuredOutputValidationFailedError(
+                "structured output failed after retry budget exhausted"
+            ) from exc
         except Exception as exc:
             classified = classify_provider_exception(exc)
             logger.warning(
@@ -92,7 +93,6 @@ def summarize(request: SummarizeRequest) -> SummarizeResponse:
                 code=classified.code,
                 provider=request.provider,
                 model=request.model,
-                error=str(exc),
             )
             raise classified from exc
 

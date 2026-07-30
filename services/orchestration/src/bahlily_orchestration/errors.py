@@ -26,5 +26,5 @@ class StructuredOutputValidationFailedError(BahlilyError):
 def classify_provider_exception(exc: Exception) -> BahlilyError:
     status_code = getattr(exc, "status_code", None)
     if status_code in (401, 403):
-        return ProviderAuthError(str(exc))
-    return ProviderUnavailableError(str(exc))
+        return ProviderAuthError("provider authentication failed")
+    return ProviderUnavailableError("provider unavailable or timed out")
