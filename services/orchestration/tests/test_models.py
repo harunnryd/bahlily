@@ -87,7 +87,7 @@ def test_template_spec_rejects_malformed_few_shot_example() -> None:
             name="general",
             version="1.0.0",
             system_prompt="Summarize.",
-            few_shot_examples=[{"wrong_key": "x"}],
+            few_shot_examples=[{"wrong_key": "x"}],  # type: ignore[list-item]
         )
 
 

@@ -9,7 +9,7 @@ from bahlily_orchestration.models import SummarizeRequest
 from bahlily_orchestration.summarize import summarize
 from bahlily_orchestration.template_loader import load_template
 
-from .golden_transcripts import GOLDEN_TRANSCRIPTS
+from .golden_transcripts import GOLDEN_TRANSCRIPTS, GoldenTranscript
 from .judge_model import LangChainJudgeModel
 
 
@@ -21,14 +21,20 @@ def correctness_metric() -> GEval:
             "Determine if the summary's key points and overview reflect facts actually "
             "present in the transcript, without inventing names, dates, or decisions."
         ),
-        evaluation_params=[SingleTurnParams.INPUT, SingleTurnParams.ACTUAL_OUTPUT],
+        evaluation_params=[
+            SingleTurnParams.INPUT,
+            SingleTurnParams.ACTUAL_OUTPUT,
+            SingleTurnParams.EXPECTED_OUTPUT,
+        ],
         threshold=0.7,
         model=LangChainJudgeModel(),
     )
 
 
 @pytest.mark.parametrize("golden", GOLDEN_TRANSCRIPTS, ids=lambda g: g.name)
-def test_summary_covers_expected_key_points(golden, correctness_metric) -> None:
+def test_summary_covers_expected_key_points(
+    golden: GoldenTranscript, correctness_metric: GEval
+) -> None:
     request = SummarizeRequest(
         segments=golden.segments,
         template=load_template("general"),
@@ -41,5 +47,6 @@ def test_summary_covers_expected_key_points(golden, correctness_metric) -> None:
     test_case = LLMTestCase(
         input=transcript_text,
         actual_output=f"{response.summary.overview}\n" + "\n".join(response.summary.key_points),
+        expected_output="\n".join(golden.expected_key_points),
     )
     assert_test(test_case, [correctness_metric])
