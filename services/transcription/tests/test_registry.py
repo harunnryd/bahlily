@@ -54,12 +54,8 @@ def test_status_available_after_model_dir_created(
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
     model_file = model_dir / "model.bin"
-    content = b"fake model data"
-    model_file.write_bytes(content)
-    checksum = hashlib.sha256(content).hexdigest()
-    with patch.object(registry, "_get_model_info") as mock_info:
-        mock_info.return_value = MagicMock(checksum_sha256=checksum)
-        registry._refresh_status("tiny")
+    model_file.write_bytes(b"fake model data")
+    registry._refresh_status("tiny")
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
 
 

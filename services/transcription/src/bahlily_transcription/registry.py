@@ -4,10 +4,12 @@ import hashlib
 import shutil
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import yaml
 
+from bahlily_transcription.engine import TranscriptionEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
@@ -62,18 +64,18 @@ class ModelRegistry:
             async with httpx.AsyncClient() as client:
                 async with client.stream("GET", info.download_url) as response:
                     response.raise_for_status()
-                    async for chunk in response.aiter_bytes(_CHUNK_SIZE):
-                        with open(tmp_path, "ab") as f:
+                    with open(tmp_path, "ab") as f:
+                        async for chunk in response.aiter_bytes(_CHUNK_SIZE):
                             f.write(chunk)
-                        sha256.update(chunk)
-                        bytes_downloaded += len(chunk)
-                        yield DownloadProgress(
-                            model_name=name,
-                            engine=self._engine,
-                            bytes_downloaded=bytes_downloaded,
-                            total_bytes=info.size_bytes,
-                            status=ModelStatus.DOWNLOADING,
-                        )
+                            sha256.update(chunk)
+                            bytes_downloaded += len(chunk)
+                            yield DownloadProgress(
+                                model_name=name,
+                                engine=self._engine,
+                                bytes_downloaded=bytes_downloaded,
+                                total_bytes=info.size_bytes,
+                                status=ModelStatus.DOWNLOADING,
+                            )
 
             if sha256.hexdigest() != info.checksum_sha256:
                 tmp_path.unlink(missing_ok=True)
@@ -105,7 +107,7 @@ class ModelRegistry:
         tmp.unlink(missing_ok=True)
         self._status[name] = ModelStatus.MISSING
 
-    def remove(self, name: str, loaded_name: str | None = None) -> None:
+    def remove(self, name: str, engine_instance: TranscriptionEngine | None = None) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
         model_dir = self._models_dir / name
@@ -116,9 +118,12 @@ class ModelRegistry:
     def _load_manifest(self) -> None:
         manifest_path = self._manifests_dir / f"{self._engine}.yaml"
         with manifest_path.open() as f:
-            data: dict[str, object] = yaml.safe_load(f)
-        models = data["models"]
-        assert isinstance(models, list)
+            raw = yaml.safe_load(f)
+        if not isinstance(raw, dict) or "models" not in raw or not isinstance(raw["models"], list):
+            raise ValueError(
+                f"malformed manifest at {manifest_path}: expected {{models: [...]}} at root"
+            )
+        models: list[Any] = raw["models"]
         self._manifest = {
             m["name"]: ModelInfo(
                 name=m["name"],
