@@ -4,12 +4,23 @@ reviews:
   profile: assertive
   request_changes_workflow: true
   high_level_summary: true
-  sequence_diagrams: true
+  sequence_diagrams: false
   estimate_code_review_effort: true
+  review_details: true
+
   auto_review:
     enabled: true
-    base_branches:
-      - main
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    ignore_title_keywords:
+      - wip
+      - WIP
+
+  # Skip auto-generated lock files — no review value.
+  path_filters:
+    - "!**/uv.lock"
+    - "!Cargo.lock"
+
   path_instructions:
     - path: "shell/**/*.rs"
       instructions: >
@@ -18,15 +29,75 @@ reviews:
         external bug). Flag speculative abstraction, premature generalization, and error
         handling for cases that can't happen. Flag any unsafe impl or unsafe block that
         lacks a SAFETY comment grounded in the actual invariant, not just restating the code.
+
     - path: "services/**/*.py"
       instructions: >
         Follow AGENTS.md: no comments explaining what code does, only for non-obvious why.
-        Flag missing type hints, real tests replaced by over-mocked ones, and service
-        boundary violations (importing across services/ directories, or opening another
-        service's SQLite file directly instead of going through its API).
+        Flag missing type hints, real tests replaced by over-mocked ones (mock only external
+        LLM providers and OS-level deps, not code you own), and service boundary violations
+        (importing across services/ directories, or opening another service's SQLite file
+        directly instead of going through its API).
+
+    - path: ".github/workflows/*.yml"
+      instructions: >
+        Flag unpinned action references (use commit SHAs, not mutable tags). Flag any
+        curl | sh or similar remote code execution without checksum verification. Flag
+        jobs that run on every push when path filtering would be more appropriate. Flag
+        missing timeout-minutes.
+
     - path: "**/*.md"
       instructions: >
         No em-dashes. No formulaic repeated section templates padded for length.
+
+  tools:
+    # Relevant to this stack — keep on.
+    ruff:
+      enabled: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    clippy:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    # Not used in this repo — turn off to reduce noise.
+    biome:
+      enabled: false
+    hadolint:
+      enabled: false
+    golangci-lint:
+      enabled: false
+    phpstan:
+      enabled: false
+    phpmd:
+      enabled: false
+    phpcs:
+      enabled: false
+    rubocop:
+      enabled: false
+    swiftlint:
+      enabled: false
+    eslint:
+      enabled: false
+    buf:
+      enabled: false
+    sqlfluff:
+      enabled: false
+    checkov:
+      enabled: false
+    tflint:
+      enabled: false
+    detekt:
+      enabled: false
 
 chat:
   auto_reply: true
