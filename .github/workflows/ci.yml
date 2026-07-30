@@ -80,5 +80,5 @@ jobs:
           ollama serve &
           sleep 5
           ollama pull qwen2.5:7b
-      - run: uv sync --all-extras
+      - run: uv sync --group eval
       - run: uv run pytest eval/ -v
