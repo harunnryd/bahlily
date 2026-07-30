@@ -1,0 +1,20 @@
+engine: whisper
+models:
+  - name: large-v3-turbo
+    # Hub repo: Systran/faster-whisper-large-v3-turbo (non-Apple-Silicon)
+    # Hub repo: mlx-community/whisper-large-v3-turbo (Apple Silicon)
+    download_url: "https://huggingface.co/Systran/faster-whisper-large-v3-turbo/resolve/main/model.bin"
+    size_bytes: 1628614656
+    # Replace with actual SHA256 of model.bin after first download:
+    checksum_sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+    tier: high_accuracy
+  - name: medium
+    download_url: "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/model.bin"
+    size_bytes: 764014080
+    checksum_sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+    tier: balanced
+  - name: tiny
+    download_url: "https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/model.bin"
+    size_bytes: 75968000
+    checksum_sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+    tier: fast
