@@ -4,6 +4,7 @@ import datetime
 from collections.abc import AsyncGenerator
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from bahlily_storage.models import Base, Meeting, Segment
@@ -58,3 +59,18 @@ async def test_segment_unique_constraint(session: AsyncSession) -> None:
     session.add(segment)
     await session.commit()
     assert segment.id is not None
+
+    duplicate = Segment(
+        meeting_id="m1",
+        segment_id=0,
+        text="dup",
+        engine="whisper",
+        model_name="tiny",
+        audio_start_time=0.0,
+        audio_end_time=1.0,
+        is_partial=False,
+        trace_id="t2",
+    )
+    session.add(duplicate)
+    with pytest.raises(IntegrityError):
+        await session.commit()

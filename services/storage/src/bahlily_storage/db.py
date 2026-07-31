@@ -17,6 +17,9 @@ from bahlily_storage.models import Base
 
 _DEFAULT_DB = str(Path.home() / ".bahlily" / "storage.db")
 _DB_URL = f"sqlite+aiosqlite:///{os.environ.get('BAHLILY_STORAGE_DB', _DEFAULT_DB)}"
+_DB_PATH_STR = _DB_URL.split("///", 1)[1]
+if _DB_PATH_STR != ":memory:":
+    Path(_DB_PATH_STR).parent.mkdir(parents=True, exist_ok=True)
 
 
 def _make_engine(url: str) -> AsyncEngine:
