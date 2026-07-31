@@ -11,6 +11,7 @@ from bahlily_transcription.grpc_server import BroadcastChannel
 from bahlily_transcription.pb.audio_core.v1 import audio_pb2
 from bahlily_transcription.pb.transcription.v1.transcription_pb2 import TranscriptSegment
 from bahlily_transcription.worker import SessionWorker
+from tests.conftest import FakeEngine
 
 
 def _make_audio_segment(segment_id: int, sample_rate: int = 16000) -> audio_pb2.AudioSegment:
@@ -29,8 +30,22 @@ async def _stream_segments(
         yield seg
 
 
+async def _wait_for(
+    condition: object,
+    timeout: float = 2.0,
+    interval: float = 0.01,
+) -> None:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while not condition():  # type: ignore[operator]
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"condition not met within {timeout}s")
+        await asyncio.sleep(interval)
+
+
 @pytest.mark.asyncio
-async def test_worker_transcribes_segments_in_order(fake_engine) -> None:  # type: ignore[no-untyped-def]
+async def test_worker_transcribes_segments_in_order(fake_engine: FakeEngine) -> None:
     fake_engine.load_model("test-model")
     broadcast = BroadcastChannel(capacity=50)
     q = broadcast.subscribe()
@@ -47,7 +62,7 @@ async def test_worker_transcribes_segments_in_order(fake_engine) -> None:  # typ
 
     segments = [_make_audio_segment(i) for i in range(3)]
     task = asyncio.create_task(worker.run(_stream_segments(segments)))
-    await asyncio.sleep(0.3)
+    await _wait_for(lambda: worker.segments_transcribed == 3)
     count = await worker.stop()
     await task
 
@@ -56,13 +71,21 @@ async def test_worker_transcribes_segments_in_order(fake_engine) -> None:  # typ
         seg: TranscriptSegment = q.get_nowait()
         received_ids.append(seg.segment_id)
 
-    assert received_ids == sorted(received_ids)
+    assert received_ids == [0, 1, 2]
     assert count == 3
     assert worker.segments_transcribed == 3
 
 
 @pytest.mark.asyncio
-async def test_worker_resamples_non_16k_audio(fake_engine) -> None:  # type: ignore[no-untyped-def]
+async def test_worker_resamples_non_16k_audio(fake_engine: FakeEngine) -> None:
+    received_lengths: list[int] = []
+    original_transcribe = fake_engine.transcribe
+
+    def recording_transcribe(audio: np.ndarray, language: str | None) -> object:
+        received_lengths.append(len(audio))
+        return original_transcribe(audio, language)
+
+    fake_engine.transcribe = recording_transcribe  # type: ignore[assignment]
     fake_engine.load_model("test-model")
     broadcast = BroadcastChannel(capacity=50)
     q = broadcast.subscribe()
@@ -81,7 +104,7 @@ async def test_worker_resamples_non_16k_audio(fake_engine) -> None:  # type: ign
     seg.data.extend([0.0] * (44100 - 16000))
 
     task = asyncio.create_task(worker.run(_stream_segments([seg])))
-    await asyncio.sleep(0.3)
+    await _wait_for(lambda: worker.segments_transcribed == 1)
     count = await worker.stop()
     await task
 
@@ -89,6 +112,8 @@ async def test_worker_resamples_non_16k_audio(fake_engine) -> None:  # type: ign
     assert not q.empty()
     result = q.get_nowait()
     assert result.segment_id == 0
+    assert len(received_lengths) == 1
+    assert received_lengths[0] == 16000
 
 
 @pytest.mark.asyncio
@@ -141,7 +166,7 @@ async def test_worker_emits_error_segment_after_engine_exhaustion() -> None:
 
     with stamina.set_testing(True):
         task = asyncio.create_task(worker.run(_stream_segments([_make_audio_segment(0)])))
-        await asyncio.sleep(0.3)
+        await _wait_for(lambda: q.qsize() == 1)
         count = await worker.stop()
         await task
 
@@ -153,7 +178,7 @@ async def test_worker_emits_error_segment_after_engine_exhaustion() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_retries_and_succeeds_on_third_attempt(fake_engine) -> None:  # type: ignore[no-untyped-def]
+async def test_worker_retries_and_succeeds_on_third_attempt(fake_engine: FakeEngine) -> None:
     fake_engine.load_model("test-model")
     call_count = 0
 
@@ -168,7 +193,7 @@ async def test_worker_retries_and_succeeds_on_third_attempt(fake_engine) -> None
             raise TranscriptionEngineFailedError("fake", "transient failure")
         return original_transcribe_batch(audios, language)
 
-    fake_engine.transcribe_batch = flaky_transcribe_batch
+    fake_engine.transcribe_batch = flaky_transcribe_batch  # type: ignore[assignment]
 
     broadcast = BroadcastChannel(capacity=50)
     q = broadcast.subscribe()
@@ -185,7 +210,7 @@ async def test_worker_retries_and_succeeds_on_third_attempt(fake_engine) -> None
 
     segments = [_make_audio_segment(0)]
     task = asyncio.create_task(worker.run(_stream_segments(segments)))
-    await asyncio.sleep(0.5)
+    await _wait_for(lambda: call_count == 3 and worker.segments_transcribed == 1)
     count = await worker.stop()
     await task
 

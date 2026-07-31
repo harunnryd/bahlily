@@ -17,6 +17,14 @@ def models_dir(tmp_path: Path) -> Path:
     return d
 
 
+@pytest.fixture
+def model_dir(models_dir: Path) -> Path:
+    """Pre-creates the 'tiny' model directory so load_model passes the local-dir check."""
+    d = models_dir / "tiny"
+    d.mkdir()
+    return d
+
+
 def _mock_faster_whisper_segment(text: str, start: float, end: float) -> MagicMock:
     seg = MagicMock()
     seg.text = text
@@ -37,7 +45,7 @@ def test_whisper_not_loaded_initially(models_dir: Path) -> None:
     assert engine.current_model() is None
 
 
-def test_whisper_load_sets_state(models_dir: Path) -> None:
+def test_whisper_load_sets_state(models_dir: Path, model_dir: Path) -> None:
     mock_model = MagicMock()
     with (
         patch("bahlily_transcription.whisper_engine._is_apple_silicon", return_value=False),
@@ -49,7 +57,7 @@ def test_whisper_load_sets_state(models_dir: Path) -> None:
     assert engine.current_model() == "tiny"
 
 
-def test_whisper_transcribe_returns_joined_text(models_dir: Path) -> None:
+def test_whisper_transcribe_returns_joined_text(models_dir: Path, model_dir: Path) -> None:
     seg1 = _mock_faster_whisper_segment("hello", 0.0, 1.0)
     seg2 = _mock_faster_whisper_segment(" world", 1.0, 2.0)
     mock_info = MagicMock()
@@ -72,7 +80,7 @@ def test_whisper_transcribe_returns_joined_text(models_dir: Path) -> None:
     assert result.language == "en"
 
 
-def test_whisper_unload_clears_state(models_dir: Path) -> None:
+def test_whisper_unload_clears_state(models_dir: Path, model_dir: Path) -> None:
     mock_model = MagicMock()
     with (
         patch("bahlily_transcription.whisper_engine._is_apple_silicon", return_value=False),

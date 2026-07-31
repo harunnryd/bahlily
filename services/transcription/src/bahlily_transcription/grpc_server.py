@@ -70,7 +70,9 @@ async def serve(broadcast: BroadcastChannel, port: int) -> None:
     transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(  # type: ignore[no-untyped-call]
         TranscriptionGrpcService(broadcast), server
     )
-    server.add_insecure_port(f"0.0.0.0:{port}")
+    bound_port = server.add_insecure_port(f"0.0.0.0:{port}")
+    if bound_port == 0:
+        raise OSError(f"gRPC server failed to bind to port {port}")
     await server.start()
-    _log.info("transcription_grpc_server_started", port=port)
+    _log.info("transcription_grpc_server_started", port=bound_port)
     await server.wait_for_termination()

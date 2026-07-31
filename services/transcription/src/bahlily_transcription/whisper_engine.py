@@ -34,6 +34,7 @@ class WhisperEngine:
         self._models_dir = models_dir
         self._model: object | None = None
         self._loaded: str | None = None
+        self._mlx_model_path: str | None = None
 
     @property
     def name(self) -> str:
@@ -47,6 +48,11 @@ class WhisperEngine:
 
     def load_model(self, name: str) -> None:
         model_path = str(self._models_dir / name)
+        if not (self._models_dir / name).is_dir():
+            raise TranscriptionEngineFailedError(
+                "whisper",
+                f"model directory not found at {model_path}; download the model first",
+            )
         if _is_apple_silicon():
             import mlx_whisper  # type: ignore[import-not-found, import-untyped]
 

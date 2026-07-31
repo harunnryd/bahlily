@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -17,6 +18,7 @@ from starlette.requests import Request
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
+    TranscriptionChecksumFailedError,
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
     TranscriptionModelNotLoadedError,
@@ -43,10 +45,13 @@ _sessions: dict[str, dict[str, object]] = {}
 
 app = FastAPI(title="bahlily-transcription")
 
-_ENGINES: dict[str, tuple[WhisperEngine | ParakeetEngine, ModelRegistry]] = {
-    "whisper": (_whisper_engine, _whisper_registry),
-    "parakeet": (_parakeet_engine, _parakeet_registry),
-}
+
+def _engines() -> dict[str, tuple[WhisperEngine | ParakeetEngine, ModelRegistry]]:
+    return {
+        "whisper": (_whisper_engine, _whisper_registry),
+        "parakeet": (_parakeet_engine, _parakeet_registry),
+    }
+
 
 _ERROR_STATUS: dict[type[Exception], int] = {
     TranscriptionModelNotLoadedError: 409,
@@ -86,9 +91,10 @@ def health() -> dict[str, object]:
 
 @app.get("/models/{engine}")
 def list_models(engine: str) -> list[dict[str, object]]:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    _, registry = _ENGINES[engine]
+    _, registry = engines[engine]
     models = registry.list_models()
     return [
         {
@@ -104,9 +110,10 @@ def list_models(engine: str) -> list[dict[str, object]]:
 
 @app.get("/models/{engine}/current")
 def current_model(engine: str) -> dict[str, str | None]:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    eng, _ = _ENGINES[engine]
+    eng, _ = engines[engine]
     return {"model": eng.current_model()}
 
 
@@ -116,28 +123,46 @@ class LoadModelRequest(BaseModel):
 
 @app.post("/models/{engine}/load")
 def load_model(engine: str, req: LoadModelRequest) -> dict[str, str]:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    eng, _ = _ENGINES[engine]
+    eng, _ = engines[engine]
     eng.load_model(req.name)
     return {"engine": engine, "model": req.name, "status": "loaded"}
 
 
 @app.post("/models/{engine}/download/{name}")
 async def download_model(engine: str, name: str) -> EventSourceResponse:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    _, registry = _ENGINES[engine]
+    _, registry = engines[engine]
 
     async def _event_generator() -> AsyncGenerator[dict[str, str], None]:
-        async for progress in registry.download(name):
+        try:
+            async for progress in registry.download(name):
+                yield {
+                    "data": json.dumps(
+                        {
+                            "model_name": progress.model_name,
+                            "bytes_downloaded": progress.bytes_downloaded,
+                            "total_bytes": progress.total_bytes,
+                            "status": progress.status.value,
+                        }
+                    ),
+                }
+        except (
+            TranscriptionModelNotFoundError,
+            TranscriptionAlreadyDownloadingError,
+            TranscriptionInsufficientDiskError,
+            TranscriptionChecksumFailedError,
+        ) as exc:
             yield {
-                "data": (
-                    f'{{"model_name":"{progress.model_name}",'
-                    f'"bytes_downloaded":{progress.bytes_downloaded},'
-                    f'"total_bytes":{progress.total_bytes},'
-                    f'"status":"{progress.status.value}"}}'
-                ),
+                "data": json.dumps({"status": "error", "code": exc.code, "message": str(exc)}),
+            }
+        except Exception as exc:
+            yield {
+                "data": json.dumps({"status": "error", "message": str(exc)}),
             }
 
     return EventSourceResponse(_event_generator(), ping=15)
@@ -145,18 +170,20 @@ async def download_model(engine: str, name: str) -> EventSourceResponse:
 
 @app.post("/models/{engine}/download/{name}/cancel")
 def cancel_download(engine: str, name: str) -> dict[str, str]:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    _, registry = _ENGINES[engine]
+    _, registry = engines[engine]
     registry.cancel_download(name)
     return {"status": "cancelled"}
 
 
 @app.delete("/models/{engine}/{name}")
 def remove_model(engine: str, name: str) -> dict[str, str]:
-    if engine not in _ENGINES:
+    engines = _engines()
+    if engine not in engines:
         raise HTTPException(status_code=404, detail=f"unknown engine '{engine}'")
-    eng, registry = _ENGINES[engine]
+    eng, registry = engines[engine]
     loaded = eng.current_model()
     if loaded == name:
         eng.unload_model()
@@ -171,8 +198,13 @@ class StartSessionRequest(BaseModel):
 
 
 def _select_engine(req: StartSessionRequest) -> tuple[WhisperEngine | ParakeetEngine, str]:
-    if req.engine == "whisper" or (req.language and req.language != "en"):
-        eng: WhisperEngine | ParakeetEngine = _whisper_engine
+    if req.engine == "parakeet":
+        if req.language and req.language != "en":
+            raise TranscriptionUnsupportedLanguageError(req.language, "parakeet")
+        eng: WhisperEngine | ParakeetEngine = _parakeet_engine
+        name = "parakeet"
+    elif req.engine == "whisper" or (req.language and req.language != "en"):
+        eng = _whisper_engine
         name = "whisper"
     else:
         eng = _parakeet_engine
@@ -203,7 +235,14 @@ def _start_worker_task(
     _sessions[recording_id] = {"status": "started", "worker": worker}
 
     async def _run() -> None:
-        await worker.run(client.stream_segments())
+        try:
+            await worker.run(client.stream_segments())
+        except Exception:
+            _log.exception(
+                "session_worker_failed",
+                recording_id=recording_id,
+            )
+            _sessions[recording_id]["status"] = "failed"
 
     asyncio.create_task(_run())
 
@@ -224,7 +263,7 @@ async def stop_session(recording_id: str) -> dict[str, object]:
     worker: SessionWorker = session["worker"]  # type: ignore[assignment]
     session["status"] = "stopping"
     transcribed = await worker.stop()
-    session["status"] = "stopped"
+    del _sessions[recording_id]
     return {
         "recording_id": recording_id,
         "status": "stopped",

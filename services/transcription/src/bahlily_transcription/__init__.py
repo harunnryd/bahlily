@@ -17,9 +17,20 @@ def main() -> None:
         config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
         server = uvicorn.Server(config)
 
-        await asyncio.gather(
-            server.serve(),
-            grpc_serve(_broadcast, grpc_port),
-        )
+        http_task = asyncio.create_task(server.serve())
+        grpc_task = asyncio.create_task(grpc_serve(_broadcast, grpc_port))
+        try:
+            done, pending = await asyncio.wait(
+                {http_task, grpc_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (http_task, grpc_task):
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
 
     asyncio.run(_serve_all())

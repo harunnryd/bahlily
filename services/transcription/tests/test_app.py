@@ -33,7 +33,7 @@ def test_list_models_invalid_engine_returns_404(client: TestClient) -> None:
 
 def test_load_model_calls_engine(client: TestClient) -> None:
     mock_engine = MagicMock()
-    with patch.dict("bahlily_transcription.app._ENGINES", {"whisper": (mock_engine, MagicMock())}):
+    with patch("bahlily_transcription.app._whisper_engine", mock_engine):
         response = client.post("/models/whisper/load", json={"name": "tiny"})
     assert response.status_code == 200
     mock_engine.load_model.assert_called_once_with("tiny")
@@ -80,7 +80,10 @@ def test_delete_model_calls_remove(client: TestClient) -> None:
     mock_engine = MagicMock()
     mock_engine.current_model.return_value = None
 
-    with patch("bahlily_transcription.app._ENGINES", {"whisper": (mock_engine, mock_registry)}):
+    with (
+        patch("bahlily_transcription.app._whisper_engine", mock_engine),
+        patch("bahlily_transcription.app._whisper_registry", mock_registry),
+    ):
         response = client.delete("/models/whisper/tiny")
     assert response.status_code == 200
     mock_registry.remove.assert_called_once_with("tiny")

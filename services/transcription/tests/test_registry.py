@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -14,7 +13,7 @@ from bahlily_transcription.errors import (
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelStatus
+from bahlily_transcription.models import ModelInfo, ModelStatus
 from bahlily_transcription.registry import ModelRegistry
 
 
@@ -35,6 +34,24 @@ def manifests_dir() -> Path:
 @pytest.fixture
 def registry(models_dir: Path, manifests_dir: Path) -> ModelRegistry:
     return ModelRegistry(engine="whisper", models_dir=models_dir, manifests_dir=manifests_dir)
+
+
+def _seed_manifest_entry(
+    registry: ModelRegistry,
+    name: str,
+    content: bytes,
+    download_url: str = "https://fake.host/model.bin",
+) -> str:
+    checksum = hashlib.sha256(content).hexdigest()
+    registry._manifest[name] = ModelInfo(
+        name=name,
+        engine=registry._engine,
+        size_bytes=len(content),
+        checksum_sha256=checksum,
+        download_url=download_url,
+        tier="fast",
+    )
+    return checksum
 
 
 def test_list_models_returns_all_manifest_entries(registry: ModelRegistry) -> None:
@@ -69,16 +86,9 @@ async def test_download_yields_progress_and_verifies_checksum(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
     content = b"fake model content " * 100
-    expected_checksum = hashlib.sha256(content).hexdigest()
+    _seed_manifest_entry(registry, "tiny", content)
 
-    tiny_info = MagicMock()
-    tiny_info.name = "tiny"
-    tiny_info.download_url = "https://fake.host/model.bin"
-    tiny_info.size_bytes = len(content)
-    tiny_info.checksum_sha256 = expected_checksum
-    tiny_info.tier = "fast"
-
-    with patch.object(registry, "_get_model_info", return_value=tiny_info), respx.mock:
+    with respx.mock:
         respx.get("https://fake.host/model.bin").mock(
             return_value=httpx.Response(200, content=content)
         )
@@ -95,14 +105,18 @@ async def test_download_sets_corrupted_on_checksum_mismatch(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
     content = b"corrupted content"
-    tiny_info = MagicMock()
-    tiny_info.name = "tiny"
-    tiny_info.download_url = "https://fake.host/model.bin"
-    tiny_info.size_bytes = len(content)
-    tiny_info.checksum_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-    tiny_info.tier = "fast"
+    _seed_manifest_entry(registry, "tiny", content)
+    # Replace checksum with a wrong value to force mismatch
+    registry._manifest["tiny"] = ModelInfo(
+        name="tiny",
+        engine=registry._engine,
+        size_bytes=len(content),
+        checksum_sha256="0" * 64,
+        download_url="https://fake.host/model.bin",
+        tier="fast",
+    )
 
-    with patch.object(registry, "_get_model_info", return_value=tiny_info), respx.mock:
+    with respx.mock:
         respx.get("https://fake.host/model.bin").mock(
             return_value=httpx.Response(200, content=content)
         )
@@ -116,13 +130,9 @@ async def test_download_sets_corrupted_on_checksum_mismatch(
 @pytest.mark.asyncio
 async def test_concurrent_download_rejected(registry: ModelRegistry) -> None:
     content = b"x" * 1000
-    info = MagicMock()
-    info.name = "tiny"
-    info.download_url = "https://fake.host/model.bin"
-    info.size_bytes = len(content)
-    info.checksum_sha256 = hashlib.sha256(content).hexdigest()
+    _seed_manifest_entry(registry, "tiny", content)
 
-    with patch.object(registry, "_get_model_info", return_value=info), respx.mock:
+    with respx.mock:
         respx.get("https://fake.host/model.bin").mock(
             return_value=httpx.Response(200, content=content)
         )
@@ -143,13 +153,14 @@ def test_cancel_sets_status_missing(registry: ModelRegistry, models_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> None:
-    info = MagicMock()
-    info.name = "tiny"
-    info.download_url = "https://fake.host/model.bin"
-    info.size_bytes = 10**18
-    info.checksum_sha256 = "x" * 64
-
-    with patch.object(registry, "_get_model_info", return_value=info):
-        with pytest.raises(TranscriptionInsufficientDiskError):
-            async for _ in registry.download("tiny"):
-                pass
+    registry._manifest["tiny"] = ModelInfo(
+        name="tiny",
+        engine=registry._engine,
+        size_bytes=10**18,
+        checksum_sha256="x" * 64,
+        download_url="https://fake.host/model.bin",
+        tier="fast",
+    )
+    with pytest.raises(TranscriptionInsufficientDiskError):
+        async for _ in registry.download("tiny"):
+            pass

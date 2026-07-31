@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shutil
 from collections.abc import AsyncGenerator
@@ -18,6 +19,8 @@ from bahlily_transcription.errors import (
 from bahlily_transcription.models import DownloadProgress, ModelInfo, ModelStatus
 
 _CHUNK_SIZE = 8 * 1024
+# Generous read timeout for large model downloads; connect/write timeouts stay at defaults.
+_DOWNLOAD_TIMEOUT = httpx.Timeout(timeout=None, connect=10.0)
 
 
 class ModelRegistry:
@@ -60,12 +63,14 @@ class ModelRegistry:
         bytes_downloaded = 0
 
         try:
-            async with httpx.AsyncClient() as client:
+            loop = asyncio.get_running_loop()
+            async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT) as client:
                 async with client.stream("GET", info.download_url) as response:
                     response.raise_for_status()
-                    with open(tmp_path, "ab") as f:
+                    f = await loop.run_in_executor(None, open, tmp_path, "ab")
+                    try:
                         async for chunk in response.aiter_bytes(_CHUNK_SIZE):
-                            f.write(chunk)
+                            await loop.run_in_executor(None, f.write, chunk)
                             sha256.update(chunk)
                             bytes_downloaded += len(chunk)
                             yield DownloadProgress(
@@ -75,6 +80,8 @@ class ModelRegistry:
                                 total_bytes=info.size_bytes,
                                 status=ModelStatus.DOWNLOADING,
                             )
+                    finally:
+                        await loop.run_in_executor(None, f.close)
 
             if sha256.hexdigest() != info.checksum_sha256:
                 tmp_path.unlink(missing_ok=True)
@@ -101,6 +108,8 @@ class ModelRegistry:
             self._in_flight.discard(name)
 
     def cancel_download(self, name: str) -> None:
+        if name not in self._manifest:
+            raise TranscriptionModelNotFoundError(name)
         self._in_flight.discard(name)
         tmp = self._models_dir / name / "model.bin.tmp"
         tmp.unlink(missing_ok=True)
@@ -123,8 +132,20 @@ class ModelRegistry:
                 f"malformed manifest at {manifest_path}: expected {{models: [...]}} at root"
             )
         models: list[Any] = raw["models"]
-        self._manifest = {
-            m["name"]: ModelInfo(
+        required_fields = {"name", "size_bytes", "checksum_sha256", "download_url", "tier"}
+        manifest: dict[str, ModelInfo] = {}
+        for i, m in enumerate(models):
+            if not isinstance(m, dict):
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} is not a mapping"
+                )
+            missing = required_fields - m.keys()
+            if missing:
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} missing fields: "
+                    + ", ".join(sorted(missing))
+                )
+            manifest[m["name"]] = ModelInfo(
                 name=m["name"],
                 engine=self._engine,
                 size_bytes=m["size_bytes"],
@@ -132,8 +153,7 @@ class ModelRegistry:
                 download_url=m["download_url"],
                 tier=m["tier"],
             )
-            for m in models
-        }
+        self._manifest = manifest
 
     def _scan_existing(self) -> None:
         for name, info in self._manifest.items():
@@ -153,7 +173,7 @@ class ModelRegistry:
     def _verify_checksum(self, path: Path, expected: str) -> bool:
         sha256 = hashlib.sha256()
         with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
+            for chunk in iter(lambda: f.read(_CHUNK_SIZE), b""):
                 sha256.update(chunk)
         return sha256.hexdigest() == expected
 

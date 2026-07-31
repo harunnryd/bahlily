@@ -22,6 +22,11 @@ from bahlily_transcription.pb.transcription.v1 import transcription_pb2
 _log = structlog.get_logger()
 _TARGET_SAMPLE_RATE = 16000
 
+_ENGINE_NAME_MAP: dict[str, int] = {
+    "whisper": transcription_pb2.ENGINE_WHISPER,
+    "parakeet": transcription_pb2.ENGINE_PARAKEET,
+}
+
 
 class SessionWorker:
     def __init__(
@@ -67,8 +72,15 @@ class SessionWorker:
     async def stop(self) -> int:
         self._stop_event.set()
         if self._batch_task is not None:
-            with contextlib.suppress(Exception, asyncio.CancelledError):
+            try:
                 await self._batch_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                _log.exception(
+                    "session_batch_loop_failed",
+                    recording_id=self._recording_id,
+                )
         if self._ingest_task is not None:
             self._ingest_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -84,19 +96,45 @@ class SessionWorker:
         loop = asyncio.get_running_loop()
         while not self._stop_event.is_set() or not self._queue.empty():
             batch: list[audio_pb2.AudioSegment] = []
+
+            # Block on the first item to avoid busy-spinning when idle.
+            if not self._stop_event.is_set():
+                try:
+                    first = await asyncio.wait_for(self._queue.get(), timeout=self._batch_window_s)
+                    batch.append(first)
+                except TimeoutError:
+                    continue
+
+            # Drain additional items within the window without blocking.
             deadline = loop.time() + self._batch_window_s
             while loop.time() < deadline and len(batch) < self._max_batch_size:
                 try:
                     seg = self._queue.get_nowait()
                     batch.append(seg)
                 except asyncio.QueueEmpty:
-                    await asyncio.sleep(0.01)
+                    break
 
             if not batch:
                 continue
 
-            audios = [self._to_numpy(seg) for seg in batch]
-            segment_ids = [seg.segment_id for seg in batch]
+            valid_batch: list[audio_pb2.AudioSegment] = []
+            for seg in batch:
+                if seg.sample_rate <= 0:
+                    _log.warning(
+                        "transcription_segment_invalid_sample_rate",
+                        recording_id=self._recording_id,
+                        segment_id=seg.segment_id,
+                        sample_rate=seg.sample_rate,
+                    )
+                    await self._emit_error(seg.segment_id)
+                else:
+                    valid_batch.append(seg)
+
+            if not valid_batch:
+                continue
+
+            audios = [self._to_numpy(seg) for seg in valid_batch]
+            segment_ids = [seg.segment_id for seg in valid_batch]
 
             try:
                 results = await self._transcribe_with_retry(audios)
@@ -105,9 +143,20 @@ class SessionWorker:
                     await self._emit_error(seg_id)
                 continue
 
+            if len(results) != len(segment_ids):
+                _log.error(
+                    "transcription_result_count_mismatch",
+                    recording_id=self._recording_id,
+                    expected=len(segment_ids),
+                    got=len(results),
+                )
+                for seg_id in segment_ids:
+                    await self._emit_error(seg_id)
+                continue
+
             pairs = sorted(zip(segment_ids, results, strict=True), key=lambda x: x[0])
             for seg_id, result in pairs:
-                seg_proto = self._result_to_proto(seg_id, result, batch)
+                seg_proto = self._result_to_proto(seg_id, result, valid_batch)
                 await self._broadcast.publish(seg_proto)
                 self.segments_transcribed += 1
 
@@ -117,7 +166,7 @@ class SessionWorker:
         wait_initial=0.1,
         wait_max=1.0,
     )
-    async def _transcribe_with_retry(self, audios: list[np.ndarray]) -> list[Any]:
+    async def _transcribe_with_retry(self, audios: list[np.ndarray]) -> list[TranscriptResult]:
         loop = asyncio.get_running_loop()
         fn = functools.partial(self._engine.transcribe_batch, audios, self._language)
         return await loop.run_in_executor(self._executor, fn)
@@ -134,11 +183,9 @@ class SessionWorker:
         seg.text = ""
         seg.is_partial = False
         seg.recording_id = self._recording_id
-        _engine_name_map = {
-            "whisper": transcription_pb2.ENGINE_WHISPER,
-            "parakeet": transcription_pb2.ENGINE_PARAKEET,
-        }
-        seg.engine = _engine_name_map.get(self._engine.name, transcription_pb2.ENGINE_UNSPECIFIED)
+        seg.engine = _ENGINE_NAME_MAP.get(  # type: ignore[assignment]
+            self._engine.name, transcription_pb2.ENGINE_UNSPECIFIED
+        )
         seg.model_name = self._engine.current_model() or ""
         await self._broadcast.publish(seg)
 
@@ -174,11 +221,7 @@ class SessionWorker:
             if orig_seg.segment_id == segment_id:
                 seg_proto.trace_id = orig_seg.trace_id
                 break
-        _engine_name_map = {
-            "whisper": transcription_pb2.ENGINE_WHISPER,
-            "parakeet": transcription_pb2.ENGINE_PARAKEET,
-        }
-        seg_proto.engine = _engine_name_map.get(
+        seg_proto.engine = _ENGINE_NAME_MAP.get(  # type: ignore[assignment]
             self._engine.name, transcription_pb2.ENGINE_UNSPECIFIED
         )
         seg_proto.model_name = self._engine.current_model() or ""
