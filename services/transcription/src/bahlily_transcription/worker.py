@@ -58,7 +58,10 @@ class SessionWorker:
                 self._ingest_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._ingest_task
-            self._batch_task.cancel()
+            if self._batch_task is not None:
+                self._batch_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._batch_task
             raise
 
     async def stop(self) -> int:

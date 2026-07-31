@@ -34,9 +34,6 @@ class ParakeetEngine:
     def unload_model(self) -> None:
         self._loaded = None
 
-    def get_model_name(self) -> str | None:
-        return self._loaded
-
     def transcribe(self, audio: np.ndarray, language: str | None) -> TranscriptResult:
         raise NotImplementedError("Parakeet not yet wired to onnx-asr")
 
