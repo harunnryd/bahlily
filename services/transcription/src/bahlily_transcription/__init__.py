@@ -33,4 +33,7 @@ def main() -> None:
                     except (asyncio.CancelledError, Exception):
                         pass
 
+        for task in done:
+            task.result()
+
     asyncio.run(_serve_all())

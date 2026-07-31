@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import shutil
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ class ModelRegistry:
         self._manifest: dict[str, ModelInfo] = {}
         self._status: dict[str, ModelStatus] = {}
         self._in_flight: set[str] = set()
+        self._cancelled: set[str] = set()
         self._load_manifest()
         self._scan_existing()
 
@@ -55,10 +57,11 @@ class ModelRegistry:
             raise TranscriptionInsufficientDiskError(info.size_bytes, free)
 
         self._in_flight.add(name)
+        self._cancelled.discard(name)
         self._status[name] = ModelStatus.DOWNLOADING
         model_dir = self._models_dir / name
         model_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = model_dir / "model.bin.tmp"
+        tmp_path = model_dir / f"model_download_{uuid.uuid4().hex}.tmp"
         sha256 = hashlib.sha256()
         bytes_downloaded = 0
 
@@ -83,6 +86,11 @@ class ModelRegistry:
                     finally:
                         await loop.run_in_executor(None, f.close)
 
+            if name in self._cancelled:
+                tmp_path.unlink(missing_ok=True)
+                self._status[name] = ModelStatus.MISSING
+                return
+
             if sha256.hexdigest() != info.checksum_sha256:
                 tmp_path.unlink(missing_ok=True)
                 self._status[name] = ModelStatus.CORRUPTED
@@ -106,13 +114,13 @@ class ModelRegistry:
             raise
         finally:
             self._in_flight.discard(name)
+            self._cancelled.discard(name)
+            tmp_path.unlink(missing_ok=True)
 
     def cancel_download(self, name: str) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
-        self._in_flight.discard(name)
-        tmp = self._models_dir / name / "model.bin.tmp"
-        tmp.unlink(missing_ok=True)
+        self._cancelled.add(name)
         self._status[name] = ModelStatus.MISSING
 
     def remove(self, name: str) -> None:

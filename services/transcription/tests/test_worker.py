@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -31,14 +32,12 @@ async def _stream_segments(
 
 
 async def _wait_for(
-    condition: object,
+    condition: Callable[[], bool],
     timeout: float = 2.0,
     interval: float = 0.01,
 ) -> None:
-    import time
-
     deadline = time.monotonic() + timeout
-    while not condition():  # type: ignore[operator]
+    while not condition():
         if time.monotonic() >= deadline:
             raise TimeoutError(f"condition not met within {timeout}s")
         await asyncio.sleep(interval)

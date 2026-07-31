@@ -47,12 +47,20 @@ class WhisperEngine:
         return self._loaded
 
     def load_model(self, name: str) -> None:
-        model_path = str(self._models_dir / name)
-        if not (self._models_dir / name).is_dir():
+        candidate = (self._models_dir / name).resolve()
+        models_root = self._models_dir.resolve()
+        # Reject traversal components (e.g. "../") that would escape models_dir.
+        if not str(candidate).startswith(str(models_root) + "/") and candidate != models_root:
             raise TranscriptionEngineFailedError(
                 "whisper",
-                f"model directory not found at {model_path}; download the model first",
+                f"invalid model name '{name}': path escapes models directory",
             )
+        if not candidate.is_dir():
+            raise TranscriptionEngineFailedError(
+                "whisper",
+                f"model directory not found at {candidate}; download the model first",
+            )
+        model_path = str(candidate)
         if _is_apple_silicon():
             import mlx_whisper  # type: ignore[import-not-found, import-untyped]
 

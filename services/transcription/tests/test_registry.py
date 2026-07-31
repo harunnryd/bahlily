@@ -148,7 +148,10 @@ def test_cancel_sets_status_missing(registry: ModelRegistry, models_dir: Path) -
     registry._in_flight.add("tiny")
     registry.cancel_download("tiny")
     assert registry.get_status("tiny") == ModelStatus.MISSING
-    assert "tiny" not in registry._in_flight
+    assert "tiny" in registry._cancelled
+    # _in_flight is cleared by the download generator's finally block, not by cancel_download.
+    registry._in_flight.discard("tiny")
+    registry._cancelled.discard("tiny")
 
 
 @pytest.mark.asyncio

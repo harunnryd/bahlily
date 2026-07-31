@@ -22,6 +22,7 @@ class AudioCoreClient:
             try:
                 async with grpc.aio.insecure_channel(self._addr) as channel:
                     stub = audio_pb2_grpc.AudioServiceStub(channel)  # type: ignore[no-untyped-call]
+                    backoff = 1.0
                     async for response in stub.StreamAudio(audio_pb2.StreamAudioRequest()):
                         yield response.segment
             except grpc.aio.AioRpcError as exc:

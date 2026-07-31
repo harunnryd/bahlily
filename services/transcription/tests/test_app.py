@@ -75,18 +75,36 @@ def test_get_session_not_found_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_delete_model_calls_remove(client: TestClient) -> None:
-    mock_registry = MagicMock()
-    mock_engine = MagicMock()
-    mock_engine.current_model.return_value = None
+def test_delete_model_removes_from_registry(tmp_path: pytest.TempPathFactory) -> None:
+    from importlib import resources
+    from pathlib import Path
+
+    from bahlily_transcription.app import app
+    from bahlily_transcription.models import ModelStatus
+    from bahlily_transcription.registry import ModelRegistry
+    from bahlily_transcription.whisper_engine import WhisperEngine
+
+    models_dir = Path(str(tmp_path)) / "models"
+    manifests_dir = Path(str(resources.files("bahlily_transcription") / "manifests"))
+    real_registry = ModelRegistry("whisper", models_dir, manifests_dir)
+    real_engine = WhisperEngine(models_dir=models_dir / "whisper")
+
+    # Create the model directory and a model.bin so the registry sees it as AVAILABLE.
+    model_dir = models_dir / "whisper" / "tiny"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.bin").write_bytes(b"fake")
+    real_registry._status["tiny"] = ModelStatus.AVAILABLE
 
     with (
-        patch("bahlily_transcription.app._whisper_engine", mock_engine),
-        patch("bahlily_transcription.app._whisper_registry", mock_registry),
+        patch("bahlily_transcription.app._whisper_engine", real_engine),
+        patch("bahlily_transcription.app._whisper_registry", real_registry),
     ):
+        client = TestClient(app)
         response = client.delete("/models/whisper/tiny")
+
     assert response.status_code == 200
-    mock_registry.remove.assert_called_once_with("tiny")
+    assert real_registry.get_status("tiny") == ModelStatus.MISSING
+    assert not model_dir.exists()
 
 
 def test_stop_session_returns_segment_count(client: TestClient) -> None:

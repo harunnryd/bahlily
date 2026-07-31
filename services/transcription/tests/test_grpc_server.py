@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+
 import grpc
 import grpc.aio
 import pytest
 
-from bahlily_transcription.grpc_server import BroadcastChannel, TranscriptionGrpcService
+from bahlily_transcription.grpc_server import BroadcastChannel, TranscriptionGrpcService, serve
 from bahlily_transcription.pb.transcription.v1 import transcription_pb2, transcription_pb2_grpc
 
 
@@ -110,8 +112,6 @@ async def test_stream_transcripts_unsubscribes_on_disconnect(
     server.add_insecure_port(f"localhost:{unused_tcp_port}")
     await server.start()
 
-    import asyncio
-
     try:
         assert len(channel._subscribers) == 0
         async with grpc.aio.insecure_channel(f"localhost:{unused_tcp_port}") as grpc_channel:
@@ -125,8 +125,43 @@ async def test_stream_transcripts_unsubscribes_on_disconnect(
             await channel.publish(_make_segment(1))
             async for _ in receive_iter:
                 break
-        # After channel context closes, wait for cleanup.
-        await asyncio.sleep(0.1)
+        # After channel context closes, poll until cleanup completes.
+        for _ in range(100):
+            if len(channel._subscribers) == 0:
+                break
+            await asyncio.sleep(0.01)
         assert len(channel._subscribers) == 0
     finally:
         await server.stop(grace=0)
+
+
+@pytest.mark.asyncio
+async def test_serve_raises_oserror_on_bind_failure(unused_tcp_port: int) -> None:
+    """serve() raises OSError when add_insecure_port returns 0 (bind failed)."""
+    from unittest.mock import MagicMock, patch
+
+    broadcast = BroadcastChannel(capacity=1)
+    mock_server = MagicMock()
+    mock_server.add_insecure_port.return_value = 0
+    with patch("bahlily_transcription.grpc_server.grpc.aio.server", return_value=mock_server):
+        with pytest.raises(OSError, match="failed to bind"):
+            await serve(broadcast, unused_tcp_port)
+
+
+@pytest.mark.asyncio
+async def test_serve_starts_successfully_and_logs_bound_port(unused_tcp_port: int) -> None:
+    """serve() calls server.start() and waits for termination when bind succeeds."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    broadcast = BroadcastChannel(capacity=1)
+    mock_server = MagicMock()
+    mock_server.add_insecure_port.return_value = unused_tcp_port
+    mock_server.start = AsyncMock()
+    mock_server.wait_for_termination = AsyncMock()
+
+    with patch("bahlily_transcription.grpc_server.grpc.aio.server", return_value=mock_server):
+        await serve(broadcast, unused_tcp_port)
+
+    mock_server.add_insecure_port.assert_called_once_with(f"0.0.0.0:{unused_tcp_port}")
+    mock_server.start.assert_called_once()
+    mock_server.wait_for_termination.assert_called_once()

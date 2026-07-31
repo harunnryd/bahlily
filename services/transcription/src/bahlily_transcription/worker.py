@@ -93,72 +93,78 @@ class SessionWorker:
             await self._queue.put(seg)
 
     async def _batch_loop(self) -> None:
-        loop = asyncio.get_running_loop()
         while not self._stop_event.is_set() or not self._queue.empty():
-            batch: list[audio_pb2.AudioSegment] = []
-
-            # Block on the first item to avoid busy-spinning when idle.
-            if not self._stop_event.is_set():
-                try:
-                    first = await asyncio.wait_for(self._queue.get(), timeout=self._batch_window_s)
-                    batch.append(first)
-                except TimeoutError:
-                    continue
-
-            # Drain additional items within the window without blocking.
-            deadline = loop.time() + self._batch_window_s
-            while loop.time() < deadline and len(batch) < self._max_batch_size:
-                try:
-                    seg = self._queue.get_nowait()
-                    batch.append(seg)
-                except asyncio.QueueEmpty:
-                    break
-
+            batch = await self._collect_batch()
             if not batch:
                 continue
+            await self._process_batch(batch)
 
-            valid_batch: list[audio_pb2.AudioSegment] = []
-            for seg in batch:
-                if seg.sample_rate <= 0:
-                    _log.warning(
-                        "transcription_segment_invalid_sample_rate",
-                        recording_id=self._recording_id,
-                        segment_id=seg.segment_id,
-                        sample_rate=seg.sample_rate,
-                    )
-                    await self._emit_error(seg.segment_id)
-                else:
-                    valid_batch.append(seg)
+    async def _collect_batch(self) -> list[audio_pb2.AudioSegment]:
+        """Block on the first item, then drain additional items within the batch window."""
+        batch: list[audio_pb2.AudioSegment] = []
 
-            if not valid_batch:
-                continue
-
-            audios = [self._to_numpy(seg) for seg in valid_batch]
-            segment_ids = [seg.segment_id for seg in valid_batch]
-
+        if not self._stop_event.is_set():
             try:
-                results = await self._transcribe_with_retry(audios)
-            except TranscriptionEngineFailedError:
-                for seg_id in segment_ids:
-                    await self._emit_error(seg_id)
-                continue
+                first = await asyncio.wait_for(self._queue.get(), timeout=self._batch_window_s)
+                batch.append(first)
+            except TimeoutError:
+                return batch
 
-            if len(results) != len(segment_ids):
-                _log.error(
-                    "transcription_result_count_mismatch",
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._batch_window_s
+        while loop.time() < deadline and len(batch) < self._max_batch_size:
+            try:
+                seg = self._queue.get_nowait()
+                batch.append(seg)
+            except asyncio.QueueEmpty:
+                break
+
+        return batch
+
+    async def _process_batch(self, batch: list[audio_pb2.AudioSegment]) -> None:
+        """Validate, transcribe, check result count, and publish."""
+        valid_batch: list[audio_pb2.AudioSegment] = []
+        for seg in batch:
+            if seg.sample_rate <= 0:
+                _log.warning(
+                    "transcription_segment_invalid_sample_rate",
                     recording_id=self._recording_id,
-                    expected=len(segment_ids),
-                    got=len(results),
+                    segment_id=seg.segment_id,
+                    sample_rate=seg.sample_rate,
                 )
-                for seg_id in segment_ids:
-                    await self._emit_error(seg_id)
-                continue
+                await self._emit_error(seg.segment_id)
+            else:
+                valid_batch.append(seg)
 
-            pairs = sorted(zip(segment_ids, results, strict=True), key=lambda x: x[0])
-            for seg_id, result in pairs:
-                seg_proto = self._result_to_proto(seg_id, result, valid_batch)
-                await self._broadcast.publish(seg_proto)
-                self.segments_transcribed += 1
+        if not valid_batch:
+            return
+
+        audios = [self._to_numpy(seg) for seg in valid_batch]
+        segment_ids = [seg.segment_id for seg in valid_batch]
+
+        try:
+            results = await self._transcribe_with_retry(audios)
+        except TranscriptionEngineFailedError:
+            for seg_id in segment_ids:
+                await self._emit_error(seg_id)
+            return
+
+        if len(results) != len(segment_ids):
+            _log.error(
+                "transcription_result_count_mismatch",
+                recording_id=self._recording_id,
+                expected=len(segment_ids),
+                got=len(results),
+            )
+            for seg_id in segment_ids:
+                await self._emit_error(seg_id)
+            return
+
+        pairs = sorted(zip(segment_ids, results, strict=True), key=lambda x: x[0])
+        for seg_id, result in pairs:
+            seg_proto = self._result_to_proto(seg_id, result, valid_batch)
+            await self._broadcast.publish(seg_proto)
+            self.segments_transcribed += 1
 
     @stamina.retry(
         on=TranscriptionEngineFailedError,
