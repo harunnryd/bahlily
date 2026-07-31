@@ -100,7 +100,7 @@ class SessionWorker:
             await self._process_batch(batch)
 
     async def _collect_batch(self) -> list[audio_pb2.AudioSegment]:
-        """Block on the first item, then drain additional items within the batch window."""
+        # Blocks on the first item to avoid busy-spinning when idle.
         batch: list[audio_pb2.AudioSegment] = []
 
         if not self._stop_event.is_set():
@@ -122,7 +122,6 @@ class SessionWorker:
         return batch
 
     async def _process_batch(self, batch: list[audio_pb2.AudioSegment]) -> None:
-        """Validate, transcribe, check result count, and publish."""
         valid_batch: list[audio_pb2.AudioSegment] = []
         for seg in batch:
             if seg.sample_rate <= 0:

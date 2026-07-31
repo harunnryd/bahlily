@@ -73,6 +73,8 @@ class ModelRegistry:
                     f = await loop.run_in_executor(None, open, tmp_path, "ab")
                     try:
                         async for chunk in response.aiter_bytes(_CHUNK_SIZE):
+                            if name in self._cancelled:
+                                break
                             await loop.run_in_executor(None, f.write, chunk)
                             sha256.update(chunk)
                             bytes_downloaded += len(chunk)
@@ -166,11 +168,14 @@ class ModelRegistry:
     def _scan_existing(self) -> None:
         for name, info in self._manifest.items():
             model_path = self._models_dir / name / "model.bin"
-            tmp_path = self._models_dir / name / "model.bin.tmp"
-            if tmp_path.exists():
-                tmp_path.unlink()
-                self._status[name] = ModelStatus.MISSING
-            elif model_path.exists():
+            model_dir = self._models_dir / name
+            # Remove any stale temporary files from interrupted downloads.
+            for tmp in model_dir.glob("model_download_*.tmp"):
+                tmp.unlink(missing_ok=True)
+            old_tmp = model_dir / "model.bin.tmp"
+            if old_tmp.exists():
+                old_tmp.unlink()
+            if model_path.exists():
                 if self._verify_checksum(model_path, info.checksum_sha256):
                     self._status[name] = ModelStatus.AVAILABLE
                 else:
