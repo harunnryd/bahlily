@@ -22,10 +22,38 @@
   domain: audio-grpc
   severity: warn
   description: A gRPC client fell behind the broadcast segment stream and skipped segments.
-- code: TRANSCRIPTION_RESERVED
+- code: TRANSCRIPTION_MODEL_NOT_LOADED
   domain: transcription
-  severity: info
-  description: Placeholder namespace reserved for the transcription service; no real codes emitted yet.
+  severity: error
+  description: A transcription session was started but no model has been loaded into the requested engine.
+- code: TRANSCRIPTION_AUDIO_TOO_SHORT
+  domain: transcription
+  severity: warn
+  description: An audio segment shorter than 0.5 s was submitted for transcription; it was skipped.
+- code: TRANSCRIPTION_ENGINE_FAILED
+  domain: transcription
+  severity: error
+  description: The transcription engine raised an error during inference and exhausted its retry budget.
+- code: TRANSCRIPTION_UNSUPPORTED_LANGUAGE
+  domain: transcription
+  severity: error
+  description: Parakeet was requested for a non-English language it does not support.
+- code: TRANSCRIPTION_MODEL_NOT_FOUND
+  domain: transcription
+  severity: error
+  description: The requested model name does not appear in the engine manifest.
+- code: TRANSCRIPTION_ALREADY_DOWNLOADING
+  domain: transcription
+  severity: warn
+  description: A download was requested for a model that is already being downloaded.
+- code: TRANSCRIPTION_INSUFFICIENT_DISK
+  domain: transcription
+  severity: error
+  description: Not enough free disk space to download the requested model.
+- code: TRANSCRIPTION_CHECKSUM_FAILED
+  domain: transcription
+  severity: error
+  description: SHA-256 verification of a downloaded model file failed; the file has been removed.
 - code: ORCHESTRATION_UNSUPPORTED_PROVIDER
   domain: orchestration
   severity: error
