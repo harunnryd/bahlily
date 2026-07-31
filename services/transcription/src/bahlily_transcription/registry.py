@@ -128,6 +128,8 @@ class ModelRegistry:
     def remove(self, name: str) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
+        if name in self._in_flight:
+            raise TranscriptionAlreadyDownloadingError(name)
         model_dir = self._models_dir / name
         if model_dir.exists():
             shutil.rmtree(model_dir)
@@ -155,8 +157,21 @@ class ModelRegistry:
                     f"malformed manifest at {manifest_path}: entry {i} missing fields: "
                     + ", ".join(sorted(missing))
                 )
-            manifest[m["name"]] = ModelInfo(
-                name=m["name"],
+            entry_name = m["name"]
+            if (
+                not isinstance(entry_name, str)
+                or not entry_name
+                or "/" in entry_name
+                or "\\" in entry_name
+                or entry_name in (".", "..")
+                or entry_name.startswith("/")
+            ):
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} has unsafe name "
+                    f"{entry_name!r}"
+                )
+            manifest[entry_name] = ModelInfo(
+                name=entry_name,
                 engine=self._engine,
                 size_bytes=m["size_bytes"],
                 checksum_sha256=m["checksum_sha256"],
@@ -169,7 +184,6 @@ class ModelRegistry:
         for name, info in self._manifest.items():
             model_path = self._models_dir / name / "model.bin"
             model_dir = self._models_dir / name
-            # Remove any stale temporary files from interrupted downloads.
             for tmp in model_dir.glob("model_download_*.tmp"):
                 tmp.unlink(missing_ok=True)
             old_tmp = model_dir / "model.bin.tmp"

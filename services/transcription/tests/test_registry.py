@@ -154,6 +154,20 @@ def test_cancel_sets_status_missing(registry: ModelRegistry, models_dir: Path) -
     registry._cancelled.discard("tiny")
 
 
+def test_remove_rejects_in_flight_download(registry: ModelRegistry, models_dir: Path) -> None:
+    model_dir = models_dir / "whisper" / "tiny"
+    model_dir.mkdir(parents=True)
+    (model_dir / "model.bin").write_bytes(b"fake")
+    registry._status["tiny"] = ModelStatus.DOWNLOADING
+    registry._in_flight.add("tiny")
+
+    with pytest.raises(TranscriptionAlreadyDownloadingError):
+        registry.remove("tiny")
+
+    assert model_dir.exists()
+    registry._in_flight.discard("tiny")
+
+
 @pytest.mark.asyncio
 async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> None:
     registry._manifest["tiny"] = ModelInfo(
@@ -170,13 +184,11 @@ async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> 
 
 
 def test_scan_existing_removes_stale_uuid_tmp_files(models_dir: Path, manifests_dir: Path) -> None:
-    """Startup recovery must remove model_download_*.tmp files left by crashed downloads."""
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
     stale_tmp = model_dir / "model_download_deadbeef1234.tmp"
     stale_tmp.write_bytes(b"partial download")
 
-    # Constructing the registry triggers _scan_existing.
     registry = ModelRegistry(engine="whisper", models_dir=models_dir, manifests_dir=manifests_dir)
 
     assert not stale_tmp.exists()
@@ -204,7 +216,6 @@ async def test_cancel_during_download_stops_progress(
             if len(events) == 1:
                 registry.cancel_download("tiny")
 
-    # Only the first DOWNLOADING event must be present; no AVAILABLE event.
     assert len(events) == 1
     assert events[0].status == ModelStatus.DOWNLOADING
     assert registry.get_status("tiny") == ModelStatus.MISSING

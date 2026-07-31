@@ -7,9 +7,6 @@ import uvicorn
 
 
 async def _run_until_first_exits(tasks: set[asyncio.Task[None]]) -> None:
-    # Runs tasks concurrently. When the first one exits (normally or with an
-    # exception), the rest are cancelled and the completed task's result is
-    # re-raised so the caller sees the failure.
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
@@ -21,8 +18,15 @@ async def _run_until_first_exits(tasks: set[asyncio.Task[None]]) -> None:
                 except (asyncio.CancelledError, Exception):
                     pass
 
+    exc: Exception | None = None
     for task in done:
-        task.result()
+        try:
+            task.result()
+        except Exception as e:
+            if exc is None:
+                exc = e
+    if exc is not None:
+        raise exc
 
 
 def main() -> None:

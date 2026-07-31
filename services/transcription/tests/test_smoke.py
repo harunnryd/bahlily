@@ -31,8 +31,6 @@ def test_main_calls_asyncio_run_with_serve_coroutine() -> None:
 
 @pytest.mark.asyncio
 async def test_serve_all_propagates_grpc_serve_failure() -> None:
-    """Regression: _run_until_first_exits propagates exceptions from completed tasks."""
-
     async def failing_serve() -> None:
         raise OSError("grpc bind failed")
 
@@ -44,3 +42,24 @@ async def test_serve_all_propagates_grpc_serve_failure() -> None:
 
     with pytest.raises(OSError, match="grpc bind failed"):
         await _run_until_first_exits({task_fail, task_long})
+
+    assert task_long.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_run_until_first_exits_consumes_all_failing_tasks() -> None:
+    async def fail_a() -> None:
+        raise OSError("failure a")
+
+    async def fail_b() -> None:
+        raise ValueError("failure b")
+
+    task_a: asyncio.Task[None] = asyncio.create_task(fail_a())
+    task_b: asyncio.Task[None] = asyncio.create_task(fail_b())
+    await asyncio.sleep(0)
+
+    with pytest.raises((OSError, ValueError)):
+        await _run_until_first_exits({task_a, task_b})
+
+    assert task_a.done()
+    assert task_b.done()
