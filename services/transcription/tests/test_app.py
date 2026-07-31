@@ -32,10 +32,11 @@ def test_list_models_invalid_engine_returns_404(client: TestClient) -> None:
 
 
 def test_load_model_calls_engine(client: TestClient) -> None:
-    with patch("bahlily_transcription.app._whisper_engine") as mock_engine:
-        mock_engine.load_model = MagicMock()
+    mock_engine = MagicMock()
+    with patch.dict("bahlily_transcription.app._ENGINES", {"whisper": (mock_engine, MagicMock())}):
         response = client.post("/models/whisper/load", json={"name": "tiny"})
     assert response.status_code == 200
+    mock_engine.load_model.assert_called_once_with("tiny")
 
 
 def test_post_session_returns_recording_id(client: TestClient) -> None:
