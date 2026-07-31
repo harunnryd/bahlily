@@ -170,6 +170,11 @@ class ModelRegistry:
                     f"malformed manifest at {manifest_path}: entry {i} has unsafe name "
                     f"{entry_name!r}"
                 )
+            if entry_name in manifest:
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: duplicate model name "
+                    f"{entry_name!r} at entry {i}"
+                )
             manifest[entry_name] = ModelInfo(
                 name=entry_name,
                 engine=self._engine,

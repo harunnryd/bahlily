@@ -219,3 +219,24 @@ async def test_cancel_during_download_stops_progress(
     assert len(events) == 1
     assert events[0].status == ModelStatus.DOWNLOADING
     assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
+def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, tmp_path: Path) -> None:
+    manifests_dir = tmp_path / "manifests"
+    manifests_dir.mkdir()
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: tiny\n"
+        "    download_url: https://example.com/tiny\n"
+        "    size_bytes: 1000\n"
+        "    checksum_sha256: " + "a" * 64 + "\n"
+        "    tier: fast\n"
+        "  - name: tiny\n"
+        "    download_url: https://example.com/tiny2\n"
+        "    size_bytes: 2000\n"
+        "    checksum_sha256: " + "b" * 64 + "\n"
+        "    tier: balanced\n"
+    )
+    with pytest.raises(ValueError, match="duplicate model name"):
+        ModelRegistry(engine="whisper", models_dir=models_dir, manifests_dir=manifests_dir)
