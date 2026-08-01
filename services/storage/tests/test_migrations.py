@@ -47,6 +47,42 @@ async def test_upgrade_to_head_stamps_alembic_version(
     assert versions  # a revision is stamped, so the next migration can apply
 
 
+async def test_upgrade_to_head_points_engine_at_the_migrated_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: `engine`/`async_session_factory` must target the same file
+    `upgrade_to_head()` just migrated, not whatever `BAHLILY_STORAGE_DB`
+    resolved to at import time. Without `_configure()` re-resolving on every
+    call, a write through `db.async_session_factory` right after startup
+    could silently land in a different file than the one just migrated."""
+    import datetime
+
+    from bahlily_storage import db
+    from bahlily_storage.models import Meeting
+
+    db_path = tmp_path / "shared-url.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+    await db.upgrade_to_head()
+
+    async with db.async_session_factory() as session:
+        session.add(
+            Meeting(
+                id="m-shared",
+                status="recording",
+                started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+                segments_count=0,
+            )
+        )
+        await session.commit()
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute("SELECT id FROM meetings WHERE id = 'm-shared'").fetchone()
+    finally:
+        conn.close()
+    assert row == ("m-shared",)
+
+
 def test_find_alembic_ini_locates_service_root() -> None:
     from bahlily_storage import db
 

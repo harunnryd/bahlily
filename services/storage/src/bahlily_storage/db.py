@@ -42,9 +42,6 @@ def resolve_db_url() -> str:
     return url
 
 
-_DB_URL = resolve_db_url()
-
-
 BUSY_TIMEOUT_MS = 5000
 
 
@@ -70,10 +67,27 @@ def _make_engine(url: str) -> AsyncEngine:
     return eng
 
 
-engine: AsyncEngine = _make_engine(_DB_URL)
-async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    engine, expire_on_commit=False
-)
+def _configure(url: str | None = None) -> None:
+    """(Re-)resolve the DB URL once and point `engine`/`async_session_factory`
+    at it, so the engine serving traffic and the migrations `upgrade_to_head()`
+    applies can't independently resolve `BAHLILY_STORAGE_DB` and disagree about
+    which file they mean.
+
+    Called once at import time to establish the process's default, and again
+    at the top of `upgrade_to_head()` so a real startup re-resolves right
+    before migrating — closing the window where the env var changed between
+    module import and that call — instead of trusting the import-time value.
+    """
+    global _DB_URL, engine, async_session_factory
+    _DB_URL = url or resolve_db_url()
+    engine = _make_engine(_DB_URL)
+    async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+
+_DB_URL: str
+engine: AsyncEngine
+async_session_factory: async_sessionmaker[AsyncSession]
+_configure()
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -112,7 +126,7 @@ def alembic_config() -> Config:
 
     ini = find_alembic_ini()
     cfg = Config(str(ini))
-    cfg.set_main_option("sqlalchemy.url", resolve_db_url())
+    cfg.set_main_option("sqlalchemy.url", _DB_URL)
     return cfg
 
 
@@ -152,7 +166,7 @@ def upgrade_to_head_sync() -> None:
     from alembic import command
 
     cfg = alembic_config()
-    tables = _existing_tables(resolve_db_url())
+    tables = _existing_tables(_DB_URL)
     if "meetings" in tables and "alembic_version" not in tables:
         command.stamp(cfg, "0001")
     command.upgrade(cfg, "head")
@@ -161,8 +175,13 @@ def upgrade_to_head_sync() -> None:
 async def upgrade_to_head() -> None:
     """Bring the database to the latest migration revision.
 
+    Re-resolves the DB URL and rebuilds `engine`/`async_session_factory`
+    first (see `_configure`), so the engine that will serve traffic afterward
+    is guaranteed to target the same database this migrates.
+
     `alembic.command.upgrade` is synchronous and our `migrations/env.py` spins
     up its own event loop via `asyncio.run`, so it must run on a worker thread
     rather than on the running loop.
     """
+    _configure()
     await asyncio.to_thread(upgrade_to_head_sync)
