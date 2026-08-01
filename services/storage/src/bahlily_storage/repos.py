@@ -122,6 +122,10 @@ class SegmentRepo:
         """Upsert many segments in two batched statements; returns how many
         were genuine inserts.
 
+        Every row must have the same set of keys: the update-column list is
+        derived from `rows[0]` alone, and the batched SQLite `VALUES` clause
+        assumes a single, homogeneous column set across all rows.
+
         A per-row Python loop over `upsert()` would issue up to two DB
         round-trips per row; this does it in exactly two round-trips total,
         regardless of batch size:
