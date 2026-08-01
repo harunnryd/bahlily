@@ -163,3 +163,78 @@ def test_migration_0002_is_head() -> None:
 
     script = ScriptDirectory.from_config(db.alembic_config())
     assert script.get_current_head() == "0002"
+
+
+# Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
+# the tables/columns that migration's `batch_alter_table` rebuild touches.
+_0002_COLUMNS = (("meetings", "started_at"), ("meetings", "ended_at"), ("summaries", "created_at"))
+
+
+def test_downgrade_from_head_preserves_data_in_rebuilt_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """0002's `batch_alter_table` rebuild (SQLite has no in-place `ALTER
+    COLUMN TYPE`) must round-trip cleanly in both directions.
+
+    SQLite compiles `sa.DateTime()` and `sa.DateTime(timezone=True)` to the
+    same bare `DATETIME` column type, so there's no DDL-level signal to
+    assert "naive" vs "aware" against the schema itself — tz-correctness
+    comes from the `UtcDateTime` type decorator in `models.py`, which is
+    independent of what migration revision the DB is stamped at. What's
+    verifiable, and was untested before this: only `upgrade` was exercised,
+    never `downgrade` — the rebuild it performs on live data could silently
+    drop or corrupt exactly the columns it touches.
+
+    Uses `command.upgrade`/`command.downgrade` directly (not
+    `db.upgrade_to_head()`) so this stays a plain sync test: both are sync
+    calls that internally run their own event loop via `migrations/env.py`,
+    which cannot nest inside a running one.
+    """
+    from alembic import command
+
+    from bahlily_storage import db
+
+    db_path = tmp_path / "downgrade.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+    command.upgrade(db.alembic_config(), "head")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT INTO meetings (id, status, started_at, ended_at, segments_count) "
+            "VALUES ('m1', 'stopped', '2026-01-01 00:00:00', '2026-01-01 01:00:00', 0)"
+        )
+        conn.execute(
+            "INSERT INTO summaries "
+            "(id, meeting_id, title, overview, key_points, action_items, quotes, "
+            "provider, model, created_at) "
+            "VALUES ('s1', 'm1', 'T', 'O', '[]', '[]', '[]', 'p', 'm', "
+            "'2026-01-01 02:00:00')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    command.downgrade(db.alembic_config(), "0001")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
+        for table, column in _0002_COLUMNS:
+            # Just confirms the column the rebuild touched still exists and
+            # still holds a value after downgrading — SQLite reports the
+            # same declared type either way (see docstring).
+            row = conn.execute(f"SELECT {column} FROM {table} LIMIT 1").fetchone()
+            assert row is not None and row[0] is not None
+        meeting_row = conn.execute(
+            "SELECT status, started_at, ended_at FROM meetings WHERE id = 'm1'"
+        ).fetchone()
+        summary_row = conn.execute(
+            "SELECT title, created_at FROM summaries WHERE id = 's1'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert versions == {"0001"}
+    assert meeting_row == ("stopped", "2026-01-01 00:00:00", "2026-01-01 01:00:00")
+    assert summary_row == ("T", "2026-01-01 02:00:00")
