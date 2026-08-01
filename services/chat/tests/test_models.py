@@ -25,6 +25,26 @@ def test_ingest_request_requires_at_least_one_segment() -> None:
         IngestRequest(segments=[])
 
 
+def test_ingest_request_rejects_duplicate_segment_ids() -> None:
+    with pytest.raises(ValidationError):
+        IngestRequest(
+            segments=[
+                TranscriptSegment(text="first", segment_id=1),
+                TranscriptSegment(text="second", segment_id=1),
+            ]
+        )
+
+
+def test_transcript_segment_strips_whitespace_only_text() -> None:
+    with pytest.raises(ValidationError):
+        TranscriptSegment(text="   ", segment_id=1)
+
+
+def test_transcript_segment_rejects_negative_segment_id() -> None:
+    with pytest.raises(ValidationError):
+        TranscriptSegment(text="hi", segment_id=-1)
+
+
 def test_ingest_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
         IngestRequest(
@@ -44,6 +64,11 @@ def test_chat_turn_rejects_invalid_role() -> None:
         ChatTurn(role="system", content="hi")  # type: ignore[arg-type]
 
 
+def test_chat_turn_rejects_whitespace_only_content() -> None:
+    with pytest.raises(ValidationError):
+        ChatTurn(role="user", content="   ")
+
+
 def test_chat_request_defaults() -> None:
     req = ChatRequest(question="What did we decide?", provider="openai", model="gpt-4o-mini")
     assert req.meeting_id is None
@@ -53,6 +78,11 @@ def test_chat_request_defaults() -> None:
 def test_chat_request_rejects_empty_question() -> None:
     with pytest.raises(ValidationError):
         ChatRequest(question="", provider="openai", model="gpt-4o-mini")
+
+
+def test_chat_request_rejects_whitespace_only_question() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(question="   ", provider="openai", model="gpt-4o-mini")
 
 
 def test_chat_request_rejects_unknown_field() -> None:

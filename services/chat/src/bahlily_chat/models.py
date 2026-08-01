@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TranscriptSegment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     text: str = Field(min_length=1)
-    segment_id: int
+    segment_id: int = Field(ge=0)
     speaker: str | None = None
     start_time: float | None = None
     end_time: float | None = None
@@ -20,6 +20,13 @@ class IngestRequest(BaseModel):
 
     segments: list[TranscriptSegment] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def _check_unique_segment_ids(self) -> IngestRequest:
+        segment_ids = [s.segment_id for s in self.segments]
+        if len(segment_ids) != len(set(segment_ids)):
+            raise ValueError("segments must have unique segment_id values")
+        return self
+
 
 class IngestResponse(BaseModel):
     meeting_id: str
@@ -27,14 +34,14 @@ class IngestResponse(BaseModel):
 
 
 class ChatTurn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1)
 
 
 class ChatRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     question: str = Field(min_length=1)
     meeting_id: str | None = None
