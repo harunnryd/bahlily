@@ -1,3 +1,5 @@
+mod paths;
+
 use std::sync::Mutex;
 use tauri::State;
 
