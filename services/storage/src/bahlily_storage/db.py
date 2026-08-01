@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 _DEFAULT_DB = str(Path.home() / ".bahlily" / "storage.db")
 
 
+def _db_path_from_url(url: str) -> str:
+    """Extract the filesystem path (or `:memory:`) from a sqlite+aiosqlite URL."""
+    return url.split("///", 1)[1]
+
+
 def resolve_db_url() -> str:
     """Compute the sqlite+aiosqlite URL from BAHLILY_STORAGE_DB (or the default path).
 
@@ -31,7 +36,7 @@ def resolve_db_url() -> str:
     get an up-to-date result instead of a value frozen at import time.
     """
     url = f"sqlite+aiosqlite:///{os.environ.get('BAHLILY_STORAGE_DB', _DEFAULT_DB)}"
-    db_path_str = url.split("///", 1)[1]
+    db_path_str = _db_path_from_url(url)
     if db_path_str != ":memory:":
         Path(db_path_str).parent.mkdir(parents=True, exist_ok=True)
     return url
@@ -120,7 +125,7 @@ def _existing_tables(db_url: str) -> set[str]:
     """
     import sqlite3
 
-    db_path_str = db_url.split("///", 1)[1]
+    db_path_str = _db_path_from_url(db_url)
     if db_path_str == ":memory:" or not Path(db_path_str).exists():
         return set()
 
