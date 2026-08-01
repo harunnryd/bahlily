@@ -19,18 +19,22 @@ from bahlily_storage.errors import (
     StorageMeetingNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
+    StorageTemplateNotFoundError,
 )
 from bahlily_storage.grpc_subscriber import subscriber_status
-from bahlily_storage.models import Meeting, Summary
-from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo
+from bahlily_storage.models import Meeting, Summary, SummaryTemplate
+from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo, TemplateRepo
 from bahlily_storage.schemas import (
     BatchSegmentsRequest,
     CreateMeetingRequest,
     CreateSummaryRequest,
+    CreateTemplateRequest,
     MeetingResponse,
     PatchMeetingRequest,
+    PatchTemplateRequest,
     SegmentResponse,
     SummaryResponse,
+    TemplateResponse,
 )
 
 _log = structlog.get_logger()
@@ -42,6 +46,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageMeetingAlreadyExistsError: 409,
     StorageSummaryAlreadyExistsError: 409,
     StorageSummaryNotFoundError: 404,
+    StorageTemplateNotFoundError: 404,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -51,6 +56,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageMeetingAlreadyExistsError)
 @app.exception_handler(StorageSummaryAlreadyExistsError)
 @app.exception_handler(StorageSummaryNotFoundError)
+@app.exception_handler(StorageTemplateNotFoundError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
@@ -86,6 +92,19 @@ def _meeting_to_response(m: Meeting) -> MeetingResponse:
         ended_at=m.ended_at,
         segments_count=m.segments_count,
         has_summary=m.summary is not None,
+    )
+
+
+def _template_to_response(t: SummaryTemplate) -> TemplateResponse:
+    return TemplateResponse(
+        id=t.id,
+        name=t.name,
+        version=t.version,
+        system_prompt=t.system_prompt,
+        focus_instructions=t.focus_instructions,
+        few_shot_examples=json.loads(t.few_shot_examples),
+        created_at=t.created_at,
+        updated_at=t.updated_at,
     )
 
 
@@ -256,3 +275,68 @@ async def get_summary(meeting_id: str, session: SessionDep) -> SummaryResponse:
     if s is None:
         raise StorageSummaryNotFoundError(meeting_id)
     return _summary_to_response(s)
+
+
+@app.post("/templates", status_code=201)
+async def create_template(req: CreateTemplateRequest, session: SessionDep) -> TemplateResponse:
+    repo = TemplateRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    template = SummaryTemplate(
+        id=str(uuid.uuid4()),
+        name=req.name,
+        version=req.version,
+        system_prompt=req.system_prompt,
+        focus_instructions=req.focus_instructions,
+        few_shot_examples=json.dumps(req.few_shot_examples),
+        created_at=now,
+        updated_at=now,
+    )
+    await repo.create(template)
+    await session.commit()
+    await session.refresh(template)
+    return _template_to_response(template)
+
+
+@app.get("/templates")
+async def list_templates(
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[TemplateResponse]:
+    repo = TemplateRepo(session)
+    templates = await repo.list_all(limit=limit, offset=offset)
+    return [_template_to_response(t) for t in templates]
+
+
+@app.get("/templates/{template_id}")
+async def get_template(template_id: str, session: SessionDep) -> TemplateResponse:
+    repo = TemplateRepo(session)
+    template = await repo.get(template_id)
+    if template is None:
+        raise StorageTemplateNotFoundError(template_id)
+    return _template_to_response(template)
+
+
+@app.patch("/templates/{template_id}")
+async def patch_template(
+    template_id: str, req: PatchTemplateRequest, session: SessionDep
+) -> TemplateResponse:
+    repo = TemplateRepo(session)
+    fields = req.model_dump(exclude_none=True)
+    if "few_shot_examples" in fields:
+        fields["few_shot_examples"] = json.dumps(fields["few_shot_examples"])
+    fields["updated_at"] = datetime.datetime.now(datetime.UTC)
+    template = await repo.update(template_id, **fields)
+    if template is None:
+        raise StorageTemplateNotFoundError(template_id)
+    await session.commit()
+    await session.refresh(template)
+    return _template_to_response(template)
+
+
+@app.delete("/templates/{template_id}", status_code=204)
+async def delete_template(template_id: str, session: SessionDep) -> None:
+    repo = TemplateRepo(session)
+    if not await repo.delete(template_id):
+        raise StorageTemplateNotFoundError(template_id)
+    await session.commit()
