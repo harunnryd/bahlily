@@ -70,10 +70,26 @@
   domain: orchestration
   severity: error
   description: The model could not produce a schema-valid summary within the bounded retry budget.
-- code: CHAT_RESERVED
+- code: CHAT_MEETING_NOT_INGESTED
   domain: chat
-  severity: info
-  description: Placeholder namespace reserved for the chat service; no real codes emitted yet.
+  severity: error
+  description: The requested meeting ID has not been ingested into the chat index.
+- code: CHAT_UNSUPPORTED_PROVIDER
+  domain: chat
+  severity: error
+  description: The requested LLM provider string does not match a supported integration.
+- code: CHAT_UNSUPPORTED_EMBEDDING_PROVIDER
+  domain: chat
+  severity: error
+  description: The configured embedding provider does not match a supported integration.
+- code: CHAT_PROVIDER_AUTH_FAILED
+  domain: chat
+  severity: error
+  description: The selected LLM or embedding provider rejected the request due to a missing or invalid API key.
+- code: CHAT_PROVIDER_UNAVAILABLE
+  domain: chat
+  severity: error
+  description: The selected LLM or embedding provider was unreachable or timed out after retries were exhausted.
 - code: CALENDAR_RESERVED
   domain: calendar
   severity: info
