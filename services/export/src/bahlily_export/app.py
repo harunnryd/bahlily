@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, Query
@@ -27,6 +28,12 @@ _EXTENSIONS: dict[ExportFormat, str] = {
     "pdf": "pdf",
 }
 
+_RENDERERS: dict[ExportFormat, Callable[[ExportRequest], bytes]] = {
+    "markdown": render_markdown,
+    "docx": render_docx,
+    "pdf": render_pdf,
+}
+
 
 def _slugify(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
@@ -40,18 +47,19 @@ def health() -> dict[str, str]:
 
 
 @app.post("/export")
-async def export(
+def export(
     req: ExportRequest,
-    format: Annotated[ExportFormat, Query()],
+    export_format: Annotated[ExportFormat, Query(alias="format")],
 ) -> Response:
-    data = {
-        "markdown": render_markdown,
-        "docx": render_docx,
-        "pdf": render_pdf,
-    }[format](req)
-    filename = f"{_slugify(req.title)}.{_EXTENSIONS[format]}"
+    try:
+        data = _RENDERERS[export_format](req)
+    except Exception:
+        return Response(
+            content=b"failed to render export", status_code=500, media_type="text/plain"
+        )
+    filename = f"{_slugify(req.title)}.{_EXTENSIONS[export_format]}"
     return Response(
         content=data,
-        media_type=_CONTENT_TYPES[format],
+        media_type=_CONTENT_TYPES[export_format],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

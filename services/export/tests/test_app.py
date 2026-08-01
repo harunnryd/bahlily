@@ -75,6 +75,13 @@ def test_export_rejects_empty_title() -> None:
     assert response.status_code == 422
 
 
+def test_export_docx_control_character_returns_500() -> None:
+    body = _body()
+    body["title"] = "Title\x0cwith formfeed"
+    response = client.post("/export?format=docx", json=body)
+    assert response.status_code == 500
+
+
 @pytest.mark.parametrize(
     ("title", "expected_slug"),
     [
