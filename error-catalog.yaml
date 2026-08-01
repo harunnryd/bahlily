@@ -98,3 +98,7 @@
   domain: storage
   severity: error
   description: A summary already exists for this meeting; delete it first to replace.
+- code: STORAGE_TEMPLATE_NOT_FOUND
+  domain: storage
+  severity: error
+  description: The requested custom summary template ID does not exist in storage.
