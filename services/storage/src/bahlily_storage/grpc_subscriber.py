@@ -27,7 +27,9 @@ def subscriber_status() -> dict[str, object]:
 
 
 def _is_valid_segment(seg: transcription_pb2.TranscriptSegment) -> bool:
-    return bool(seg.text) and seg.segment_id >= 0 and seg.audio_start_time <= seg.audio_end_time
+    # segment_id is a proto uint64: protobuf itself rejects a negative
+    # assignment (ValueError), so it can never be negative here.
+    return bool(seg.text) and seg.audio_start_time <= seg.audio_end_time
 
 
 class TranscriptionSubscriber:
