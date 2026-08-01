@@ -75,11 +75,32 @@ def test_export_rejects_empty_title() -> None:
     assert response.status_code == 422
 
 
-def test_export_docx_control_character_returns_500() -> None:
+def test_export_docx_control_character_rejected_at_validation() -> None:
     body = _body()
     body["title"] = "Title\x0cwith formfeed"
     response = client.post("/export?format=docx", json=body)
-    assert response.status_code == 500
+    assert response.status_code == 422
+
+
+def test_export_rejects_missing_overview() -> None:
+    body = _body()
+    del body["overview"]
+    response = client.post("/export?format=markdown", json=body)
+    assert response.status_code == 422
+
+
+def test_export_rejects_missing_created_at() -> None:
+    body = _body()
+    del body["created_at"]
+    response = client.post("/export?format=markdown", json=body)
+    assert response.status_code == 422
+
+
+def test_export_rejects_whitespace_only_overview() -> None:
+    body = _body()
+    body["overview"] = "   "
+    response = client.post("/export?format=markdown", json=body)
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
