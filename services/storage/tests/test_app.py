@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -8,10 +9,15 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from bahlily_storage import repos
-from bahlily_storage.app import app
+from bahlily_storage import db as db_module
+from bahlily_storage.app import app, create_meeting, create_summary
 from bahlily_storage.db import get_session
-from bahlily_storage.models import Base
+from bahlily_storage.errors import (
+    StorageMeetingAlreadyExistsError,
+    StorageSummaryAlreadyExistsError,
+)
+from bahlily_storage.models import Base, Meeting
+from bahlily_storage.schemas import CreateMeetingRequest, CreateSummaryRequest
 
 
 @pytest.fixture
@@ -255,59 +261,75 @@ def test_batch_upsert_rejects_invalid_segment(client: TestClient) -> None:
     assert r.status_code == 422
 
 
-def test_create_meeting_race_maps_to_conflict(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Two requests racing past the pre-check must not surface a raw 500.
+async def test_create_meeting_race_maps_to_conflict(tmp_path: Path) -> None:
+    """Two genuinely concurrent requests for the same id: exactly one must
+    succeed and the other must recover via the commit-time `IntegrityError`
+    handler (not surface a raw 500), since both can pass the up-front
+    existence check before either commits.
 
-    Simulates the race window between `MeetingRepo.get`'s existence check and
-    the commit: patch `get` to report "absent" once, so the handler proceeds
-    to insert a row that already exists and must recover via the commit-time
-    `IntegrityError` handler instead of the up-front check.
+    Calls `create_meeting` directly (bypassing the ASGI/TestClient layer,
+    which runs requests strictly one at a time) with two sessions sharing one
+    real sqlite file, so the two attempts' `MeetingRepo.get` checks and
+    inserts genuinely interleave via aiosqlite's own thread-pool scheduling —
+    no repository method is mocked.
     """
-    client.post("/meetings", json={"id": "m1"})
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{tmp_path / 'race.db'}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    original_get = repos.MeetingRepo.get
-    calls = {"n": 0}
+        async def attempt() -> str:
+            async with factory() as session:
+                try:
+                    await create_meeting(CreateMeetingRequest(id="m-race"), session)
+                except StorageMeetingAlreadyExistsError:
+                    return "conflict"
+                return "created"
 
-    async def flaky_get(self: repos.MeetingRepo, meeting_id: str) -> object:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return None
-        return await original_get(self, meeting_id)
+        outcomes = await asyncio.gather(attempt(), attempt())
+    finally:
+        await engine.dispose()
 
-    monkeypatch.setattr(repos.MeetingRepo, "get", flaky_get)
-
-    r = client.post("/meetings", json={"id": "m1"})
-    assert r.status_code == 409
-    assert r.json()["code"] == "STORAGE_MEETING_ALREADY_EXISTS"
+    assert outcomes.count("created") == 1
+    assert outcomes.count("conflict") == 1
 
 
-def test_create_summary_race_maps_to_conflict(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client.post("/meetings", json={"id": "m1"})
-    body = {
-        "title": "T",
-        "overview": "O",
-        "key_points": [],
-        "action_items": [],
-        "provider": "p",
-        "model": "m",
-    }
-    client.post("/meetings/m1/summary", json=body)
+async def test_create_summary_race_maps_to_conflict(tmp_path: Path) -> None:
+    """Same race as above, one level down: two concurrent summary creations
+    for the same meeting must yield exactly one success and one conflict."""
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{tmp_path / 'race.db'}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    original_get_by_meeting = repos.SummaryRepo.get_by_meeting
-    calls = {"n": 0}
+        async with factory() as session:
+            session.add(
+                Meeting(
+                    id="m1",
+                    status="recording",
+                    started_at=datetime.datetime.now(datetime.UTC),
+                    segments_count=0,
+                )
+            )
+            await session.commit()
 
-    async def flaky_get_by_meeting(self: repos.SummaryRepo, meeting_id: str) -> object:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return None
-        return await original_get_by_meeting(self, meeting_id)
+        body = CreateSummaryRequest(
+            title="T", overview="O", key_points=[], action_items=[], provider="p", model="m"
+        )
 
-    monkeypatch.setattr(repos.SummaryRepo, "get_by_meeting", flaky_get_by_meeting)
+        async def attempt() -> str:
+            async with factory() as session:
+                try:
+                    await create_summary("m1", body, session)
+                except StorageSummaryAlreadyExistsError:
+                    return "conflict"
+                return "created"
 
-    r = client.post("/meetings/m1/summary", json=body)
-    assert r.status_code == 409
-    assert r.json()["code"] == "STORAGE_SUMMARY_ALREADY_EXISTS"
+        outcomes = await asyncio.gather(attempt(), attempt())
+    finally:
+        await engine.dispose()
+
+    assert outcomes.count("created") == 1
+    assert outcomes.count("conflict") == 1
