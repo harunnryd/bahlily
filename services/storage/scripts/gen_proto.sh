@@ -2,17 +2,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-rm -rf src/bahlily_storage/pb
-mkdir -p src/bahlily_storage/pb
+# Generate into a staging directory and validate everything there first;
+# the existing src/bahlily_storage/pb is only replaced once generation and
+# the import-rewrite both succeed, so a failure partway through (protoc
+# error, an unexpected rewrite match count) never leaves the working tree
+# with a missing or half-generated pb package.
+staging_dir="$(mktemp -d)"
+trap 'rm -rf "$staging_dir"' EXIT
 
 uv run python -m grpc_tools.protoc \
   -I ../transcription/proto \
-  --python_out=src/bahlily_storage/pb \
-  --grpc_python_out=src/bahlily_storage/pb \
-  --pyi_out=src/bahlily_storage/pb \
+  --python_out="$staging_dir" \
+  --grpc_python_out="$staging_dir" \
+  --pyi_out="$staging_dir" \
   ../transcription/proto/transcription/v1/transcription.proto
 
-find src/bahlily_storage/pb -type d -exec touch {}/__init__.py \;
+find "$staging_dir" -type d -exec touch {}/__init__.py \;
 
 python3 -c "
 import pathlib
@@ -30,7 +35,9 @@ def replace_exactly_once(path: pathlib.Path, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-grpc_path = pathlib.Path('src/bahlily_storage/pb/transcription/v1/transcription_pb2_grpc.py')
+staging_dir = pathlib.Path('$staging_dir')
+
+grpc_path = staging_dir / 'transcription/v1/transcription_pb2_grpc.py'
 grpc_path.write_text(
     replace_exactly_once(
         grpc_path,
@@ -39,7 +46,7 @@ grpc_path.write_text(
     )
 )
 
-pb2_path = pathlib.Path('src/bahlily_storage/pb/transcription/v1/transcription_pb2.py')
+pb2_path = staging_dir / 'transcription/v1/transcription_pb2.py'
 pb2_path.write_text(
     replace_exactly_once(
         pb2_path,
@@ -48,5 +55,9 @@ pb2_path.write_text(
     )
 )
 "
+
+rm -rf src/bahlily_storage/pb
+mkdir -p src/bahlily_storage
+cp -R "$staging_dir" src/bahlily_storage/pb
 
 echo "proto codegen complete"
