@@ -16,10 +16,17 @@ find src/bahlily_storage/pb -type d -exec touch {}/__init__.py \;
 
 python3 -c "
 import pathlib
-p = pathlib.Path('src/bahlily_storage/pb/transcription/v1/transcription_pb2_grpc.py')
-p.write_text(p.read_text().replace(
+
+grpc_path = pathlib.Path('src/bahlily_storage/pb/transcription/v1/transcription_pb2_grpc.py')
+grpc_path.write_text(grpc_path.read_text().replace(
     'from transcription.v1 import',
     'from bahlily_storage.pb.transcription.v1 import',
+))
+
+pb2_path = pathlib.Path('src/bahlily_storage/pb/transcription/v1/transcription_pb2.py')
+pb2_path.write_text(pb2_path.read_text().replace(
+    \"'transcription.v1.transcription_pb2'\",
+    \"'bahlily_storage.pb.transcription.v1.transcription_pb2'\",
 ))
 "
 

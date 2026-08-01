@@ -28,7 +28,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n$transcription/v1/
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'transcription.v1.transcription_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'bahlily_storage.pb.transcription.v1.transcription_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_ENGINE']._serialized_start=473
