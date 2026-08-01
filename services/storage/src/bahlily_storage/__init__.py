@@ -52,25 +52,28 @@ async def _run_concurrently(
         raise first_exc
 
 
+async def _serve_all(http_port: int, transcription_addr: str) -> None:
+    from bahlily_storage import db
+    from bahlily_storage.app import app
+    from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
+
+    # Alembic (not `create_all`) so the database ends up with an
+    # `alembic_version` row and later migrations can apply cleanly.
+    await db.upgrade_to_head()
+
+    subscriber = TranscriptionSubscriber(
+        addr=transcription_addr,
+        session_factory=db.async_session_factory,
+    )
+
+    config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
+    server = uvicorn.Server(config)
+
+    await _run_concurrently(server.serve(), subscriber.run())
+
+
 def main() -> None:
     http_port = int(os.environ.get("BAHLILY_STORAGE_HTTP_PORT", "8003"))
     transcription_addr = os.environ.get("TRANSCRIPTION_GRPC_ADDR", "localhost:50052")
 
-    async def _serve_all() -> None:
-        from bahlily_storage.app import app
-        from bahlily_storage.db import async_session_factory, init_db
-        from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
-
-        await init_db()
-
-        subscriber = TranscriptionSubscriber(
-            addr=transcription_addr,
-            session_factory=async_session_factory,
-        )
-
-        config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
-        server = uvicorn.Server(config)
-
-        await _run_concurrently(server.serve(), subscriber.run())
-
-    asyncio.run(_serve_all())
+    asyncio.run(_serve_all(http_port, transcription_addr))

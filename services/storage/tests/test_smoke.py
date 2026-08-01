@@ -7,12 +7,34 @@ from unittest.mock import patch
 import pytest
 import structlog
 
-from bahlily_storage import _run_concurrently, main
+from bahlily_storage import _run_concurrently, _serve_all, main
 from bahlily_storage.app import app
 
 
 def test_app_has_correct_title() -> None:
     assert app.title == "bahlily-storage"
+
+
+async def test_serve_all_runs_alembic_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Startup must make the DB alembic-tracked, not just `create_all` the schema."""
+    calls: list[str] = []
+
+    async def fake_upgrade() -> None:
+        calls.append("upgrade")
+
+    async def fake_run_concurrently(first: object, second: object) -> None:
+        for coro in (first, second):
+            if inspect.iscoroutine(coro):
+                coro.close()
+
+    import bahlily_storage.db as db_module
+
+    monkeypatch.setattr(db_module, "upgrade_to_head", fake_upgrade)
+    monkeypatch.setattr("bahlily_storage._run_concurrently", fake_run_concurrently)
+
+    await _serve_all(http_port=0, transcription_addr="localhost:1")
+
+    assert calls == ["upgrade"]
 
 
 def test_main_calls_asyncio_run() -> None:
