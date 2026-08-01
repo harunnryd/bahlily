@@ -6,9 +6,20 @@ cd "$(dirname "$0")/.."
 # the existing src/bahlily_storage/pb is only replaced once generation and
 # the import-rewrite both succeed, so a failure partway through (protoc
 # error, an unexpected rewrite match count) never leaves the working tree
-# with a missing or half-generated pb package.
+# with a missing or half-generated pb package. The final swap itself also
+# renames the old package aside rather than deleting it up front, so a
+# failure during the copy/rename can still be rolled back.
 staging_dir="$(mktemp -d)"
-trap 'rm -rf "$staging_dir"' EXIT
+new_pb="src/bahlily_storage/pb.new.$$"
+old_pb_backup="src/bahlily_storage/pb.old.$$"
+cleanup() {
+  rm -rf "$staging_dir" "$new_pb"
+  if [ -d "$old_pb_backup" ] && [ ! -d src/bahlily_storage/pb ]; then
+    mv "$old_pb_backup" src/bahlily_storage/pb
+  fi
+  rm -rf "$old_pb_backup"
+}
+trap cleanup EXIT
 
 uv run python -m grpc_tools.protoc \
   -I ../transcription/proto \
@@ -19,7 +30,8 @@ uv run python -m grpc_tools.protoc \
 
 find "$staging_dir" -type d -exec touch {}/__init__.py \;
 
-python3 -c "
+STAGING_DIR="$staging_dir" python3 -c "
+import os
 import pathlib
 import sys
 
@@ -35,7 +47,7 @@ def replace_exactly_once(path: pathlib.Path, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-staging_dir = pathlib.Path('$staging_dir')
+staging_dir = pathlib.Path(os.environ['STAGING_DIR'])
 
 grpc_path = staging_dir / 'transcription/v1/transcription_pb2_grpc.py'
 grpc_path.write_text(
@@ -56,8 +68,15 @@ pb2_path.write_text(
 )
 "
 
-rm -rf src/bahlily_storage/pb
 mkdir -p src/bahlily_storage
-cp -R "$staging_dir" src/bahlily_storage/pb
+rm -rf "$new_pb"
+cp -R "$staging_dir" "$new_pb"
+
+rm -rf "$old_pb_backup"
+if [ -d src/bahlily_storage/pb ]; then
+  mv src/bahlily_storage/pb "$old_pb_backup"
+fi
+mv "$new_pb" src/bahlily_storage/pb
+rm -rf "$old_pb_backup"
 
 echo "proto codegen complete"
