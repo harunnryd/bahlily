@@ -409,3 +409,36 @@ def test_delete_template_not_found(client: TestClient) -> None:
     r = client.delete("/templates/nonexistent")
     assert r.status_code == 404
     assert r.json()["code"] == "STORAGE_TEMPLATE_NOT_FOUND"
+
+
+def test_create_template_rejects_malformed_few_shot_example(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"foo": "bar"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_create_template_accepts_well_formed_few_shot_example(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"input": "hi", "output": "hello"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 201
+    assert r.json()["few_shot_examples"] == [{"input": "hi", "output": "hello"}]
+
+
+def test_create_template_rejects_empty_system_prompt(client: TestClient) -> None:
+    body = {"name": "Custom", "system_prompt": ""}
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_patch_template_rejects_empty_system_prompt(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={"system_prompt": ""})
+    assert r.status_code == 422

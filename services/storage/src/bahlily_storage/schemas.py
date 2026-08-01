@@ -95,14 +95,21 @@ class SummaryResponse(BaseModel):
     created_at: datetime.datetime
 
 
+class TemplateExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: str
+    output: str
+
+
 class CreateTemplateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     version: str = "1.0.0"
-    system_prompt: str
+    system_prompt: str = Field(min_length=1)
     focus_instructions: str | None = None
-    few_shot_examples: list[dict[str, Any]] = []
+    few_shot_examples: list[TemplateExample] = []
 
 
 class PatchTemplateRequest(BaseModel):
@@ -110,9 +117,9 @@ class PatchTemplateRequest(BaseModel):
 
     name: str | None = None
     version: str | None = None
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(default=None, min_length=1)
     focus_instructions: str | None = None
-    few_shot_examples: list[dict[str, Any]] | None = None
+    few_shot_examples: list[TemplateExample] | None = None
 
 
 class TemplateResponse(BaseModel):
@@ -121,6 +128,6 @@ class TemplateResponse(BaseModel):
     version: str
     system_prompt: str
     focus_instructions: str | None
-    few_shot_examples: list[dict[str, Any]]
+    few_shot_examples: list[TemplateExample]
     created_at: datetime.datetime
     updated_at: datetime.datetime

@@ -287,7 +287,7 @@ async def create_template(req: CreateTemplateRequest, session: SessionDep) -> Te
         version=req.version,
         system_prompt=req.system_prompt,
         focus_instructions=req.focus_instructions,
-        few_shot_examples=json.dumps(req.few_shot_examples),
+        few_shot_examples=json.dumps([e.model_dump() for e in req.few_shot_examples]),
         created_at=now,
         updated_at=now,
     )
