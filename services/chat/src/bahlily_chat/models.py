@@ -44,10 +44,10 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     question: str = Field(min_length=1)
-    meeting_id: str | None = None
+    meeting_id: str | None = Field(default=None, min_length=1)
     history: list[ChatTurn] = []
-    provider: str
-    model: str
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
 
 
 class Citation(BaseModel):
