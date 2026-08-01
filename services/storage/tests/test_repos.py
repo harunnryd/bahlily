@@ -60,6 +60,65 @@ async def test_meeting_increment_segments_count(session: AsyncSession) -> None:
     assert m.segments_count == 1
 
 
+async def test_meeting_list_all(session: AsyncSession) -> None:
+    repo = MeetingRepo(session)
+    # Create three meetings with different started_at times
+    m1 = Meeting(
+        id="m1",
+        status="recording",
+        started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        segments_count=0,
+    )
+    m2 = Meeting(
+        id="m2",
+        status="recording",
+        started_at=datetime.datetime(2026, 1, 3, tzinfo=datetime.UTC),
+        segments_count=0,
+    )
+    m3 = Meeting(
+        id="m3",
+        status="recording",
+        started_at=datetime.datetime(2026, 1, 2, tzinfo=datetime.UTC),
+        segments_count=0,
+    )
+    await repo.create(m1)
+    await repo.create(m2)
+    await repo.create(m3)
+    await session.commit()
+
+    # Test ordering by started_at DESC
+    all_meetings = await repo.list_all()
+    assert len(all_meetings) == 3
+    assert [m.id for m in all_meetings] == ["m2", "m3", "m1"]
+
+    # Test limit
+    limited = await repo.list_all(limit=2)
+    assert len(limited) == 2
+    assert [m.id for m in limited] == ["m2", "m3"]
+
+    # Test offset
+    offset_meetings = await repo.list_all(limit=2, offset=1)
+    assert len(offset_meetings) == 2
+    assert [m.id for m in offset_meetings] == ["m3", "m1"]
+
+
+async def test_meeting_update_engine_metadata(session: AsyncSession) -> None:
+    repo = MeetingRepo(session)
+    await repo.create(_meeting())
+    await session.commit()
+
+    # Update engine metadata with specific values
+    await repo.update_engine_metadata("m1", engine="whisper", model_name="base", language="en")
+    await session.commit()
+
+    # Fetch and verify all three fields were persisted
+    m = await repo.get("m1")
+    assert m is not None
+    assert m.engine == "whisper"
+    assert m.model_name == "base"
+    assert m.language == "en"
+
+
 async def test_segment_upsert_idempotent(session: AsyncSession) -> None:
     repo_m = MeetingRepo(session)
     await repo_m.create(_meeting())
