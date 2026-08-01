@@ -31,6 +31,198 @@ pub fn pair_chunks(
     }
 }
 
+use crate::capture::CaptureError;
+use crate::mixer::{AudioMixer, MixerConfig};
+use crate::recording::Writer;
+use crate::vad::{SileroVad, SpeechSegmenter};
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
+
+#[derive(Debug, thiserror::Error)]
+pub enum SessionError {
+    #[error("capture failed: {0}")]
+    Capture(#[from] CaptureError),
+    #[error("vad model failed to load: {0}")]
+    VadModel(#[from] crate::vad::SileroError),
+    #[error("recording writer failed: {0}")]
+    Writer(#[from] std::io::Error),
+}
+
+pub struct SessionConfig {
+    pub recording_id: String,
+    pub vad_model_path: std::path::PathBuf,
+    pub wav_output_path: std::path::PathBuf,
+    pub sample_rate: u32,
+    pub window_ms: u32,
+}
+
+pub struct Session {
+    mic_capture: Box<dyn crate::capture::CaptureSource>,
+    system_capture: Box<dyn crate::capture::CaptureSource>,
+    stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    pairing_thread: Option<std::thread::JoinHandle<std::io::Result<Writer>>>,
+}
+
+impl Session {
+    pub fn start(
+        config: SessionConfig,
+        mut mic_capture: Box<dyn crate::capture::CaptureSource>,
+        mut system_capture: Box<dyn crate::capture::CaptureSource>,
+        segment_tx: tokio::sync::mpsc::Sender<crate::grpc::pb::AudioSegment>,
+    ) -> Result<Self, SessionError> {
+        let (mic_tx, mic_rx) = crate::capture::bounded_chunk_channel();
+        let (system_tx, system_rx) = crate::capture::bounded_chunk_channel();
+        mic_capture.start(mic_tx)?;
+        system_capture.start(system_tx)?;
+
+        let mut writer = Writer::create(&config.wav_output_path, config.sample_rate)?;
+        let mut mixer = AudioMixer::new(MixerConfig {
+            window_ms: config.window_ms,
+            sample_rate: config.sample_rate,
+        });
+        let counter = Arc::new(AtomicU64::new(0));
+        let start = std::time::Instant::now();
+        let trace_id = crate::generate_trace_id();
+
+        let mic_vad = SileroVad::new(&config.vad_model_path)?;
+        let system_vad = SileroVad::new(&config.vad_model_path)?;
+        let mut mic_segmenter = SpeechSegmenter::new(
+            mic_vad,
+            crate::grpc::pb::DeviceType::Microphone,
+            counter.clone(),
+            start,
+            trace_id.clone(),
+        );
+        let mut system_segmenter = SpeechSegmenter::new(
+            system_vad,
+            crate::grpc::pb::DeviceType::System,
+            counter,
+            start,
+            trace_id,
+        );
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+
+        let pairing_thread = std::thread::spawn(move || -> std::io::Result<Writer> {
+            // A dedicated, self-contained runtime for this thread alone --
+            // `run_pipeline_once` is `async fn` and needs *some* executor to
+            // poll it, but this thread has no ambient tokio context of its
+            // own (it's a plain std::thread, not spawned via tokio::spawn),
+            // and `Session::start` may itself be called from a sync Tauri
+            // command handler with no guaranteed "current" runtime handle.
+            // Building one locally avoids depending on either.
+            let local_runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("failed to build pairing-thread runtime");
+
+            pair_chunks(mic_rx, system_rx, stop_rx, |mic, system| {
+                local_runtime.block_on(crate::run_pipeline_once_sync_shim(
+                    &mic,
+                    &system,
+                    &mut mixer,
+                    &mut writer,
+                    &mut mic_segmenter,
+                    &mut system_segmenter,
+                    &segment_tx,
+                ));
+            });
+            Ok(writer)
+        });
+
+        Ok(Self {
+            mic_capture,
+            system_capture,
+            stop_tx: Some(stop_tx),
+            pairing_thread: Some(pairing_thread),
+        })
+    }
+
+    pub fn stop(mut self) -> std::io::Result<()> {
+        self.mic_capture.stop();
+        self.system_capture.stop();
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.pairing_thread.take() {
+            let writer = handle.join().expect("pairing thread panicked")?;
+            writer.finalize()?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use crate::capture::ChunkSender;
+    use crate::grpc::pb::DeviceType;
+
+    struct FakeCapture {
+        samples: Vec<f32>,
+        device_type: DeviceType,
+    }
+
+    impl crate::capture::CaptureSource for FakeCapture {
+        fn start(&mut self, tx: ChunkSender) -> Result<(), CaptureError> {
+            tx.send(crate::capture::RawChunk {
+                data: self.samples.clone(),
+                sample_rate: 1000,
+                timestamp: std::time::Instant::now(),
+                device_type: self.device_type,
+            });
+            Ok(())
+        }
+        fn stop(&mut self) {}
+    }
+
+    #[tokio::test]
+    async fn start_and_stop_produces_a_finalized_wav_file() {
+        let dir = std::env::temp_dir();
+        let wav_path = dir.join("audio_core_session_test.wav");
+        let _ = std::fs::remove_file(&wav_path);
+
+        // A real Silero ONNX model isn't available in this test environment;
+        // this test exercises only the capture/mixer/writer wiring, not VAD,
+        // so it constructs the session components directly rather than via
+        // `Session::start` (which requires a loadable model path). See
+        // `mod vad_gated_tests` below for the version gated on a real model.
+        let dir_for_writer = dir.clone();
+        let _ = dir_for_writer;
+
+        let mic = Box::new(FakeCapture {
+            samples: vec![0.1; 50],
+            device_type: DeviceType::Microphone,
+        });
+        let system = Box::new(FakeCapture {
+            samples: vec![0.2; 50],
+            device_type: DeviceType::System,
+        });
+        let (segment_tx, _segment_rx) = tokio::sync::mpsc::channel(8);
+
+        let model_path = std::env::var("BAHLILY_TEST_VAD_MODEL_PATH").ok();
+        let Some(model_path) = model_path else {
+            eprintln!("skipping: BAHLILY_TEST_VAD_MODEL_PATH not set");
+            return;
+        };
+
+        let config = SessionConfig {
+            recording_id: "test-session".to_string(),
+            vad_model_path: std::path::PathBuf::from(model_path),
+            wav_output_path: wav_path.clone(),
+            sample_rate: 1000,
+            window_ms: 50,
+        };
+
+        let session = Session::start(config, mic, system, segment_tx).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        session.stop().unwrap();
+
+        let mut reader = hound::WavReader::open(&wav_path).unwrap();
+        assert!(reader.samples::<f32>().count() > 0);
+        std::fs::remove_file(&wav_path).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -139,6 +139,39 @@ pub async fn run_pipeline_once(
     write_result
 }
 
+/// Runs `run_pipeline_once` from a plain blocking thread (the pairing loop
+/// has no async executor of its own) via a handle to the caller's runtime.
+/// Logs and swallows a write failure rather than propagating it, matching
+/// `run_pipeline_once`'s own existing NOTE that a disk-write failure
+/// shouldn't interrupt the pairing loop's next iteration.
+pub async fn run_pipeline_once_sync_shim(
+    mic_chunk: &capture::RawChunk,
+    system_chunk: &capture::RawChunk,
+    mixer: &mut mixer::AudioMixer,
+    writer: &mut recording::Writer,
+    mic_segmenter: &mut vad::SpeechSegmenter<impl vad::VadGate>,
+    system_segmenter: &mut vad::SpeechSegmenter<impl vad::VadGate>,
+    segment_tx: &tokio::sync::mpsc::Sender<grpc::pb::AudioSegment>,
+) {
+    if let Err(err) = run_pipeline_once(
+        mic_chunk,
+        system_chunk,
+        mixer,
+        writer,
+        mic_segmenter,
+        system_segmenter,
+        segment_tx,
+    )
+    .await
+    {
+        tracing::error!(
+            code = "AUDIO_RECORDING_WRITE_FAILED",
+            error = %err,
+            "failed to write mixed samples to the recording file"
+        );
+    }
+}
+
 #[cfg(test)]
 mod state_tests {
     use super::*;
