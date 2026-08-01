@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -133,6 +134,21 @@ async def test_run_concurrently_logs_discarded_secondary_exception() -> None:
     assert any(log.get("event") == "discarded_secondary_exception" for log in logs)
 
 
+class _FakeLifespan:
+    """Mirrors the one attribute `_serve_http` reads on uvicorn's real
+    `Lifespan` implementations: an `asyncio.Event` set once the ASGI app's
+    startup handler has run (successfully or not)."""
+
+    def __init__(self, *, startup_completed: bool) -> None:
+        self.startup_event = asyncio.Event()
+        if startup_completed:
+            self.startup_event.set()
+        self.shutdown_calls = 0
+
+    async def shutdown(self) -> None:
+        self.shutdown_calls += 1
+
+
 async def test_serve_http_calls_shutdown_on_cancellation() -> None:
     """Cancelling `server.serve()` bypasses uvicorn's own shutdown call
     (it only runs after its internal loop exits normally), so `_serve_http`
@@ -141,6 +157,7 @@ async def test_serve_http_calls_shutdown_on_cancellation() -> None:
 
     class FakeServer:
         started = True
+        lifespan = _FakeLifespan(startup_completed=True)
 
         async def serve(self) -> None:
             await asyncio.sleep(10)
@@ -159,8 +176,11 @@ async def test_serve_http_calls_shutdown_on_cancellation() -> None:
 
 async def test_serve_http_skips_shutdown_when_never_started() -> None:
     """`shutdown()` reads `self.servers`, set only at the end of `startup()`;
-    calling it after a cancellation mid-startup would raise `AttributeError`."""
+    calling it after a cancellation before lifespan startup even ran would
+    raise `AttributeError`. Neither `server.shutdown()` nor
+    `lifespan.shutdown()` should run here."""
     shutdown_calls = 0
+    lifespan = _FakeLifespan(startup_completed=False)
 
     class FakeServer:
         started = False
@@ -172,9 +192,67 @@ async def test_serve_http_skips_shutdown_when_never_started() -> None:
             nonlocal shutdown_calls
             shutdown_calls += 1
 
+    fake_server = FakeServer()
+    fake_server.lifespan = lifespan  # type: ignore[attr-defined]
+
     async def quick() -> None:
         await asyncio.sleep(0)
 
-    await _run_concurrently(quick(), _serve_http(cast(uvicorn.Server, FakeServer())))
+    await _run_concurrently(quick(), _serve_http(cast(uvicorn.Server, fake_server)))
 
     assert shutdown_calls == 0
+    assert lifespan.shutdown_calls == 0
+
+
+async def test_serve_http_shuts_down_lifespan_cancelled_during_listener_creation() -> None:
+    """Real `uvicorn.Server`/`Config`, not a fake: `lifespan.startup()` runs
+    *before* listener sockets are created, so a cancellation landing in that
+    gap (startup handlers already ran, `server.started` still `False`) must
+    still run the ASGI app's shutdown handler — otherwise whatever startup
+    acquired (connections, background tasks) leaks silently, since nothing
+    else will ever call it.
+    """
+    events = {"startup": False, "shutdown": False}
+
+    async def lifespan_app(
+        scope: dict[str, object],
+        receive: object,
+        send: object,
+    ) -> None:
+        assert scope["type"] == "lifespan"
+        while True:
+            message = await receive()  # type: ignore[operator]
+            if message["type"] == "lifespan.startup":
+                events["startup"] = True
+                await send({"type": "lifespan.startup.complete"})  # type: ignore[operator]
+            elif message["type"] == "lifespan.shutdown":
+                events["shutdown"] = True
+                await send({"type": "lifespan.shutdown.complete"})  # type: ignore[operator]
+                return
+
+    config = uvicorn.Config(lifespan_app, host="127.0.0.1", port=0, lifespan="on")
+    server = uvicorn.Server(config)
+
+    loop: Any = asyncio.get_running_loop()
+    real_create_server = loop.create_server
+    listener_gate = asyncio.Event()
+
+    async def blocked_create_server(*args: Any, **kwargs: Any) -> Any:
+        await listener_gate.wait()
+        return await real_create_server(*args, **kwargs)
+
+    loop.create_server = blocked_create_server
+
+    task = asyncio.create_task(_serve_http(server))
+    try:
+        deadline = loop.time() + 2.0
+        while not events["startup"] and loop.time() < deadline:
+            await asyncio.sleep(0.01)
+        assert events["startup"] is True
+        assert server.started is False
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert events["shutdown"] is True

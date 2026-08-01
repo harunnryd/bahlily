@@ -26,10 +26,14 @@ async def _serve_http(server: uvicorn.Server) -> None:
     except asyncio.CancelledError:
         # `server.started` is only set once `startup()` finishes; `shutdown()`
         # assumes `self.servers` exists, which it doesn't if cancellation
-        # landed mid-startup. Nothing was bound yet, so there's nothing to
-        # drain.
+        # landed mid-startup. But `lifespan.startup()` runs *before* listener
+        # sockets are created — cancellation landing in that gap (startup
+        # handlers already ran, no socket bound yet) would otherwise skip
+        # shutdown entirely and leak whatever the app's startup acquired.
         if server.started:
             await server.shutdown()
+        elif server.lifespan.startup_event.is_set():
+            await server.lifespan.shutdown()
         raise
 
 
