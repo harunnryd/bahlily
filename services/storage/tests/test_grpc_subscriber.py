@@ -80,16 +80,6 @@ class FakeTranscriptionServicer(transcription_pb2_grpc.TranscriptionServiceServi
             await asyncio.sleep(30.0)
 
 
-@pytest.fixture
-def unused_tcp_port() -> int:
-    import socket
-
-    with socket.socket() as s:
-        s.bind(("", 0))
-        port: int = s.getsockname()[1]
-        return port
-
-
 DbSession = tuple[AsyncSession, async_sessionmaker[AsyncSession]]
 
 

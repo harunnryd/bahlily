@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import sqlite3
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import patch
 
+import httpx
 import pytest
 import structlog
 import uvicorn
@@ -18,26 +21,52 @@ def test_app_has_correct_title() -> None:
     assert app.title == "bahlily-storage"
 
 
-async def test_serve_all_runs_alembic_upgrade(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Startup must make the DB alembic-tracked, not just `create_all` the schema."""
-    calls: list[str] = []
+async def test_serve_all_runs_alembic_upgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused_tcp_port: int
+) -> None:
+    """Startup must make the DB alembic-tracked, not just `create_all` the
+    schema — and the HTTP server it starts must actually be reachable.
 
-    async def fake_upgrade() -> None:
-        calls.append("upgrade")
+    Runs the real `_serve_all`: no mocked `upgrade_to_head` or
+    `_run_concurrently`. A real migration runs against a real sqlite file, a
+    real uvicorn server binds a real port, and the real (never-connecting,
+    since `transcription_addr` is bogus) gRPC subscriber runs alongside it —
+    exactly the concurrent composition production uses.
+    """
+    db_path = tmp_path / "serve-all.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
 
-    async def fake_run_concurrently(first: object, second: object) -> None:
-        for coro in (first, second):
-            if inspect.iscoroutine(coro):
-                coro.close()
+    task = asyncio.create_task(
+        _serve_all(
+            http_host="127.0.0.1",
+            http_port=unused_tcp_port,
+            transcription_addr="localhost:1",
+        )
+    )
+    try:
+        response = None
+        async with httpx.AsyncClient() as client:
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while response is None and asyncio.get_running_loop().time() < deadline:
+                try:
+                    response = await client.get(
+                        f"http://127.0.0.1:{unused_tcp_port}/health", timeout=0.5
+                    )
+                except httpx.TransportError:
+                    await asyncio.sleep(0.05)
+        assert response is not None
+        assert response.status_code == 200
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
-    import bahlily_storage.db as db_module
-
-    monkeypatch.setattr(db_module, "upgrade_to_head", fake_upgrade)
-    monkeypatch.setattr("bahlily_storage._run_concurrently", fake_run_concurrently)
-
-    await _serve_all(http_host="127.0.0.1", http_port=0, transcription_addr="localhost:1")
-
-    assert calls == ["upgrade"]
+    conn = sqlite3.connect(str(db_path))
+    try:
+        versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
+    finally:
+        conn.close()
+    assert versions  # a revision is stamped, proving a real alembic upgrade ran
 
 
 def test_main_calls_asyncio_run() -> None:

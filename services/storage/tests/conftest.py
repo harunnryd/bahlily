@@ -10,6 +10,16 @@ from bahlily_storage.models import Base
 
 
 @pytest.fixture
+def unused_tcp_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+@pytest.fixture
 async def session() -> AsyncGenerator[AsyncSession, None]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
