@@ -17,6 +17,7 @@ from bahlily_storage.errors import (
     StorageMeetingNotFoundError,
     StorageSummaryAlreadyExistsError,
 )
+from bahlily_storage.grpc_subscriber import subscriber_status
 from bahlily_storage.models import Meeting, Summary
 from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo
 from bahlily_storage.schemas import (
@@ -70,7 +71,7 @@ def _meeting_to_response(m: Meeting) -> MeetingResponse:
 
 @app.get("/health")
 def health() -> dict[str, object]:
-    return {"status": "ok"}
+    return {"status": "ok", "transcription_subscriber": subscriber_status()}
 
 
 @app.post("/meetings", status_code=201)
