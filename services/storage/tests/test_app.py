@@ -39,11 +39,12 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
             yield s
 
     app.dependency_overrides[get_session] = override_session
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
-    asyncio.run(engine.dispose())
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
+        asyncio.run(engine.dispose())
 
 
 def test_health_returns_ok(client: TestClient) -> None:
