@@ -191,7 +191,7 @@ async def test_subscriber_skips_unknown_meeting(
         )
         try:
             await asyncio.wait_for(sub.run(), timeout=2.0)
-        except (TimeoutError, Exception):
+        except Exception:
             pass
 
         async with factory() as check_session:
