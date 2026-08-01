@@ -113,3 +113,16 @@ class Summary(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
 
     meeting: Mapped[Meeting] = relationship(back_populates="summary")
+
+
+class SummaryTemplate(Base):
+    __tablename__ = "summary_templates"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    version: Mapped[str] = mapped_column(default="1.0.0")
+    system_prompt: Mapped[str]
+    focus_instructions: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    few_shot_examples: Mapped[str] = mapped_column(default="[]")
+    created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+    updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
