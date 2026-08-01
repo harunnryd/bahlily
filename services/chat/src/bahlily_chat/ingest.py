@@ -28,6 +28,7 @@ def ingest(
     try:
         index.upsert_meeting(conn, meeting_id, rows)
     except sqlite3.OperationalError as exc:
-        raise ChatStorageError(str(exc)) from exc
+        conn.rollback()
+        raise ChatStorageError(f"failed to store segments for meeting {meeting_id!r}") from exc
 
     return IngestResponse(meeting_id=meeting_id, segments_indexed=len(rows))
