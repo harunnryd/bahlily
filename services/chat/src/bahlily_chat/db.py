@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import sqlite_vec
 
 _DIMENSION_KEY = "embedding_dimension"
+_SCHEMA_RETRIES = 10
+_SCHEMA_RETRY_DELAY_SECONDS = 0.1
 
 
 def connect(db_path: str, dimension: int) -> sqlite3.Connection:
@@ -17,20 +20,28 @@ def connect(db_path: str, dimension: int) -> sqlite3.Connection:
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
 
+    _initialize_with_retry(conn, db_path, dimension)
+    return conn
+
+
+def _initialize_with_retry(conn: sqlite3.Connection, db_path: str, dimension: int) -> None:
+    for attempt in range(_SCHEMA_RETRIES):
+        try:
+            _configure_and_setup_schema(conn, db_path, dimension)
+            return
+        except sqlite3.OperationalError as exc:
+            if attempt == _SCHEMA_RETRIES - 1 or "locked" not in str(exc).lower():
+                conn.close()
+                raise
+            time.sleep(_SCHEMA_RETRY_DELAY_SECONDS)
+
+
+def _configure_and_setup_schema(conn: sqlite3.Connection, db_path: str, dimension: int) -> None:
     if db_path != ":memory:":
-        # Each request opens its own connection (see app.get_connection), so
-        # concurrent requests mean concurrent writers to the same file. WAL
-        # lets readers proceed during a write, and busy_timeout makes a
-        # contended writer wait instead of failing immediately with
-        # "database is locked".
-        conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA busy_timeout = 5000")
+        conn.execute("PRAGMA journal_mode = WAL")
 
     conn.execute("CREATE TABLE IF NOT EXISTS chat_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-    # `INSERT OR IGNORE` (rather than SELECT-then-INSERT) keeps two concurrent
-    # first-time connects from racing into a UNIQUE constraint violation,
-    # which would otherwise leave a connection with an uncommitted write
-    # transaction dangling and starve every other connection's busy_timeout.
     conn.execute(
         "INSERT OR IGNORE INTO chat_meta(key, value) VALUES (?, ?)",
         [_DIMENSION_KEY, str(dimension)],
@@ -39,8 +50,7 @@ def connect(db_path: str, dimension: int) -> sqlite3.Connection:
     if row is None:
         conn.close()
         raise RuntimeError(
-            f"chat_meta row for {_DIMENSION_KEY!r} is missing after INSERT OR IGNORE; "
-            "this indicates a corrupted database file"
+            f"chat_meta row for {_DIMENSION_KEY!r} is missing after INSERT OR IGNORE"
         )
     existing_dimension = int(row[0])
     if existing_dimension != dimension:
@@ -66,4 +76,3 @@ def connect(db_path: str, dimension: int) -> sqlite3.Connection:
         """
     )
     conn.commit()
-    return conn
