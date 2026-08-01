@@ -111,11 +111,46 @@ def alembic_config() -> Config:
     return cfg
 
 
+def _existing_tables(db_url: str) -> set[str]:
+    """Return the table names present in the sqlite file backing `db_url`.
+
+    Used to detect a database created by the old `init_db()`
+    (`Base.metadata.create_all`) startup path, which leaves the application
+    tables in place but never stamps `alembic_version`.
+    """
+    import sqlite3
+
+    db_path_str = db_url.split("///", 1)[1]
+    if db_path_str == ":memory:" or not Path(db_path_str).exists():
+        return set()
+
+    conn = sqlite3.connect(db_path_str)
+    try:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    finally:
+        conn.close()
+    return {row[0] for row in rows}
+
+
 def upgrade_to_head_sync() -> None:
-    """Run `alembic upgrade head` synchronously. Blocks; call off the event loop."""
+    """Run `alembic upgrade head` synchronously. Blocks; call off the event loop.
+
+    Guards against a database created by the legacy `init_db()`
+    (`Base.metadata.create_all`) startup path: the `meetings`/`segments`/
+    `summaries` tables already exist but `alembic_version` was never stamped,
+    so `alembic upgrade head` would try to re-create them and fail with
+    "table meetings already exists". In that case, stamp the database to
+    `0001` (the revision matching the `create_all` schema) first so the
+    upgrade only applies migrations after that point. A genuinely fresh
+    database has neither table and upgrades normally from empty.
+    """
     from alembic import command
 
-    command.upgrade(alembic_config(), "head")
+    cfg = alembic_config()
+    tables = _existing_tables(resolve_db_url())
+    if "meetings" in tables and "alembic_version" not in tables:
+        command.stamp(cfg, "0001")
+    command.upgrade(cfg, "head")
 
 
 async def upgrade_to_head() -> None:
