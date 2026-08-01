@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -8,15 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from bahlily_storage import repos
 from bahlily_storage.app import app
 from bahlily_storage.db import get_session
 from bahlily_storage.models import Base
 
 
 @pytest.fixture
-def client(tmp_path: Path) -> Iterator[TestClient]:
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     db_path = tmp_path / "test.db"
-    os.environ["BAHLILY_STORAGE_DB"] = str(db_path)
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -145,6 +145,9 @@ def test_batch_upsert_idempotent(client: TestClient) -> None:
     segments = client.get("/meetings/m1/segments").json()
     assert len(segments) == 1
 
+    meeting = client.get("/meetings/m1").json()
+    assert meeting["segments_count"] == 1
+
 
 def test_batch_upsert_meeting_not_found(client: TestClient) -> None:
     r = client.post("/meetings/nonexistent/segments/batch", json={"segments": []})
@@ -210,3 +213,83 @@ def test_get_summary_not_found(client: TestClient) -> None:
     assert r.json()["code"] == "STORAGE_SUMMARY_NOT_FOUND"
     assert "message" in r.json()
     assert "detail" not in r.json()
+
+
+def test_list_meetings_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/meetings", params={"limit": 0}).status_code == 422
+    assert client.get("/meetings", params={"limit": 101}).status_code == 422
+    assert client.get("/meetings", params={"offset": -1}).status_code == 422
+
+
+def test_batch_upsert_rejects_invalid_segment(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    bad_segment = {
+        "segment_id": -1,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 1.0,
+        "audio_end_time": 0.0,
+        "is_partial": False,
+        "trace_id": "t1",
+    }
+    r = client.post("/meetings/m1/segments/batch", json={"segments": [bad_segment]})
+    assert r.status_code == 422
+
+
+def test_create_meeting_race_maps_to_conflict(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two requests racing past the pre-check must not surface a raw 500.
+
+    Simulates the race window between `MeetingRepo.get`'s existence check and
+    the commit: patch `get` to report "absent" once, so the handler proceeds
+    to insert a row that already exists and must recover via the commit-time
+    `IntegrityError` handler instead of the up-front check.
+    """
+    client.post("/meetings", json={"id": "m1"})
+
+    original_get = repos.MeetingRepo.get
+    calls = {"n": 0}
+
+    async def flaky_get(self: repos.MeetingRepo, meeting_id: str) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await original_get(self, meeting_id)
+
+    monkeypatch.setattr(repos.MeetingRepo, "get", flaky_get)
+
+    r = client.post("/meetings", json={"id": "m1"})
+    assert r.status_code == 409
+    assert r.json()["code"] == "STORAGE_MEETING_ALREADY_EXISTS"
+
+
+def test_create_summary_race_maps_to_conflict(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    body = {
+        "title": "T",
+        "overview": "O",
+        "key_points": [],
+        "action_items": [],
+        "provider": "p",
+        "model": "m",
+    }
+    client.post("/meetings/m1/summary", json=body)
+
+    original_get_by_meeting = repos.SummaryRepo.get_by_meeting
+    calls = {"n": 0}
+
+    async def flaky_get_by_meeting(self: repos.SummaryRepo, meeting_id: str) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return await original_get_by_meeting(self, meeting_id)
+
+    monkeypatch.setattr(repos.SummaryRepo, "get_by_meeting", flaky_get_by_meeting)
+
+    r = client.post("/meetings/m1/summary", json=body)
+    assert r.status_code == 409
+    assert r.json()["code"] == "STORAGE_SUMMARY_ALREADY_EXISTS"

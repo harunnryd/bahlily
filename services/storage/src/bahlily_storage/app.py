@@ -6,8 +6,10 @@ import uuid
 from typing import Annotated
 
 import structlog
-from fastapi import Depends, FastAPI
+from bahlily_logging.errors import BahlilyError
+from fastapi import Depends, FastAPI, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -49,11 +51,26 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageMeetingAlreadyExistsError)
 @app.exception_handler(StorageSummaryAlreadyExistsError)
 @app.exception_handler(StorageSummaryNotFoundError)
-async def _error_handler(request: Request, exc: Exception) -> JSONResponse:
+async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
         status_code=status,
-        content={"code": exc.code, "message": str(exc)},  # type: ignore[attr-defined]
+        content={"code": exc.code, "message": str(exc)},
+    )
+
+
+def _summary_to_response(s: Summary) -> SummaryResponse:
+    return SummaryResponse(
+        id=s.id,
+        meeting_id=s.meeting_id,
+        title=s.title,
+        overview=s.overview,
+        key_points=json.loads(s.key_points),
+        action_items=json.loads(s.action_items),
+        quotes=json.loads(s.quotes),
+        provider=s.provider,
+        model=s.model,
+        created_at=s.created_at,
     )
 
 
@@ -90,8 +107,12 @@ async def create_meeting(req: CreateMeetingRequest, session: SessionDep) -> Meet
         started_at=req.started_at or datetime.datetime.now(datetime.UTC),
         segments_count=0,
     )
-    await repo.create(m)
-    await session.commit()
+    try:
+        await repo.create(m)
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise StorageMeetingAlreadyExistsError(req.id) from None
     await session.refresh(m)
     return _meeting_to_response(m)
 
@@ -99,8 +120,8 @@ async def create_meeting(req: CreateMeetingRequest, session: SessionDep) -> Meet
 @app.get("/meetings")
 async def list_meetings(
     session: SessionDep,
-    limit: int = 20,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[MeetingResponse]:
     repo = MeetingRepo(session)
     meetings = await repo.list_all(limit=limit, offset=offset)
@@ -187,9 +208,9 @@ async def batch_upsert_segments(
         }
         for seg in req.segments
     ]
-    await repo_s.upsert_batch(rows)
-    updated_segments = await repo_s.list_by_meeting(meeting_id)
-    await repo_m.update(meeting_id, segments_count=len(updated_segments))
+    inserted_count = await repo_s.upsert_batch(rows)
+    if inserted_count:
+        await repo_m.update(meeting_id, segments_count=m.segments_count + inserted_count)
     await session.commit()
 
 
@@ -215,21 +236,14 @@ async def create_summary(
         model=req.model,
         created_at=datetime.datetime.now(datetime.UTC),
     )
-    await repo_s.create(summary)
-    await session.commit()
+    try:
+        await repo_s.create(summary)
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise StorageSummaryAlreadyExistsError(meeting_id) from None
     await session.refresh(summary)
-    return SummaryResponse(
-        id=summary.id,
-        meeting_id=summary.meeting_id,
-        title=summary.title,
-        overview=summary.overview,
-        key_points=json.loads(summary.key_points),
-        action_items=json.loads(summary.action_items),
-        quotes=json.loads(summary.quotes),
-        provider=summary.provider,
-        model=summary.model,
-        created_at=summary.created_at,
-    )
+    return _summary_to_response(summary)
 
 
 @app.get("/meetings/{meeting_id}/summary")
@@ -241,15 +255,4 @@ async def get_summary(meeting_id: str, session: SessionDep) -> SummaryResponse:
     s = await repo_s.get_by_meeting(meeting_id)
     if s is None:
         raise StorageSummaryNotFoundError(meeting_id)
-    return SummaryResponse(
-        id=s.id,
-        meeting_id=s.meeting_id,
-        title=s.title,
-        overview=s.overview,
-        key_points=json.loads(s.key_points),
-        action_items=json.loads(s.action_items),
-        quotes=json.loads(s.quotes),
-        provider=s.provider,
-        model=s.model,
-        created_at=s.created_at,
-    )
+    return _summary_to_response(s)

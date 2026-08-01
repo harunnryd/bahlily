@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class CreateMeetingRequest(BaseModel):
@@ -46,16 +46,22 @@ class SegmentResponse(BaseModel):
 
 
 class BatchSegmentItem(BaseModel):
-    segment_id: int
+    segment_id: int = Field(ge=0)
     text: str
     confidence: float | None = None
     engine: str
     model_name: str
-    audio_start_time: float
-    audio_end_time: float
+    audio_start_time: float = Field(ge=0)
+    audio_end_time: float = Field(ge=0)
     language: str | None = None
     is_partial: bool
     trace_id: str
+
+    @model_validator(mode="after")
+    def _check_audio_range(self) -> BatchSegmentItem:
+        if self.audio_end_time < self.audio_start_time:
+            raise ValueError("audio_end_time must not be earlier than audio_start_time")
+        return self
 
 
 class BatchSegmentsRequest(BaseModel):
