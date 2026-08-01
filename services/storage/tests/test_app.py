@@ -58,6 +58,11 @@ def test_create_meeting_conflict(client: TestClient) -> None:
     assert r.json()["code"] == "STORAGE_MEETING_ALREADY_EXISTS"
 
 
+def test_create_meeting_rejects_unknown_field(client: TestClient) -> None:
+    r = client.post("/meetings", json={"id": "m1", "not_a_real_field": "x"})
+    assert r.status_code == 422
+
+
 def test_get_meeting_not_found(client: TestClient) -> None:
     r = client.get("/meetings/nonexistent")
     assert r.status_code == 404
@@ -79,6 +84,12 @@ def test_patch_meeting(client: TestClient) -> None:
     assert r.status_code == 200
     assert r.json()["status"] == "stopped"
     assert r.json()["title"] == "Updated"
+
+
+def test_patch_meeting_rejects_unknown_field(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    r = client.patch("/meetings/m1", json={"statuss": "stopped"})
+    assert r.status_code == 422
 
 
 def test_patch_meeting_not_found(client: TestClient) -> None:

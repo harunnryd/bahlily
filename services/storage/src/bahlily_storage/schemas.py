@@ -3,10 +3,12 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CreateMeetingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     title: str | None = None
     language: str | None = None
@@ -14,6 +16,8 @@ class CreateMeetingRequest(BaseModel):
 
 
 class PatchMeetingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str | None = None
     status: str | None = None
     ended_at: datetime.datetime | None = None
