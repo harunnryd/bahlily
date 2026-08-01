@@ -55,3 +55,44 @@ def test_find_alembic_ini_locates_service_root() -> None:
     ini = db.find_alembic_ini()
     assert ini.name == "alembic.ini"
     assert (ini.parent / "migrations" / "versions").is_dir()
+
+
+async def test_migrated_schema_roundtrips_tz_aware_datetime(tmp_path: Path) -> None:
+    """Against an alembic-built (not create_all) schema, tzinfo must survive."""
+    import datetime
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from bahlily_storage import db
+    from bahlily_storage.models import Meeting
+
+    db_path = tmp_path / "tz.db"
+    os.environ["BAHLILY_STORAGE_DB"] = str(db_path)
+    try:
+        await db.upgrade_to_head()
+    finally:
+        del os.environ["BAHLILY_STORAGE_DB"]
+
+    started = datetime.datetime(2026, 5, 4, 3, 2, 1, tzinfo=datetime.UTC)
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as s:
+            s.add(Meeting(id="m-tz", status="recording", started_at=started, segments_count=0))
+            await s.commit()
+        async with factory() as s:
+            fetched = await s.get(Meeting, "m-tz")
+            assert fetched is not None
+            assert fetched.started_at.utcoffset() is not None
+            assert fetched.started_at == started
+    finally:
+        await engine.dispose()
+
+
+def test_migration_0002_is_head() -> None:
+    from alembic.script import ScriptDirectory
+
+    from bahlily_storage import db
+
+    script = ScriptDirectory.from_config(db.alembic_config())
+    assert script.get_current_head() == "0002"
