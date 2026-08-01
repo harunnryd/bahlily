@@ -141,3 +141,71 @@ async def test_subscriber_skips_unknown_meeting(
             assert result.scalars().all() == []
     finally:
         await server.stop(grace=0)
+
+
+async def test_backoff_grows_when_nothing_is_listening(
+    db_session: DbSession, unused_tcp_port: int
+) -> None:
+    """`insecure_channel` is lazy, so an open channel must not reset the backoff."""
+    _, factory = db_session
+
+    from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
+
+    sub = TranscriptionSubscriber(
+        addr=f"localhost:{unused_tcp_port}",  # nothing bound here
+        session_factory=factory,
+        initial_backoff=0.01,
+        max_backoff=100.0,
+    )
+    assert sub.backoff == 0.01
+
+    try:
+        await asyncio.wait_for(sub.run(), timeout=1.0)
+    except TimeoutError:
+        pass
+
+    assert sub.backoff > 0.01
+
+
+async def test_backoff_resets_once_a_segment_actually_arrives(
+    db_session: DbSession, unused_tcp_port: int
+) -> None:
+    session, factory = db_session
+
+    await MeetingRepo(session).create(
+        Meeting(
+            id="rec-b",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.commit()
+
+    server = grpc.aio.server()
+    transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        FakeTranscriptionServicer([_make_segment("rec-b", 0)]), server
+    )
+    server.add_insecure_port(f"localhost:{unused_tcp_port}")
+    await server.start()
+
+    try:
+        from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
+
+        sub = TranscriptionSubscriber(
+            addr=f"localhost:{unused_tcp_port}",
+            session_factory=factory,
+            initial_backoff=0.01,
+            max_backoff=100.0,
+        )
+        sub._backoff = 8.0
+        try:
+            await asyncio.wait_for(sub.run(), timeout=1.0)
+        except TimeoutError:
+            pass
+
+        # A real response arrived, so the backoff was reset to its initial value
+        # (it may have grown again afterwards, but never past 8.0).
+        assert sub.backoff < 8.0
+    finally:
+        await server.stop(grace=0)
