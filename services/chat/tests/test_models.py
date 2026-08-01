@@ -27,7 +27,10 @@ def test_ingest_request_requires_at_least_one_segment() -> None:
 
 def test_ingest_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
-        IngestRequest(segments=[TranscriptSegment(text="hi", segment_id=1)], extra="nope")
+        IngestRequest(
+            segments=[TranscriptSegment(text="hi", segment_id=1)],
+            extra="nope",  # type: ignore[call-arg]
+        )
 
 
 def test_ingest_response_roundtrip() -> None:
@@ -38,7 +41,7 @@ def test_ingest_response_roundtrip() -> None:
 
 def test_chat_turn_rejects_invalid_role() -> None:
     with pytest.raises(ValidationError):
-        ChatTurn(role="system", content="hi")
+        ChatTurn(role="system", content="hi")  # type: ignore[arg-type]
 
 
 def test_chat_request_defaults() -> None:
@@ -54,7 +57,12 @@ def test_chat_request_rejects_empty_question() -> None:
 
 def test_chat_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
-        ChatRequest(question="hi", provider="openai", model="gpt-4o-mini", extra="nope")
+        ChatRequest(
+            question="hi",
+            provider="openai",
+            model="gpt-4o-mini",
+            extra="nope",  # type: ignore[call-arg]
+        )
 
 
 def test_chat_response_roundtrip() -> None:
