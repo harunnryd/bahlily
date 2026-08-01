@@ -2,8 +2,54 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Coroutine
+from typing import Any
 
+import structlog
 import uvicorn
+
+_log = structlog.get_logger()
+
+
+async def _run_concurrently(
+    first: Coroutine[Any, Any, None],
+    second: Coroutine[Any, Any, None],
+) -> None:
+    """Run two coroutines concurrently; when either finishes, cancel the other.
+
+    Any exception raised by whichever coroutine(s) completed first is
+    re-raised after teardown. Exceptions raised while awaiting a cancelled
+    task are logged (except `CancelledError` itself, which is expected) so a
+    real failure during shutdown isn't silently discarded.
+    """
+    first_task = asyncio.create_task(first)
+    second_task = asyncio.create_task(second)
+
+    try:
+        done, _ = await asyncio.wait(
+            {first_task, second_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        for task in (first_task, second_task):
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as teardown_exc:
+                    _log.warning("task_teardown_error", error=str(teardown_exc))
+
+    first_exc: Exception | None = None
+    for task in done:
+        try:
+            task.result()
+        except Exception as e:
+            if first_exc is None:
+                first_exc = e
+    if first_exc is not None:
+        raise first_exc
 
 
 def main() -> None:
@@ -25,31 +71,6 @@ def main() -> None:
         config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
         server = uvicorn.Server(config)
 
-        http_task = asyncio.create_task(server.serve())
-        subscriber_task = asyncio.create_task(subscriber.run())
-
-        try:
-            done, _ = await asyncio.wait(
-                {http_task, subscriber_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        finally:
-            for task in (http_task, subscriber_task):
-                if not task.done():
-                    task.cancel()
-                    try:
-                        await task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-
-        exc: Exception | None = None
-        for task in done:
-            try:
-                task.result()
-            except Exception as e:
-                if exc is None:
-                    exc = e
-        if exc is not None:
-            raise exc
+        await _run_concurrently(server.serve(), subscriber.run())
 
     asyncio.run(_serve_all())
