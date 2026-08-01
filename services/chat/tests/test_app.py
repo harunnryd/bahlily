@@ -120,6 +120,55 @@ def test_ingest_embedding_dimension_mismatch_returns_500(client: TestClient) -> 
     assert response.json()["code"] == "CHAT_STORAGE_ERROR"
 
 
+def test_get_connection_raises_storage_error_on_open_failure(tmp_path: Path) -> None:
+    from bahlily_chat.app import configure_at_startup, get_connection
+    from bahlily_chat.errors import ChatStorageError
+
+    configure_at_startup(
+        db_path=str(tmp_path / "test.db"),
+        dimension=4,
+        embedding_provider="ollama",
+        embedding_model="nomic-embed-text",
+    )
+    with (
+        patch("bahlily_chat.app.db.connect", side_effect=sqlite3.OperationalError("io")),
+        pytest.raises(ChatStorageError),
+    ):
+        next(get_connection())
+
+
+def test_delete_meeting_storage_failure_returns_500(client: TestClient) -> None:
+    with patch("bahlily_chat.app.index.delete_meeting", side_effect=sqlite3.OperationalError("io")):
+        response = client.delete("/meetings/m1")
+    assert response.status_code == 500
+    assert response.json()["code"] == "CHAT_STORAGE_ERROR"
+
+
+def test_chat_meeting_exists_storage_failure_returns_500(client: TestClient) -> None:
+    with patch("bahlily_chat.app.index.meeting_exists", side_effect=sqlite3.OperationalError("io")):
+        response = client.post(
+            "/chat",
+            json={
+                "question": "anything",
+                "meeting_id": "m1",
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+            },
+        )
+    assert response.status_code == 500
+    assert response.json()["code"] == "CHAT_STORAGE_ERROR"
+
+
+def test_chat_search_storage_failure_returns_500(client: TestClient) -> None:
+    with patch("bahlily_chat.chat.index.search", side_effect=sqlite3.OperationalError("io")):
+        response = client.post(
+            "/chat",
+            json={"question": "anything", "provider": "openai", "model": "gpt-4o-mini"},
+        )
+    assert response.status_code == 500
+    assert response.json()["code"] == "CHAT_STORAGE_ERROR"
+
+
 def test_concurrent_ingest_requests_do_not_500(client: TestClient) -> None:
     def ingest(i: int) -> int:
         body = {

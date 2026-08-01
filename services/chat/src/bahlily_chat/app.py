@@ -72,7 +72,10 @@ def get_connection() -> Iterator[sqlite3.Connection]:
         raise RuntimeError(
             "bahlily_chat.app.configure_at_startup() must be called before serving requests"
         )
-    conn = db.connect(_config.db_path, _config.dimension)
+    try:
+        conn = db.connect(_config.db_path, _config.dimension)
+    except sqlite3.OperationalError as exc:
+        raise ChatStorageError("failed to open the chat index") from exc
     try:
         yield conn
     finally:
@@ -108,11 +111,19 @@ def ingest_meeting(
 
 @app.delete("/meetings/{meeting_id}", status_code=204)
 def delete_meeting(meeting_id: str, conn: ConnectionDep) -> None:
-    index.delete_meeting(conn, meeting_id)
+    try:
+        index.delete_meeting(conn, meeting_id)
+    except sqlite3.OperationalError as exc:
+        raise ChatStorageError(f"failed to delete meeting {meeting_id!r}") from exc
 
 
 @app.post("/chat")
 def post_chat(request: ChatRequest, conn: ConnectionDep, embedder: EmbedderDep) -> ChatResponse:
-    if request.meeting_id is not None and not index.meeting_exists(conn, request.meeting_id):
-        raise ChatMeetingNotIngestedError(request.meeting_id)
+    if request.meeting_id is not None:
+        try:
+            exists = index.meeting_exists(conn, request.meeting_id)
+        except sqlite3.OperationalError as exc:
+            raise ChatStorageError(f"failed to look up meeting {request.meeting_id!r}") from exc
+        if not exists:
+            raise ChatMeetingNotIngestedError(request.meeting_id)
     return chat.answer(conn, embedder, request)

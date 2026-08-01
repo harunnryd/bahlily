@@ -7,7 +7,11 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from bahlily_chat import index
-from bahlily_chat.errors import ChatUnsupportedProviderError, classify_provider_exception
+from bahlily_chat.errors import (
+    ChatStorageError,
+    ChatUnsupportedProviderError,
+    classify_provider_exception,
+)
 from bahlily_chat.models import ChatRequest, ChatResponse, Citation
 
 _TOP_K = 5
@@ -47,7 +51,10 @@ def answer(conn: sqlite3.Connection, embedder: Embeddings, request: ChatRequest)
         query_vector = embedder.embed_query(request.question)
     except Exception as exc:
         raise classify_provider_exception(exc) from exc
-    matches = index.search(conn, query_vector, k=_TOP_K, meeting_id=request.meeting_id)
+    try:
+        matches = index.search(conn, query_vector, k=_TOP_K, meeting_id=request.meeting_id)
+    except sqlite3.OperationalError as exc:
+        raise ChatStorageError("failed to search the chat index") from exc
 
     messages: list[BaseMessage] = [
         SystemMessage(content=_SYSTEM_PROMPT),
