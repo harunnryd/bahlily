@@ -85,6 +85,21 @@ def test_chat_request_rejects_whitespace_only_question() -> None:
         ChatRequest(question="   ", provider="openai", model="gpt-4o-mini")
 
 
+def test_chat_request_rejects_whitespace_only_meeting_id() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(question="hi", meeting_id="   ", provider="openai", model="gpt-4o-mini")
+
+
+def test_chat_request_rejects_whitespace_only_provider() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(question="hi", provider="   ", model="gpt-4o-mini")
+
+
+def test_chat_request_rejects_whitespace_only_model() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(question="hi", provider="openai", model="   ")
+
+
 def test_chat_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
         ChatRequest(
