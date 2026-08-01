@@ -17,7 +17,7 @@ tracing = "0.1"
 rand = "0.8"
 crossbeam-channel = "0.5"
 hound = "3.5"
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["sync", "net"] }
 # `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
 # We only use `VadSession::new_from_path` (not the `static-model`-gated `new()`), and this crate
 # has its own resampler in `mixer::resampler`, so silero's `audio_resampler` is unused. Dropping it

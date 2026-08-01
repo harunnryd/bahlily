@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 audio-core = { path = "audio-core" }
 tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["sync"] }
+tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[bin]]

@@ -63,6 +63,69 @@ impl AudioService for AudioGrpcService {
     }
 }
 
+pub async fn serve(
+    addr: &str,
+    segment_rx: tokio::sync::mpsc::Receiver<AudioSegment>,
+) -> std::io::Result<(
+    std::net::SocketAddr,
+    impl std::future::Future<Output = Result<(), tonic::transport::Error>>,
+)> {
+    use pb::audio_service_server::AudioServiceServer;
+    use tokio_stream::wrappers::TcpListenerStream;
+
+    let std_listener = std::net::TcpListener::bind(addr)?;
+    std_listener.set_nonblocking(true)?;
+    let bound_addr = std_listener.local_addr()?;
+    let listener = tokio::net::TcpListener::from_std(std_listener)?;
+
+    let service = AudioGrpcService::new(segment_rx);
+    let serve_future = tonic::transport::Server::builder()
+        .add_service(AudioServiceServer::new(service))
+        .serve_with_incoming(TcpListenerStream::new(listener));
+
+    Ok((bound_addr, serve_future))
+}
+
+#[cfg(test)]
+mod serve_tests {
+    use super::*;
+    use pb::audio_service_client::AudioServiceClient;
+    use pb::{DeviceType, StreamAudioRequest};
+
+    #[tokio::test]
+    async fn a_real_client_receives_a_segment_over_a_real_bound_socket() {
+        let (segment_tx, segment_rx) = tokio::sync::mpsc::channel(8);
+        let (addr, serve_future) = serve("127.0.0.1:0", segment_rx).await.unwrap();
+        tokio::spawn(serve_future);
+
+        let mut client = AudioServiceClient::connect(format!("http://{addr}"))
+            .await
+            .unwrap();
+        let mut stream = client
+            .stream_audio(StreamAudioRequest {})
+            .await
+            .unwrap()
+            .into_inner();
+
+        segment_tx
+            .send(AudioSegment {
+                data: vec![0.1, 0.2],
+                sample_rate: 16000,
+                timestamp: 0.0,
+                segment_id: 1,
+                device_type: DeviceType::Microphone as i32,
+                trace_id: "test-trace".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let response = stream.message().await.unwrap().unwrap();
+        let segment = response.segment.unwrap();
+        assert_eq!(segment.segment_id, 1);
+        assert_eq!(segment.trace_id, "test-trace");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::pb::{AudioSegment, DeviceType};
