@@ -49,3 +49,14 @@ def test_main_raises_clearly_when_required_env_var_missing(
     monkeypatch.delenv(missing_var, raising=False)
     with patch("uvicorn.run"), pytest.raises(KeyError, match=missing_var):
         main()
+
+
+@pytest.mark.parametrize("dimension", ["0", "-1"])
+def test_main_rejects_non_positive_embedding_dimension(
+    monkeypatch: pytest.MonkeyPatch, dimension: str
+) -> None:
+    _set_required_embedding_env(monkeypatch)
+    monkeypatch.setenv("BAHLILY_CHAT_EMBEDDING_DIMENSION", dimension)
+    with patch("uvicorn.run") as mock_run, pytest.raises(ValueError, match="positive"):
+        main()
+    mock_run.assert_not_called()

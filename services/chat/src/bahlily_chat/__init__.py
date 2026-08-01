@@ -12,6 +12,10 @@ def main() -> None:
     port = int(os.environ.get("BAHLILY_CHAT_HTTP_PORT", "8005"))
     db_path = os.environ.get("BAHLILY_CHAT_DB", app_module.DEFAULT_DB)
     dimension = int(os.environ["BAHLILY_CHAT_EMBEDDING_DIMENSION"])
+    if dimension <= 0:
+        raise ValueError(
+            f"BAHLILY_CHAT_EMBEDDING_DIMENSION must be a positive integer, got {dimension}"
+        )
     embedding_provider = os.environ["BAHLILY_CHAT_EMBEDDING_PROVIDER"]
     embedding_model = os.environ["BAHLILY_CHAT_EMBEDDING_MODEL"]
 
