@@ -6,6 +6,8 @@ from typing import cast
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.platypus import (
     Flowable,
     ListFlowable,
@@ -17,6 +19,13 @@ from reportlab.platypus import (
 
 from bahlily_export.models import ExportRequest
 
+# Adobe's predefined CJK CID font, referenced (not embedded) per PDF's
+# standard font-substitution mechanism, so it carries no bundled asset or
+# separate font license. It also covers Latin ASCII, so it's used for every
+# style rather than switching fonts per script.
+_UNICODE_FONT = "STSong-Light"
+pdfmetrics.registerFont(UnicodeCIDFont(_UNICODE_FONT))
+
 
 def _esc(text: str) -> str:
     return xml.sax.saxutils.escape(text)
@@ -26,6 +35,8 @@ def render_pdf(req: ExportRequest) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
+    for style in styles.byName.values():
+        style.fontName = _UNICODE_FONT
     story: list[Flowable] = []
 
     story.append(Paragraph(_esc(req.title), styles["Title"]))

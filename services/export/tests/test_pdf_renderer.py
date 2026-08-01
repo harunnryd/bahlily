@@ -71,6 +71,17 @@ def test_render_pdf_escapes_markup_like_text_without_crashing() -> None:
     assert "A<B" in text
 
 
+def test_render_pdf_preserves_non_latin_text() -> None:
+    req = ExportRequest(
+        title="会议纪要",
+        overview="讨论了 sprint progress と日本語 and 한국어",
+        created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+    )
+    text = _extracted_text(render_pdf(req))
+    assert "会议纪要" in text
+    assert "讨论了 sprint progress と日本語 and 한국어" in text
+
+
 def test_render_pdf_quote_attributed_to_speaker() -> None:
     req = ExportRequest(
         title="T",
