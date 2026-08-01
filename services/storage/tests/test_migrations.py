@@ -140,11 +140,17 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
     # Simulate the old create_all-based startup path: tables exist,
     # alembic_version does not. (Use a dedicated engine pointed at
     # db_path rather than db.init_db(), which binds to the module-level
-    # `engine` fixed at import time, not the env var set here.)
+    # `engine` fixed at import time, not the env var set here.) Only create
+    # the tables that predate `alembic_version` tracking (revision 0001) —
+    # `Base.metadata` now also includes `summary_templates` (0003), which a
+    # genuinely legacy pre-feature DB would never have had, and passing the
+    # full metadata here would make this migration's own `create_table`
+    # collide with a table the "legacy" DB was never meant to contain.
+    legacy_tables = [Base.metadata.tables[name] for name in ("meetings", "segments", "summaries")]
     legacy_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     try:
         async with legacy_engine.begin() as aconn:
-            await aconn.run_sync(Base.metadata.create_all)
+            await aconn.run_sync(Base.metadata.create_all, tables=legacy_tables)
     finally:
         await legacy_engine.dispose()
 
@@ -169,7 +175,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0002"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0003"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -189,16 +195,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0002"}
+    assert versions == {"0003"}
 
 
-def test_migration_0002_is_head() -> None:
+def test_migration_0003_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0002"
+    assert script.get_current_head() == "0003"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
@@ -274,3 +280,36 @@ def test_downgrade_from_head_preserves_data_in_rebuilt_columns(
     assert versions == {"0001"}
     assert meeting_row == ("stopped", "2026-01-01 00:00:00", "2026-01-01 01:00:00")
     assert summary_row == ("T", "2026-01-01 02:00:00")
+
+
+def test_alembic_upgrade_head_creates_summary_templates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "templates.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+
+    from alembic import command
+
+    from bahlily_storage import db
+
+    command.upgrade(db.alembic_config(), "head")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        tables = {row[0] for row in rows}
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(summary_templates)")}
+    finally:
+        conn.close()
+
+    assert "summary_templates" in tables
+    assert cols == {
+        "id",
+        "name",
+        "version",
+        "system_prompt",
+        "focus_instructions",
+        "few_shot_examples",
+        "created_at",
+        "updated_at",
+    }
