@@ -101,6 +101,16 @@ def test_export_request_rejects_control_character_in_title() -> None:
         )
 
 
+def test_export_request_rejects_whitespace_only_key_point() -> None:
+    with pytest.raises(ValidationError):
+        ExportRequest(
+            title="Standup",
+            overview="Quick sync.",
+            key_points=["   "],
+            created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        )
+
+
 def test_export_request_rejects_control_character_in_key_points() -> None:
     with pytest.raises(ValidationError):
         ExportRequest(

@@ -69,5 +69,7 @@ class ExportRequest(BaseModel):
     @classmethod
     def _validate_key_points(cls, value: list[str]) -> list[str]:
         for point in value:
+            if not point:
+                raise ValueError("key points must not be empty")
             _reject_xml_invalid_control_chars(point)
         return value
