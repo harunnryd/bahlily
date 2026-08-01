@@ -57,3 +57,14 @@ repos:
         stages: [pre-push]
         pass_filenames: false
         always_run: true
+
+      # Opt-in only: requires `coderabbit auth login` per contributor, so it
+      # never runs on a normal commit. Invoke with:
+      #   pre-commit run --hook-stage manual coderabbit-review
+      - id: coderabbit-review
+        name: coderabbit review (manual)
+        entry: coderabbit review --uncommitted
+        language: system
+        stages: [manual]
+        pass_filenames: false
+        always_run: true
