@@ -76,7 +76,7 @@ async def _run_concurrently(
         raise first_exc
 
 
-async def _serve_all(http_port: int, transcription_addr: str) -> None:
+async def _serve_all(http_host: str, http_port: int, transcription_addr: str) -> None:
     from bahlily_storage import db
     from bahlily_storage.app import app
     from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
@@ -90,14 +90,18 @@ async def _serve_all(http_port: int, transcription_addr: str) -> None:
         session_factory=db.async_session_factory,
     )
 
-    config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
+    config = uvicorn.Config(app, host=http_host, port=http_port, log_level="info")
     server = uvicorn.Server(config)
 
     await _run_concurrently(_serve_http(server), subscriber.run())
 
 
 def main() -> None:
+    # Storage is the single authoritative writer for this machine's own data;
+    # it isn't meant to be reachable from the network, so bind loopback-only
+    # unless explicitly overridden.
+    http_host = os.environ.get("BAHLILY_STORAGE_HTTP_HOST", "127.0.0.1")
     http_port = int(os.environ.get("BAHLILY_STORAGE_HTTP_PORT", "8003"))
     transcription_addr = os.environ.get("TRANSCRIPTION_GRPC_ADDR", "localhost:50052")
 
-    asyncio.run(_serve_all(http_port, transcription_addr))
+    asyncio.run(_serve_all(http_host, http_port, transcription_addr))

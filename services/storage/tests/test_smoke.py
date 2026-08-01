@@ -34,7 +34,7 @@ async def test_serve_all_runs_alembic_upgrade(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(db_module, "upgrade_to_head", fake_upgrade)
     monkeypatch.setattr("bahlily_storage._run_concurrently", fake_run_concurrently)
 
-    await _serve_all(http_port=0, transcription_addr="localhost:1")
+    await _serve_all(http_host="127.0.0.1", http_port=0, transcription_addr="localhost:1")
 
     assert calls == ["upgrade"]
 
