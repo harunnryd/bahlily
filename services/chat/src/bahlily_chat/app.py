@@ -17,6 +17,7 @@ from bahlily_chat.errors import (
     ChatMeetingNotIngestedError,
     ChatProviderAuthError,
     ChatProviderUnavailableError,
+    ChatStorageError,
     ChatUnsupportedEmbeddingProviderError,
     ChatUnsupportedProviderError,
 )
@@ -51,6 +52,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     ChatUnsupportedProviderError: 400,
     ChatProviderAuthError: 401,
     ChatProviderUnavailableError: 502,
+    ChatStorageError: 500,
 }
 
 
@@ -59,6 +61,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
 @app.exception_handler(ChatUnsupportedProviderError)
 @app.exception_handler(ChatProviderAuthError)
 @app.exception_handler(ChatProviderUnavailableError)
+@app.exception_handler(ChatStorageError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status_code = _ERROR_STATUS[type(exc)]
     return JSONResponse(status_code=status_code, content={"code": exc.code, "message": str(exc)})

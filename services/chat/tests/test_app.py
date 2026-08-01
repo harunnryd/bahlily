@@ -98,6 +98,28 @@ def test_ingest_provider_vector_count_mismatch_returns_502(client: TestClient) -
     }
 
 
+class WrongDimensionEmbeddings(Embeddings):
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1] * 8 for _ in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return [0.1] * 8
+
+
+def _wrong_dimension_embedder() -> Embeddings:
+    return WrongDimensionEmbeddings()
+
+
+def test_ingest_embedding_dimension_mismatch_returns_500(client: TestClient) -> None:
+    app.dependency_overrides[get_embedder] = _wrong_dimension_embedder
+    try:
+        response = client.post("/meetings/m1/ingest", json=_ingest_body())
+    finally:
+        app.dependency_overrides[get_embedder] = _fake_embedder
+    assert response.status_code == 500
+    assert response.json()["code"] == "CHAT_STORAGE_ERROR"
+
+
 def test_concurrent_ingest_requests_do_not_500(client: TestClient) -> None:
     def ingest(i: int) -> int:
         body = {

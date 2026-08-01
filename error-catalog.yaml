@@ -90,6 +90,10 @@
   domain: chat
   severity: error
   description: The selected LLM or embedding provider was unreachable or timed out after retries were exhausted.
+- code: CHAT_STORAGE_ERROR
+  domain: chat
+  severity: error
+  description: The local sqlite-vec index rejected a write (e.g. a stored vector's dimension no longer matches the configured embedding dimension), distinct from the LLM/embedding provider being unavailable.
 - code: CALENDAR_RESERVED
   domain: calendar
   severity: info

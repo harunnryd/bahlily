@@ -30,6 +30,11 @@ class ChatProviderUnavailableError(BahlilyError):
         super().__init__(message, code="CHAT_PROVIDER_UNAVAILABLE")
 
 
+class ChatStorageError(BahlilyError):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="CHAT_STORAGE_ERROR")
+
+
 def classify_provider_exception(exc: Exception) -> BahlilyError:
     status_code = getattr(exc, "status_code", None)
     if status_code in (401, 403):

@@ -7,7 +7,7 @@ import pytest
 from langchain_core.embeddings import Embeddings
 
 from bahlily_chat import db, index
-from bahlily_chat.errors import ChatProviderUnavailableError
+from bahlily_chat.errors import ChatProviderUnavailableError, ChatStorageError
 from bahlily_chat.ingest import ingest
 from bahlily_chat.models import IngestRequest, TranscriptSegment
 
@@ -86,7 +86,7 @@ def test_ingest_vector_count_mismatch_is_classified(conn: sqlite3.Connection) ->
         ingest(conn, ShortCountEmbeddings(), "m1", request)
 
 
-def test_ingest_dimension_mismatch_is_classified(conn: sqlite3.Connection) -> None:
+def test_ingest_dimension_mismatch_is_storage_error(conn: sqlite3.Connection) -> None:
     request = _request(TranscriptSegment(text="hi", segment_id=1))
-    with pytest.raises(ChatProviderUnavailableError):
+    with pytest.raises(ChatStorageError):
         ingest(conn, WrongDimensionEmbeddings(), "m1", request)
