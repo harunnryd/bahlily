@@ -109,10 +109,13 @@ def ingest_meeting(
         vectors = embedder.embed_documents(texts)
     except Exception as exc:
         raise classify_provider_exception(exc) from exc
-    rows = [
-        (s.segment_id, s.text, s.speaker, s.start_time, s.end_time, vec)
-        for s, vec in zip(request.segments, vectors, strict=True)
-    ]
+    try:
+        rows = [
+            (s.segment_id, s.text, s.speaker, s.start_time, s.end_time, vec)
+            for s, vec in zip(request.segments, vectors, strict=True)
+        ]
+    except ValueError as exc:
+        raise classify_provider_exception(exc) from exc
     index.upsert_meeting(conn, meeting_id, rows)
     return IngestResponse(meeting_id=meeting_id, segments_indexed=len(rows))
 

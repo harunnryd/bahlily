@@ -69,6 +69,22 @@ def test_ingest_rejects_empty_segments(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_ingest_provider_vector_count_mismatch_returns_502(client: TestClient) -> None:
+    class ShortCountEmbeddings(Embeddings):
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1, 0.1, 0.1, 0.1]]  # fewer vectors than requested texts
+
+        def embed_query(self, text: str) -> list[float]:
+            return [0.1, 0.1, 0.1, 0.1]
+
+    app.dependency_overrides[get_embedder] = lambda: ShortCountEmbeddings()
+    try:
+        response = client.post("/meetings/m1/ingest", json=_ingest_body())
+    finally:
+        app.dependency_overrides[get_embedder] = lambda: FakeEmbeddings()
+    assert response.status_code == 502
+
+
 def test_concurrent_ingest_requests_do_not_500(client: TestClient) -> None:
     def ingest(i: int) -> int:
         body = {
