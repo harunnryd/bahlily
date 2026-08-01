@@ -116,7 +116,10 @@ def ingest_meeting(
         ]
     except ValueError as exc:
         raise classify_provider_exception(exc) from exc
-    index.upsert_meeting(conn, meeting_id, rows)
+    try:
+        index.upsert_meeting(conn, meeting_id, rows)
+    except sqlite3.OperationalError as exc:
+        raise classify_provider_exception(exc) from exc
     return IngestResponse(meeting_id=meeting_id, segments_indexed=len(rows))
 
 
