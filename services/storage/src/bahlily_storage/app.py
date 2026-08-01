@@ -322,9 +322,16 @@ async def patch_template(
     template_id: str, req: PatchTemplateRequest, session: SessionDep
 ) -> TemplateResponse:
     repo = TemplateRepo(session)
-    fields = req.model_dump(exclude_none=True)
+    fields: dict[str, object] = req.model_dump(exclude_none=True)
     if "few_shot_examples" in fields:
-        fields["few_shot_examples"] = json.dumps(fields["few_shot_examples"])
+        fields["few_shot_examples"] = json.dumps(
+            [e.model_dump() for e in req.few_shot_examples or []]
+        )
+    if not fields:
+        template = await repo.get(template_id)
+        if template is None:
+            raise StorageTemplateNotFoundError(template_id)
+        return _template_to_response(template)
     fields["updated_at"] = datetime.datetime.now(datetime.UTC)
     template = await repo.update(template_id, **fields)
     if template is None:

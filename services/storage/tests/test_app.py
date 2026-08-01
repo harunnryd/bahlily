@@ -442,3 +442,11 @@ def test_patch_template_rejects_empty_system_prompt(client: TestClient) -> None:
     created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
     r = client.patch(f"/templates/{created['id']}", json={"system_prompt": ""})
     assert r.status_code == 422
+
+
+def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={})
+    assert r.status_code == 200
+    assert r.json()["updated_at"] == created["updated_at"]
+    assert r.json()["name"] == created["name"]
