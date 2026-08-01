@@ -59,7 +59,7 @@ def test_main_rejects_non_positive_embedding_dimension(
     monkeypatch.setenv("BAHLILY_CHAT_EMBEDDING_DIMENSION", dimension)
     with (
         patch("uvicorn.run") as mock_run,
-        patch("bahlily_chat.app.configure") as mock_configure,
+        patch("bahlily_chat.app.configure_at_startup") as mock_configure,
         pytest.raises(ValueError, match="positive"),
     ):
         main()

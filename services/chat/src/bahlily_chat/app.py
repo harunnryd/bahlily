@@ -12,14 +12,13 @@ from fastapi.responses import JSONResponse
 from langchain_core.embeddings import Embeddings
 from starlette.requests import Request
 
-from bahlily_chat import chat, db, embeddings, index
+from bahlily_chat import chat, db, embeddings, index, ingest
 from bahlily_chat.errors import (
     ChatMeetingNotIngestedError,
     ChatProviderAuthError,
     ChatProviderUnavailableError,
     ChatUnsupportedEmbeddingProviderError,
     ChatUnsupportedProviderError,
-    classify_provider_exception,
 )
 from bahlily_chat.models import ChatRequest, ChatResponse, IngestRequest, IngestResponse
 
@@ -38,16 +37,9 @@ _config: ChatConfig | None = None
 _embedder: Embeddings | None = None
 
 
-def configure(
+def configure_at_startup(
     *, db_path: str, dimension: int, embedding_provider: str, embedding_model: str
 ) -> None:
-    """Set the process-wide config/embedder once, at startup.
-
-    Doing the (potentially failing) env var reads and embedder construction
-    here rather than lazily inside the request-scoped dependencies below
-    means a misconfigured deployment fails loudly at boot instead of 500ing
-    with a raw KeyError/ValueError on the first real request.
-    """
     global _config, _embedder
     _config = ChatConfig(db_path=db_path, dimension=dimension)
     _embedder = embeddings.get_embedder(embedding_provider, embedding_model)
@@ -74,7 +66,9 @@ async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
 
 def get_connection() -> Iterator[sqlite3.Connection]:
     if _config is None:
-        raise RuntimeError("bahlily_chat.app.configure() must be called before serving requests")
+        raise RuntimeError(
+            "bahlily_chat.app.configure_at_startup() must be called before serving requests"
+        )
     conn = db.connect(_config.db_path, _config.dimension)
     try:
         yield conn
@@ -84,7 +78,9 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 def get_embedder() -> Embeddings:
     if _embedder is None:
-        raise RuntimeError("bahlily_chat.app.configure() must be called before serving requests")
+        raise RuntimeError(
+            "bahlily_chat.app.configure_at_startup() must be called before serving requests"
+        )
     return _embedder
 
 
@@ -104,23 +100,7 @@ def ingest_meeting(
     conn: ConnectionDep,
     embedder: EmbedderDep,
 ) -> IngestResponse:
-    texts = [s.text for s in request.segments]
-    try:
-        vectors = embedder.embed_documents(texts)
-    except Exception as exc:
-        raise classify_provider_exception(exc) from exc
-    try:
-        rows = [
-            (s.segment_id, s.text, s.speaker, s.start_time, s.end_time, vec)
-            for s, vec in zip(request.segments, vectors, strict=True)
-        ]
-    except ValueError as exc:
-        raise classify_provider_exception(exc) from exc
-    try:
-        index.upsert_meeting(conn, meeting_id, rows)
-    except sqlite3.OperationalError as exc:
-        raise classify_provider_exception(exc) from exc
-    return IngestResponse(meeting_id=meeting_id, segments_indexed=len(rows))
+    return ingest.ingest(conn, embedder, meeting_id, request)
 
 
 @app.delete("/meetings/{meeting_id}", status_code=204)

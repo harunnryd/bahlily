@@ -19,7 +19,7 @@ def main() -> None:
     embedding_provider = os.environ["BAHLILY_CHAT_EMBEDDING_PROVIDER"]
     embedding_model = os.environ["BAHLILY_CHAT_EMBEDDING_MODEL"]
 
-    app_module.configure(
+    app_module.configure_at_startup(
         db_path=db_path,
         dimension=dimension,
         embedding_provider=embedding_provider,
