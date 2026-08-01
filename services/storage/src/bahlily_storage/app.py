@@ -323,6 +323,11 @@ async def patch_template(
 ) -> TemplateResponse:
     repo = TemplateRepo(session)
     fields: dict[str, object] = req.model_dump(exclude_none=True)
+    # `exclude_none=True` drops `focus_instructions` whether it was omitted or
+    # explicitly sent as `null` — but only omission should mean "leave it
+    # alone"; an explicit `null` is a request to clear the stored value.
+    if "focus_instructions" in req.model_fields_set:
+        fields["focus_instructions"] = req.focus_instructions
     if "few_shot_examples" in fields:
         fields["few_shot_examples"] = json.dumps(
             [e.model_dump() for e in req.few_shot_examples or []]

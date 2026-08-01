@@ -392,6 +392,18 @@ def test_patch_template_rejects_unknown_field(client: TestClient) -> None:
     assert r.status_code == 422
 
 
+def test_patch_template_clears_explicit_null_focus_instructions(client: TestClient) -> None:
+    created = client.post(
+        "/templates",
+        json={"name": "A", "system_prompt": "P1", "focus_instructions": "Be concise."},
+    ).json()
+    assert created["focus_instructions"] == "Be concise."
+
+    r = client.patch(f"/templates/{created['id']}", json={"focus_instructions": None})
+    assert r.status_code == 200
+    assert r.json()["focus_instructions"] is None
+
+
 def test_patch_template_not_found(client: TestClient) -> None:
     r = client.patch("/templates/nonexistent", json={"name": "x"})
     assert r.status_code == 404
@@ -416,6 +428,16 @@ def test_create_template_rejects_malformed_few_shot_example(client: TestClient) 
         "name": "Custom",
         "system_prompt": "P",
         "few_shot_examples": [{"foo": "bar"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_create_template_rejects_empty_few_shot_example_field(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"input": "", "output": "fine"}],
     }
     r = client.post("/templates", json=body)
     assert r.status_code == 422

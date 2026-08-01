@@ -98,8 +98,8 @@ class SummaryResponse(BaseModel):
 class TemplateExample(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    input: str
-    output: str
+    input: str = Field(min_length=1)
+    output: str = Field(min_length=1)
 
 
 class CreateTemplateRequest(BaseModel):
