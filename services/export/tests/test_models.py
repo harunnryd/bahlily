@@ -29,6 +29,15 @@ def test_export_request_rejects_empty_title() -> None:
         )
 
 
+def test_export_request_rejects_whitespace_only_title() -> None:
+    with pytest.raises(ValidationError):
+        ExportRequest(
+            title="   ",
+            overview="Quick sync.",
+            created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+        )
+
+
 def test_export_request_rejects_empty_overview() -> None:
     with pytest.raises(ValidationError):
         ExportRequest(
