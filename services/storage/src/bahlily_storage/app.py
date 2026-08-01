@@ -6,7 +6,7 @@ import uuid
 from typing import Annotated
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -16,6 +16,7 @@ from bahlily_storage.errors import (
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
     StorageSummaryAlreadyExistsError,
+    StorageSummaryNotFoundError,
 )
 from bahlily_storage.grpc_subscriber import subscriber_status
 from bahlily_storage.models import Meeting, Summary
@@ -38,6 +39,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageMeetingNotFoundError: 404,
     StorageMeetingAlreadyExistsError: 409,
     StorageSummaryAlreadyExistsError: 409,
+    StorageSummaryNotFoundError: 404,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -46,6 +48,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageMeetingNotFoundError)
 @app.exception_handler(StorageMeetingAlreadyExistsError)
 @app.exception_handler(StorageSummaryAlreadyExistsError)
+@app.exception_handler(StorageSummaryNotFoundError)
 async def _error_handler(request: Request, exc: Exception) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
@@ -237,7 +240,7 @@ async def get_summary(meeting_id: str, session: SessionDep) -> SummaryResponse:
     repo_s = SummaryRepo(session)
     s = await repo_s.get_by_meeting(meeting_id)
     if s is None:
-        raise HTTPException(status_code=404, detail="no summary for this meeting")
+        raise StorageSummaryNotFoundError(meeting_id)
     return SummaryResponse(
         id=s.id,
         meeting_id=s.meeting_id,

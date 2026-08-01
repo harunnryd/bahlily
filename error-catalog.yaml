@@ -90,6 +90,10 @@
   domain: storage
   severity: error
   description: A meeting with the given ID already exists; use PATCH to update it.
+- code: STORAGE_SUMMARY_NOT_FOUND
+  domain: storage
+  severity: error
+  description: The meeting exists but has no summary yet.
 - code: STORAGE_SUMMARY_ALREADY_EXISTS
   domain: storage
   severity: error

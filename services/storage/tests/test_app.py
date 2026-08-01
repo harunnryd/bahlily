@@ -207,3 +207,6 @@ def test_get_summary_not_found(client: TestClient) -> None:
     client.post("/meetings", json={"id": "m1"})
     r = client.get("/meetings/m1/summary")
     assert r.status_code == 404
+    assert r.json()["code"] == "STORAGE_SUMMARY_NOT_FOUND"
+    assert "message" in r.json()
+    assert "detail" not in r.json()

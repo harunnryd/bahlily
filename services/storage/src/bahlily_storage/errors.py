@@ -16,6 +16,14 @@ class StorageMeetingAlreadyExistsError(BahlilyError):
         )
 
 
+class StorageSummaryNotFoundError(BahlilyError):
+    def __init__(self, meeting_id: str) -> None:
+        super().__init__(
+            f"no summary for meeting '{meeting_id}'",
+            code="STORAGE_SUMMARY_NOT_FOUND",
+        )
+
+
 class StorageSummaryAlreadyExistsError(BahlilyError):
     def __init__(self, meeting_id: str) -> None:
         super().__init__(
