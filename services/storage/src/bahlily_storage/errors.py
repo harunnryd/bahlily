@@ -30,3 +30,11 @@ class StorageSummaryAlreadyExistsError(BahlilyError):
             f"summary for meeting '{meeting_id}' already exists",
             code="STORAGE_SUMMARY_ALREADY_EXISTS",
         )
+
+
+class StorageTemplateNotFoundError(BahlilyError):
+    def __init__(self, template_id: str) -> None:
+        super().__init__(
+            f"template '{template_id}' not found",
+            code="STORAGE_TEMPLATE_NOT_FOUND",
+        )

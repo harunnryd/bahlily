@@ -334,3 +334,141 @@ async def test_create_summary_race_maps_to_conflict(tmp_path: Path) -> None:
 
     assert outcomes.count("created") == 1
     assert outcomes.count("conflict") == 1
+
+
+def test_create_and_get_template(client: TestClient) -> None:
+    body = {"name": "Custom", "system_prompt": "Summarize this."}
+    r = client.post("/templates", json=body)
+    assert r.status_code == 201
+    data = r.json()
+    assert data["name"] == "Custom"
+    assert data["version"] == "1.0.0"
+    assert data["few_shot_examples"] == []
+    template_id = data["id"]
+
+    r2 = client.get(f"/templates/{template_id}")
+    assert r2.status_code == 200
+    assert r2.json()["system_prompt"] == "Summarize this."
+
+
+def test_create_template_rejects_unknown_field(client: TestClient) -> None:
+    body = {"name": "Custom", "system_prompt": "P", "not_a_real_field": "x"}
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_get_template_not_found(client: TestClient) -> None:
+    r = client.get("/templates/nonexistent")
+    assert r.status_code == 404
+    assert r.json()["code"] == "STORAGE_TEMPLATE_NOT_FOUND"
+
+
+def test_list_templates(client: TestClient) -> None:
+    client.post("/templates", json={"name": "A", "system_prompt": "P1"})
+    client.post("/templates", json={"name": "B", "system_prompt": "P2"})
+    r = client.get("/templates")
+    assert r.status_code == 200
+    names = {t["name"] for t in r.json()}
+    assert names == {"A", "B"}
+
+
+def test_list_templates_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/templates", params={"limit": 0}).status_code == 422
+    assert client.get("/templates", params={"limit": 101}).status_code == 422
+    assert client.get("/templates", params={"offset": -1}).status_code == 422
+
+
+def test_patch_template(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={"name": "Renamed"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Renamed"
+    assert r.json()["updated_at"] != created["updated_at"]
+
+
+def test_patch_template_rejects_unknown_field(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={"nam": "x"})
+    assert r.status_code == 422
+
+
+def test_patch_template_clears_explicit_null_focus_instructions(client: TestClient) -> None:
+    created = client.post(
+        "/templates",
+        json={"name": "A", "system_prompt": "P1", "focus_instructions": "Be concise."},
+    ).json()
+    assert created["focus_instructions"] == "Be concise."
+
+    r = client.patch(f"/templates/{created['id']}", json={"focus_instructions": None})
+    assert r.status_code == 200
+    assert r.json()["focus_instructions"] is None
+
+
+def test_patch_template_not_found(client: TestClient) -> None:
+    r = client.patch("/templates/nonexistent", json={"name": "x"})
+    assert r.status_code == 404
+    assert r.json()["code"] == "STORAGE_TEMPLATE_NOT_FOUND"
+
+
+def test_delete_template(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.delete(f"/templates/{created['id']}")
+    assert r.status_code == 204
+    assert client.get(f"/templates/{created['id']}").status_code == 404
+
+
+def test_delete_template_not_found(client: TestClient) -> None:
+    r = client.delete("/templates/nonexistent")
+    assert r.status_code == 404
+    assert r.json()["code"] == "STORAGE_TEMPLATE_NOT_FOUND"
+
+
+def test_create_template_rejects_malformed_few_shot_example(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"foo": "bar"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_create_template_rejects_empty_few_shot_example_field(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"input": "", "output": "fine"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_create_template_accepts_well_formed_few_shot_example(client: TestClient) -> None:
+    body = {
+        "name": "Custom",
+        "system_prompt": "P",
+        "few_shot_examples": [{"input": "hi", "output": "hello"}],
+    }
+    r = client.post("/templates", json=body)
+    assert r.status_code == 201
+    assert r.json()["few_shot_examples"] == [{"input": "hi", "output": "hello"}]
+
+
+def test_create_template_rejects_empty_system_prompt(client: TestClient) -> None:
+    body = {"name": "Custom", "system_prompt": ""}
+    r = client.post("/templates", json=body)
+    assert r.status_code == 422
+
+
+def test_patch_template_rejects_empty_system_prompt(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={"system_prompt": ""})
+    assert r.status_code == 422
+
+
+def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient) -> None:
+    created = client.post("/templates", json={"name": "A", "system_prompt": "P1"}).json()
+    r = client.patch(f"/templates/{created['id']}", json={})
+    assert r.status_code == 200
+    assert r.json()["updated_at"] == created["updated_at"]
+    assert r.json()["name"] == created["name"]

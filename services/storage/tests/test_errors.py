@@ -5,6 +5,7 @@ from bahlily_storage.errors import (
     StorageMeetingNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
+    StorageTemplateNotFoundError,
 )
 
 
@@ -22,6 +23,10 @@ def test_summary_already_exists_code() -> None:
 
 def test_summary_not_found_code() -> None:
     assert StorageSummaryNotFoundError("abc").code == "STORAGE_SUMMARY_NOT_FOUND"
+
+
+def test_template_not_found_code() -> None:
+    assert StorageTemplateNotFoundError("abc").code == "STORAGE_TEMPLATE_NOT_FOUND"
 
 
 def test_storage_codes_are_in_error_catalog() -> None:
@@ -42,5 +47,6 @@ def test_storage_codes_are_in_error_catalog() -> None:
         StorageMeetingAlreadyExistsError,
         StorageSummaryAlreadyExistsError,
         StorageSummaryNotFoundError,
+        StorageTemplateNotFoundError,
     ):
         assert exc("x").code in registered

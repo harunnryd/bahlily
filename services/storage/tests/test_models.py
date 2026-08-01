@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from bahlily_storage.models import Base, Meeting, Segment, Summary
+from bahlily_storage.models import Base, Meeting, Segment, Summary, SummaryTemplate
 
 
 @pytest.fixture
@@ -140,3 +140,48 @@ async def test_summary_created_at_roundtrips_timezone_aware(session: AsyncSessio
     assert fetched is not None
     assert fetched.created_at.utcoffset() is not None
     assert fetched.created_at == created
+
+
+async def test_summary_template_roundtrip(session: AsyncSession) -> None:
+    now = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    template = SummaryTemplate(
+        id="tmpl-1",
+        name="Sales Call Custom",
+        version="1.0.0",
+        system_prompt="Summarize the sales call.",
+        focus_instructions=None,
+        few_shot_examples="[]",
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(template)
+    await session.commit()
+    fetched = await session.get(SummaryTemplate, "tmpl-1")
+    assert fetched is not None
+    assert fetched.name == "Sales Call Custom"
+    assert fetched.system_prompt == "Summarize the sales call."
+    assert fetched.few_shot_examples == "[]"
+
+
+async def test_summary_template_timestamps_roundtrip_timezone_aware(session: AsyncSession) -> None:
+    created = datetime.datetime(2026, 2, 3, 4, 5, 6, tzinfo=datetime.UTC)
+    updated = datetime.datetime(2026, 2, 3, 5, 0, 0, tzinfo=datetime.UTC)
+    session.add(
+        SummaryTemplate(
+            id="tmpl-tz",
+            name="T",
+            version="1.0.0",
+            system_prompt="P",
+            few_shot_examples="[]",
+            created_at=created,
+            updated_at=updated,
+        )
+    )
+    await session.commit()
+    session.expunge_all()
+
+    fetched = await session.get(SummaryTemplate, "tmpl-tz")
+    assert fetched is not None
+    assert fetched.created_at.utcoffset() is not None
+    assert fetched.created_at == created
+    assert fetched.updated_at == updated

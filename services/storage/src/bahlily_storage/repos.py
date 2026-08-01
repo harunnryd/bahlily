@@ -4,7 +4,7 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bahlily_storage.models import Meeting, Segment, Summary
+from bahlily_storage.models import Meeting, Segment, Summary, SummaryTemplate
 
 
 class MeetingRepo:
@@ -179,3 +179,56 @@ class SummaryRepo:
     async def get_by_meeting(self, meeting_id: str) -> Summary | None:
         result = await self._s.execute(select(Summary).where(Summary.meeting_id == meeting_id))
         return result.scalar_one_or_none()
+
+
+class TemplateRepo:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def create(self, template: SummaryTemplate) -> SummaryTemplate:
+        self._s.add(template)
+        await self._s.flush()
+        return template
+
+    async def get(self, template_id: str) -> SummaryTemplate | None:
+        return await self._s.get(SummaryTemplate, template_id)
+
+    async def list_all(self, limit: int = 20, offset: int = 0) -> list[SummaryTemplate]:
+        result = await self._s.execute(
+            select(SummaryTemplate)
+            .order_by(SummaryTemplate.created_at.desc(), SummaryTemplate.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    _UPDATABLE_FIELDS = frozenset(
+        {
+            "name",
+            "version",
+            "system_prompt",
+            "focus_instructions",
+            "few_shot_examples",
+            "updated_at",
+        }
+    )
+
+    async def update(self, template_id: str, **fields: object) -> SummaryTemplate | None:
+        unknown = set(fields) - self._UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unsupported SummaryTemplate field(s): {sorted(unknown)}")
+        template = await self.get(template_id)
+        if template is None:
+            return None
+        for key, value in fields.items():
+            setattr(template, key, value)
+        await self._s.flush()
+        return template
+
+    async def delete(self, template_id: str) -> bool:
+        template = await self.get(template_id)
+        if template is None:
+            return False
+        await self._s.delete(template)
+        await self._s.flush()
+        return True

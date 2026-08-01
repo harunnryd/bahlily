@@ -93,3 +93,41 @@ class SummaryResponse(BaseModel):
     provider: str
     model: str
     created_at: datetime.datetime
+
+
+class TemplateExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: str = Field(min_length=1)
+    output: str = Field(min_length=1)
+
+
+class CreateTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    version: str = "1.0.0"
+    system_prompt: str = Field(min_length=1)
+    focus_instructions: str | None = None
+    few_shot_examples: list[TemplateExample] = []
+
+
+class PatchTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    version: str | None = None
+    system_prompt: str | None = Field(default=None, min_length=1)
+    focus_instructions: str | None = None
+    few_shot_examples: list[TemplateExample] | None = None
+
+
+class TemplateResponse(BaseModel):
+    id: str
+    name: str
+    version: str
+    system_prompt: str
+    focus_instructions: str | None
+    few_shot_examples: list[TemplateExample]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
