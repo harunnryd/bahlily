@@ -60,6 +60,17 @@ def test_render_pdf_action_item_with_owner_and_due_date() -> None:
     assert "2026-02-01" in text
 
 
+def test_render_pdf_escapes_markup_like_text_without_crashing() -> None:
+    req = ExportRequest(
+        title="T",
+        overview="Use Map<K,V> & A<B here",
+        created_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+    )
+    text = _extracted_text(render_pdf(req))
+    assert "Map<K,V>" in text
+    assert "A<B" in text
+
+
 def test_render_pdf_quote_attributed_to_speaker() -> None:
     req = ExportRequest(
         title="T",
