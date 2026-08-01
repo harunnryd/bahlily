@@ -5,8 +5,8 @@ import datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bahlily_storage.models import Meeting, Summary
-from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo
+from bahlily_storage.models import Meeting, Summary, SummaryTemplate
+from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo, TemplateRepo
 
 
 def _meeting(id: str = "m1") -> Meeting:
@@ -438,3 +438,95 @@ async def test_meeting_delete_cascades_to_segments(session: AsyncSession) -> Non
     await session.commit()
 
     assert await repo_s.list_by_meeting("m1") == []
+
+
+def _template(id: str = "tmpl-1", name: str = "Custom") -> SummaryTemplate:
+    now = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    return SummaryTemplate(
+        id=id,
+        name=name,
+        version="1.0.0",
+        system_prompt="Summarize this.",
+        focus_instructions=None,
+        few_shot_examples="[]",
+        created_at=now,
+        updated_at=now,
+    )
+
+
+async def test_template_create_and_get(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    await repo.create(_template())
+    await session.commit()
+    fetched = await repo.get("tmpl-1")
+    assert fetched is not None
+    assert fetched.name == "Custom"
+
+
+async def test_template_not_found_returns_none(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    assert await repo.get("nonexistent") is None
+
+
+async def test_template_list_all_orders_and_paginates(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    same_time = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    for template_id in ("t1", "t2", "t3"):
+        await repo.create(
+            SummaryTemplate(
+                id=template_id,
+                name="Custom",
+                version="1.0.0",
+                system_prompt="P",
+                few_shot_examples="[]",
+                created_at=same_time,
+                updated_at=same_time,
+            )
+        )
+    await session.commit()
+
+    all_templates = await repo.list_all()
+    assert [t.id for t in all_templates] == ["t3", "t2", "t1"]
+
+    limited = await repo.list_all(limit=2)
+    assert [t.id for t in limited] == ["t3", "t2"]
+
+    offset_templates = await repo.list_all(limit=2, offset=1)
+    assert [t.id for t in offset_templates] == ["t2", "t1"]
+
+
+async def test_template_update(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    await repo.create(_template())
+    await session.commit()
+    updated = await repo.update("tmpl-1", name="Renamed", system_prompt="New prompt.")
+    assert updated is not None
+    assert updated.name == "Renamed"
+    assert updated.system_prompt == "New prompt."
+
+
+async def test_template_update_not_found_returns_none(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    assert await repo.update("nonexistent", name="X") is None
+
+
+async def test_template_update_rejects_unknown_field(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    await repo.create(_template())
+    await session.commit()
+    with pytest.raises(ValueError):
+        await repo.update("tmpl-1", id="not-allowed")
+
+
+async def test_template_delete(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    await repo.create(_template())
+    await session.commit()
+    deleted = await repo.delete("tmpl-1")
+    assert deleted is True
+    assert await repo.get("tmpl-1") is None
+
+
+async def test_template_delete_not_found_returns_false(session: AsyncSession) -> None:
+    repo = TemplateRepo(session)
+    assert await repo.delete("nonexistent") is False
