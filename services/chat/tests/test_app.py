@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
+from langchain_core.messages import AIMessage
 
 from bahlily_chat.app import app, get_connection, get_embedder
 from bahlily_chat.db import connect
@@ -67,6 +69,22 @@ def test_ingest_rejects_empty_segments(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_concurrent_ingest_requests_do_not_500(client: TestClient) -> None:
+    def ingest(i: int) -> int:
+        body = {
+            "segments": [
+                {"text": f"segment from request {i}", "segment_id": i},
+            ]
+        }
+        response = client.post(f"/meetings/concurrent-{i}/ingest", json=body)
+        return int(response.status_code)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        statuses = list(executor.map(ingest, range(20)))
+
+    assert all(status == 201 for status in statuses), statuses
+
+
 def test_delete_meeting(client: TestClient) -> None:
     client.post("/meetings/m1/ingest", json=_ingest_body())
     response = client.delete("/meetings/m1")
@@ -82,8 +100,7 @@ def test_chat_scoped_to_meeting(client: TestClient) -> None:
     client.post("/meetings/m1/ingest", json=_ingest_body())
 
     with patch("bahlily_chat.chat.init_chat_model") as mock_init:
-        fake_response = MagicMock()
-        fake_response.content = "You decided to ship on Friday."
+        fake_response = AIMessage(content="You decided to ship on Friday.")
         mock_init.return_value.invoke.return_value = fake_response
 
         response = client.post(
@@ -117,8 +134,7 @@ def test_chat_unscoped_meeting_not_ingested_returns_404(client: TestClient) -> N
 
 def test_chat_global_query_on_empty_index_still_answers(client: TestClient) -> None:
     with patch("bahlily_chat.chat.init_chat_model") as mock_init:
-        fake_response = MagicMock()
-        fake_response.content = "I don't have any meetings yet."
+        fake_response = AIMessage(content="I don't have any meetings yet.")
         mock_init.return_value.invoke.return_value = fake_response
 
         response = client.post(

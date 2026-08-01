@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import dataclasses
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -19,12 +19,39 @@ from bahlily_chat.errors import (
     ChatProviderUnavailableError,
     ChatUnsupportedEmbeddingProviderError,
     ChatUnsupportedProviderError,
+    classify_provider_exception,
 )
 from bahlily_chat.models import ChatRequest, ChatResponse, IngestRequest, IngestResponse
 
 app = FastAPI(title="bahlily-chat")
 
-_DEFAULT_DB = str(Path.home() / ".bahlily" / "chat.db")
+DEFAULT_DB = str(Path.home() / ".bahlily" / "chat.db")
+
+
+@dataclasses.dataclass(frozen=True)
+class ChatConfig:
+    db_path: str
+    dimension: int
+
+
+_config: ChatConfig | None = None
+_embedder: Embeddings | None = None
+
+
+def configure(
+    *, db_path: str, dimension: int, embedding_provider: str, embedding_model: str
+) -> None:
+    """Set the process-wide config/embedder once, at startup.
+
+    Doing the (potentially failing) env var reads and embedder construction
+    here rather than lazily inside the request-scoped dependencies below
+    means a misconfigured deployment fails loudly at boot instead of 500ing
+    with a raw KeyError/ValueError on the first real request.
+    """
+    global _config, _embedder
+    _config = ChatConfig(db_path=db_path, dimension=dimension)
+    _embedder = embeddings.get_embedder(embedding_provider, embedding_model)
+
 
 _ERROR_STATUS: dict[type[Exception], int] = {
     ChatMeetingNotIngestedError: 404,
@@ -46,9 +73,9 @@ async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
 
 
 def get_connection() -> Iterator[sqlite3.Connection]:
-    db_path = os.environ.get("BAHLILY_CHAT_DB", _DEFAULT_DB)
-    dimension = int(os.environ["BAHLILY_CHAT_EMBEDDING_DIMENSION"])
-    conn = db.connect(db_path, dimension)
+    if _config is None:
+        raise RuntimeError("bahlily_chat.app.configure() must be called before serving requests")
+    conn = db.connect(_config.db_path, _config.dimension)
     try:
         yield conn
     finally:
@@ -56,9 +83,9 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 
 def get_embedder() -> Embeddings:
-    provider = os.environ["BAHLILY_CHAT_EMBEDDING_PROVIDER"]
-    model = os.environ["BAHLILY_CHAT_EMBEDDING_MODEL"]
-    return embeddings.get_embedder(provider, model)
+    if _embedder is None:
+        raise RuntimeError("bahlily_chat.app.configure() must be called before serving requests")
+    return _embedder
 
 
 ConnectionDep = Annotated[sqlite3.Connection, Depends(get_connection)]
@@ -78,7 +105,10 @@ def ingest_meeting(
     embedder: EmbedderDep,
 ) -> IngestResponse:
     texts = [s.text for s in request.segments]
-    vectors = embedder.embed_documents(texts)
+    try:
+        vectors = embedder.embed_documents(texts)
+    except Exception as exc:
+        raise classify_provider_exception(exc) from exc
     rows = [
         (s.segment_id, s.text, s.speaker, s.start_time, s.end_time, vec)
         for s, vec in zip(request.segments, vectors, strict=True)
