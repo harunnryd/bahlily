@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -21,9 +22,13 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    async def override_session() -> AsyncGenerator[AsyncSession, None]:
+    async def _create_schema() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+    asyncio.run(_create_schema())
+
+    async def override_session() -> AsyncGenerator[AsyncSession, None]:
         async with factory() as s:
             yield s
 
@@ -31,6 +36,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+    asyncio.run(engine.dispose())
 
 
 def test_health_returns_ok(client: TestClient) -> None:
