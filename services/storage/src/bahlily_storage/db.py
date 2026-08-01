@@ -40,6 +40,9 @@ def resolve_db_url() -> str:
 _DB_URL = resolve_db_url()
 
 
+BUSY_TIMEOUT_MS = 5000
+
+
 def _make_engine(url: str) -> AsyncEngine:
     eng = create_async_engine(url, echo=False)
 
@@ -47,6 +50,16 @@ def _make_engine(url: str) -> AsyncEngine:
     def _set_pragma(dbapi_conn: Any, _: Any) -> None:
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON")
+        # Two write paths share this file in one process (HTTP handlers and the
+        # background gRPC subscriber). WAL lets readers proceed during a write,
+        # and busy_timeout makes a contended writer wait instead of failing
+        # immediately with "database is locked".
+        # `PRAGMA journal_mode` returns a row, so it must be fetched or the
+        # sqlite3 driver leaves the statement unread.
+        cursor.execute("PRAGMA journal_mode = WAL")
+        cursor.fetchall()
+        cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        cursor.fetchall()
         cursor.close()
 
     return eng

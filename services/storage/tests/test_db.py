@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -108,3 +110,52 @@ async def test_foreign_key_pragma_enforced(memory_engine: AsyncEngine) -> None:
         session.add(orphan)
         with pytest.raises(IntegrityError):
             await session.commit()
+
+
+async def test_concurrency_pragmas_in_effect_on_file_db(tmp_path: Path) -> None:
+    """WAL + busy_timeout must be set, or concurrent writers hit 'database is locked'."""
+    engine = db._make_engine(f"sqlite+aiosqlite:///{tmp_path / 'pragma.db'}")
+    try:
+        async with engine.connect() as conn:
+            journal_mode = (await conn.exec_driver_sql("PRAGMA journal_mode")).scalar_one()
+            busy_timeout = (await conn.exec_driver_sql("PRAGMA busy_timeout")).scalar_one()
+            foreign_keys = (await conn.exec_driver_sql("PRAGMA foreign_keys")).scalar_one()
+    finally:
+        await engine.dispose()
+
+    assert str(journal_mode).lower() == "wal"
+    assert busy_timeout == db.BUSY_TIMEOUT_MS
+    assert foreign_keys == 1
+
+
+async def test_concurrent_writers_do_not_deadlock(tmp_path: Path) -> None:
+    """Two independent engines writing the same file must not raise 'database is locked'."""
+    url = f"sqlite+aiosqlite:///{tmp_path / 'concurrent.db'}"
+    writer_a = db._make_engine(url)
+    writer_b = db._make_engine(url)
+    try:
+        async with writer_a.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async def write(eng: AsyncEngine, prefix: str) -> None:
+            factory = async_sessionmaker(eng, expire_on_commit=False)
+            for i in range(10):
+                async with factory() as s:
+                    s.add(
+                        Meeting(
+                            id=f"{prefix}-{i}",
+                            status="recording",
+                            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+                            segments_count=0,
+                        )
+                    )
+                    await s.commit()
+
+        await asyncio.gather(write(writer_a, "a"), write(writer_b, "b"))
+
+        async with writer_a.connect() as conn:
+            total = (await conn.exec_driver_sql("SELECT count(*) FROM meetings")).scalar_one()
+        assert total == 20
+    finally:
+        await writer_a.dispose()
+        await writer_b.dispose()
