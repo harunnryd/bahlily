@@ -19,8 +19,6 @@ from bahlily_chat.models import ChatRequest, ChatTurn
 
 
 class FakeEmbeddings(Embeddings):
-    """Deterministic fake: each known text maps to a fixed 4-dim vector."""
-
     def __init__(self, vectors: dict[str, list[float]]) -> None:
         self._vectors = vectors
 

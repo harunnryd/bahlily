@@ -36,7 +36,12 @@ def connect(db_path: str, dimension: int) -> sqlite3.Connection:
         [_DIMENSION_KEY, str(dimension)],
     )
     row = conn.execute("SELECT value FROM chat_meta WHERE key = ?", [_DIMENSION_KEY]).fetchone()
-    assert row is not None
+    if row is None:
+        conn.close()
+        raise RuntimeError(
+            f"chat_meta row for {_DIMENSION_KEY!r} is missing after INSERT OR IGNORE; "
+            "this indicates a corrupted database file"
+        )
     existing_dimension = int(row[0])
     if existing_dimension != dimension:
         conn.close()

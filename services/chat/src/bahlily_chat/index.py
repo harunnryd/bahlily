@@ -22,24 +22,27 @@ IngestRow = tuple[int, str, str | None, float | None, float | None, list[float]]
 
 def upsert_meeting(conn: sqlite3.Connection, meeting_id: str, rows: list[IngestRow]) -> None:
     conn.execute("DELETE FROM segments WHERE meeting_id = ?", [meeting_id])
-    for segment_id, text, speaker, start_time, end_time, embedding in rows:
-        conn.execute(
-            """
-            INSERT INTO segments(
-              meeting_id, segment_id, embedding, text, speaker, start_time, end_time
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                meeting_id,
-                segment_id,
-                sqlite_vec.serialize_float32(embedding),
-                text,
-                speaker,
-                start_time,
-                end_time,
-            ],
+    values = [
+        (
+            meeting_id,
+            segment_id,
+            sqlite_vec.serialize_float32(embedding),
+            text,
+            speaker,
+            start_time,
+            end_time,
         )
+        for segment_id, text, speaker, start_time, end_time, embedding in rows
+    ]
+    conn.executemany(
+        """
+        INSERT INTO segments(
+          meeting_id, segment_id, embedding, text, speaker, start_time, end_time
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        values,
+    )
     conn.commit()
 
 
@@ -62,26 +65,17 @@ def search(
     meeting_id: str | None = None,
 ) -> list[SegmentMatch]:
     query_vec = sqlite_vec.serialize_float32(query_embedding)
+    query = """
+        SELECT meeting_id, segment_id, text, speaker, start_time, end_time, distance
+        FROM segments
+        WHERE embedding MATCH ? AND k = ?
+    """
+    params: list[object] = [query_vec, k]
     if meeting_id is not None:
-        rows = conn.execute(
-            """
-            SELECT meeting_id, segment_id, text, speaker, start_time, end_time, distance
-            FROM segments
-            WHERE embedding MATCH ? AND k = ? AND meeting_id = ?
-            ORDER BY distance
-            """,
-            [query_vec, k, meeting_id],
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT meeting_id, segment_id, text, speaker, start_time, end_time, distance
-            FROM segments
-            WHERE embedding MATCH ? AND k = ?
-            ORDER BY distance
-            """,
-            [query_vec, k],
-        ).fetchall()
+        query += " AND meeting_id = ?"
+        params.append(meeting_id)
+    query += " ORDER BY distance"
+    rows = conn.execute(query, params).fetchall()
     return [
         SegmentMatch(
             meeting_id=r[0],
