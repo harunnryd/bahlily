@@ -25,7 +25,6 @@ def test_summary_not_found_code() -> None:
 
 
 def test_storage_codes_are_in_error_catalog() -> None:
-    """Every storage error code must be registered in the root error catalog."""
     import re
     from pathlib import Path
 
