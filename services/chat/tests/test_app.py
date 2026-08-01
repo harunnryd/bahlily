@@ -69,20 +69,33 @@ def test_ingest_rejects_empty_segments(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+class ShortCountEmbeddings(Embeddings):
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1, 0.1, 0.1, 0.1]]
+
+    def embed_query(self, text: str) -> list[float]:
+        return [0.1, 0.1, 0.1, 0.1]
+
+
+def _short_count_embedder() -> Embeddings:
+    return ShortCountEmbeddings()
+
+
+def _fake_embedder() -> Embeddings:
+    return FakeEmbeddings()
+
+
 def test_ingest_provider_vector_count_mismatch_returns_502(client: TestClient) -> None:
-    class ShortCountEmbeddings(Embeddings):
-        def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            return [[0.1, 0.1, 0.1, 0.1]]  # fewer vectors than requested texts
-
-        def embed_query(self, text: str) -> list[float]:
-            return [0.1, 0.1, 0.1, 0.1]
-
-    app.dependency_overrides[get_embedder] = lambda: ShortCountEmbeddings()
+    app.dependency_overrides[get_embedder] = _short_count_embedder
     try:
         response = client.post("/meetings/m1/ingest", json=_ingest_body())
     finally:
-        app.dependency_overrides[get_embedder] = lambda: FakeEmbeddings()
+        app.dependency_overrides[get_embedder] = _fake_embedder
     assert response.status_code == 502
+    assert response.json() == {
+        "code": "CHAT_PROVIDER_UNAVAILABLE",
+        "message": "provider unavailable or timed out",
+    }
 
 
 def test_concurrent_ingest_requests_do_not_500(client: TestClient) -> None:
