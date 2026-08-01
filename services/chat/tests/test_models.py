@@ -100,6 +100,26 @@ def test_chat_request_rejects_whitespace_only_model() -> None:
         ChatRequest(question="hi", provider="openai", model="   ")
 
 
+def test_chat_request_rejects_oversized_question() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(question="x" * 10_001, provider="openai", model="gpt-4o-mini")
+
+
+def test_chat_turn_rejects_oversized_content() -> None:
+    with pytest.raises(ValidationError):
+        ChatTurn(role="user", content="x" * 10_001)
+
+
+def test_chat_request_rejects_oversized_history() -> None:
+    with pytest.raises(ValidationError):
+        ChatRequest(
+            question="hi",
+            provider="openai",
+            model="gpt-4o-mini",
+            history=[ChatTurn(role="user", content="hi") for _ in range(51)],
+        )
+
+
 def test_chat_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError):
         ChatRequest(

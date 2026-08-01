@@ -33,19 +33,23 @@ class IngestResponse(BaseModel):
     segments_indexed: int
 
 
+_MAX_MESSAGE_LENGTH = 10_000
+_MAX_HISTORY_TURNS = 50
+
+
 class ChatTurn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=_MAX_MESSAGE_LENGTH)
 
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=_MAX_MESSAGE_LENGTH)
     meeting_id: str | None = Field(default=None, min_length=1)
-    history: list[ChatTurn] = []
+    history: list[ChatTurn] = Field(default=[], max_length=_MAX_HISTORY_TURNS)
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
 
