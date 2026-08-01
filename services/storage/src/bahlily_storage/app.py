@@ -210,7 +210,7 @@ async def batch_upsert_segments(
     ]
     inserted_count = await repo_s.upsert_batch(rows)
     if inserted_count:
-        await repo_m.update(meeting_id, segments_count=m.segments_count + inserted_count)
+        await repo_m.add_segments_count(meeting_id, inserted_count)
     await session.commit()
 
 

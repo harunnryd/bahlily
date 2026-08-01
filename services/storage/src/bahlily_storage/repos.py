@@ -50,12 +50,19 @@ class MeetingRepo:
         await self._s.flush()
         return True
 
-    async def increment_segments_count(self, meeting_id: str) -> None:
+    async def add_segments_count(self, meeting_id: str, delta: int) -> None:
+        """Atomically add `delta` to `segments_count`, in SQL rather than a
+        read-modify-write — a caller holding a stale in-memory `Meeting` (e.g.
+        loaded before a concurrent write landed) would otherwise overwrite the
+        other write's count instead of adding to it."""
         await self._s.execute(
             update(Meeting)
             .where(Meeting.id == meeting_id)
-            .values(segments_count=Meeting.segments_count + 1)
+            .values(segments_count=Meeting.segments_count + delta)
         )
+
+    async def increment_segments_count(self, meeting_id: str) -> None:
+        await self.add_segments_count(meeting_id, 1)
 
     async def update_engine_metadata(
         self,
