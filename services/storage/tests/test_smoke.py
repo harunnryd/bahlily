@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 import structlog
+import uvicorn
 
-from bahlily_storage import _run_concurrently, _serve_all, main
+from bahlily_storage import _run_concurrently, _serve_all, _serve_http, main
 from bahlily_storage.app import app
 
 
@@ -110,3 +112,44 @@ async def test_run_concurrently_logs_teardown_error_from_other_task() -> None:
         and "teardown blew up" in str(log.get("error", ""))
         for log in logs
     )
+
+
+async def test_run_concurrently_logs_discarded_secondary_exception() -> None:
+    """When both tasks complete with an exception in the same wait cycle,
+    only the first is re-raised — the other must not be silently dropped."""
+
+    async def boom_first() -> None:
+        await asyncio.sleep(0)
+        raise ValueError("first")
+
+    async def boom_second() -> None:
+        await asyncio.sleep(0)
+        raise RuntimeError("second")
+
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(Exception):  # noqa: B017
+            await _run_concurrently(boom_first(), boom_second())
+
+    assert any(log.get("event") == "discarded_secondary_exception" for log in logs)
+
+
+async def test_serve_http_calls_shutdown_on_cancellation() -> None:
+    """Cancelling `server.serve()` bypasses uvicorn's own shutdown call
+    (it only runs after its internal loop exits normally), so `_serve_http`
+    must invoke `server.shutdown()` itself when cancelled."""
+    shutdown_calls = 0
+
+    class FakeServer:
+        async def serve(self) -> None:
+            await asyncio.sleep(10)
+
+        async def shutdown(self) -> None:
+            nonlocal shutdown_calls
+            shutdown_calls += 1
+
+    async def quick() -> None:
+        await asyncio.sleep(0)
+
+    await _run_concurrently(quick(), _serve_http(cast(uvicorn.Server, FakeServer())))
+
+    assert shutdown_calls == 1

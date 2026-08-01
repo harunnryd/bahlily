@@ -11,6 +11,23 @@ import uvicorn
 _log = structlog.get_logger()
 
 
+async def _serve_http(server: uvicorn.Server) -> None:
+    """Run `server.serve()`, running `server.shutdown()` on cancellation.
+
+    Uvicorn's own `_serve()` only calls `shutdown()` after its main loop
+    returns normally (i.e. after a signal sets `should_exit`); a cancelled
+    task never reaches that line, so connections are never drained and the
+    FastAPI lifespan shutdown handlers never run. `_run_concurrently` cancels
+    whichever task is still running when the other one finishes, so this
+    wrapper is what gives the HTTP server a graceful shutdown in that case.
+    """
+    try:
+        await server.serve()
+    except asyncio.CancelledError:
+        await server.shutdown()
+        raise
+
+
 async def _run_concurrently(
     first: Coroutine[Any, Any, None],
     second: Coroutine[Any, Any, None],
@@ -48,6 +65,8 @@ async def _run_concurrently(
         except Exception as e:
             if first_exc is None:
                 first_exc = e
+            else:
+                _log.warning("discarded_secondary_exception", error=str(e))
     if first_exc is not None:
         raise first_exc
 
@@ -69,7 +88,7 @@ async def _serve_all(http_port: int, transcription_addr: str) -> None:
     config = uvicorn.Config(app, host="0.0.0.0", port=http_port, log_level="info")
     server = uvicorn.Server(config)
 
-    await _run_concurrently(server.serve(), subscriber.run())
+    await _run_concurrently(_serve_http(server), subscriber.run())
 
 
 def main() -> None:
