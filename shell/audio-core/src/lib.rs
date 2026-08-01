@@ -2,6 +2,7 @@ pub mod capture;
 pub mod grpc;
 pub mod mixer;
 pub mod recording;
+pub mod session;
 pub mod vad;
 
 /// A 128-bit ID in W3C Trace Context format (32 lowercase hex chars), generated
