@@ -307,6 +307,96 @@ async def test_upsert_batch_counts_only_new_rows(session: AsyncSession) -> None:
     assert await repo.upsert_batch([_row(1), _row(2)]) == 1
 
 
+async def test_upsert_batch_mixes_inserts_and_updates_in_one_call(
+    session: AsyncSession,
+) -> None:
+    """A single batch containing both a new row and an already-existing row
+    must report only the genuine insert, and must still apply the new
+    values to the existing row (not skip it)."""
+    session.add(
+        Meeting(
+            id="m-mixed",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.flush()
+
+    def _row(segment_id: int, text: str) -> dict[str, object]:
+        return {
+            "meeting_id": "m-mixed",
+            "segment_id": segment_id,
+            "text": text,
+            "confidence": None,
+            "engine": "whisper",
+            "model_name": "tiny",
+            "audio_start_time": 0.0,
+            "audio_end_time": 1.0,
+            "language": None,
+            "is_partial": False,
+            "trace_id": "t",
+        }
+
+    repo = SegmentRepo(session)
+    assert await repo.upsert_batch([_row(0, "original")]) == 1
+
+    assert await repo.upsert_batch([_row(0, "updated"), _row(1, "brand-new")]) == 1
+
+    segments = await repo.list_by_meeting("m-mixed")
+    assert [(s.segment_id, s.text) for s in segments] == [(0, "updated"), (1, "brand-new")]
+
+
+async def test_upsert_batch_uses_two_round_trips_regardless_of_size(
+    session: AsyncSession,
+) -> None:
+    """Regression: a per-row Python loop would issue up to 2 round-trips per
+    row; the batched implementation must issue exactly 2 total, however many
+    rows are in the batch."""
+    from sqlalchemy import event
+
+    session.add(
+        Meeting(
+            id="m-rt",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.flush()
+
+    def _row(segment_id: int) -> dict[str, object]:
+        return {
+            "meeting_id": "m-rt",
+            "segment_id": segment_id,
+            "text": f"s{segment_id}",
+            "confidence": None,
+            "engine": "whisper",
+            "model_name": "tiny",
+            "audio_start_time": 0.0,
+            "audio_end_time": 1.0,
+            "language": None,
+            "is_partial": False,
+            "trace_id": "t",
+        }
+
+    statement_count = 0
+
+    def _count_statements(*args: object, **kwargs: object) -> None:
+        nonlocal statement_count
+        statement_count += 1
+
+    sync_engine = session.get_bind().engine
+    event.listen(sync_engine, "before_cursor_execute", _count_statements)
+    try:
+        rows = [_row(i) for i in range(20)]
+        assert await SegmentRepo(session).upsert_batch(rows) == 20
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _count_statements)
+
+    assert statement_count == 2
+
+
 async def test_meeting_update_rejects_unknown_field(session: AsyncSession) -> None:
     repo = MeetingRepo(session)
     await repo.create(_meeting())

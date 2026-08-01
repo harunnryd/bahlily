@@ -119,8 +119,42 @@ class SegmentRepo:
         return inserted
 
     async def upsert_batch(self, rows: list[dict[str, object]]) -> int:
-        """Upsert many segments; returns how many were genuine inserts."""
-        return sum([await self.upsert(row) for row in rows])
+        """Upsert many segments in two batched statements; returns how many
+        were genuine inserts.
+
+        A per-row Python loop over `upsert()` would issue up to two DB
+        round-trips per row; this does it in exactly two round-trips total,
+        regardless of batch size:
+
+        1. A single `INSERT ... ON CONFLICT DO NOTHING RETURNING` — rows that
+           already exist are silently skipped, so the returned keys are
+           exactly the genuine inserts.
+        2. A single `INSERT ... ON CONFLICT DO UPDATE` applying every row's
+           values, which updates whichever rows conflicted in step 1.
+        """
+        if not rows:
+            return 0
+
+        index_elements = ("meeting_id", "segment_id")
+
+        insert_only = (
+            sqlite_insert(Segment)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=index_elements)
+            .returning(Segment.meeting_id, Segment.segment_id)
+        )
+        inserted_count = len((await self._s.execute(insert_only)).all())
+
+        upsert_stmt = sqlite_insert(Segment).values(rows)
+        update_cols = {
+            col: upsert_stmt.excluded[col] for col in rows[0] if col not in index_elements
+        }
+        upsert_stmt = upsert_stmt.on_conflict_do_update(
+            index_elements=index_elements, set_=update_cols
+        )
+        await self._s.execute(upsert_stmt)
+
+        return inserted_count
 
     async def list_by_meeting(self, meeting_id: str) -> list[Segment]:
         result = await self._s.execute(
