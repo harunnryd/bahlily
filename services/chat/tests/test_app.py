@@ -7,12 +7,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import sqlite_vec
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from langchain_core.messages import AIMessage
 
-from bahlily_chat.app import app, get_connection, get_embedder
+from bahlily_chat.app import app, configure_at_startup, get_connection, get_embedder
 from bahlily_chat.db import connect
+from bahlily_chat.errors import ChatStorageError
 
 
 class FakeEmbeddings(Embeddings):
@@ -121,9 +123,6 @@ def test_ingest_embedding_dimension_mismatch_returns_500(client: TestClient) -> 
 
 
 def test_get_connection_raises_storage_error_on_open_failure(tmp_path: Path) -> None:
-    from bahlily_chat.app import configure_at_startup, get_connection
-    from bahlily_chat.errors import ChatStorageError
-
     configure_at_startup(
         db_path=str(tmp_path / "test.db"),
         dimension=4,
@@ -131,40 +130,61 @@ def test_get_connection_raises_storage_error_on_open_failure(tmp_path: Path) -> 
         embedding_model="nomic-embed-text",
     )
     with (
-        patch("bahlily_chat.app.db.connect", side_effect=sqlite3.OperationalError("io")),
+        patch(
+            "sqlite3.connect", side_effect=sqlite3.OperationalError("unable to open database file")
+        ),
         pytest.raises(ChatStorageError),
     ):
         next(get_connection())
 
 
-def test_delete_meeting_storage_failure_returns_500(client: TestClient) -> None:
-    with patch("bahlily_chat.app.index.delete_meeting", side_effect=sqlite3.OperationalError("io")):
-        response = client.delete("/meetings/m1")
+def _corrupt_segments_table(db_path: Path) -> None:
+    raw = sqlite3.connect(str(db_path))
+    raw.enable_load_extension(True)
+    sqlite_vec.load(raw)
+    raw.enable_load_extension(False)
+    raw.execute("DROP TABLE segments")
+    raw.execute("CREATE TABLE segments (broken INTEGER)")
+    raw.commit()
+    raw.close()
+
+
+def test_delete_meeting_storage_failure_returns_500(client: TestClient, tmp_path: Path) -> None:
+    client.post("/meetings/m1/ingest", json=_ingest_body())
+    _corrupt_segments_table(tmp_path / "test.db")
+
+    response = client.delete("/meetings/m1")
     assert response.status_code == 500
     assert response.json()["code"] == "CHAT_STORAGE_ERROR"
 
 
-def test_chat_meeting_exists_storage_failure_returns_500(client: TestClient) -> None:
-    with patch("bahlily_chat.app.index.meeting_exists", side_effect=sqlite3.OperationalError("io")):
-        response = client.post(
-            "/chat",
-            json={
-                "question": "anything",
-                "meeting_id": "m1",
-                "provider": "openai",
-                "model": "gpt-4o-mini",
-            },
-        )
+def test_chat_meeting_exists_storage_failure_returns_500(
+    client: TestClient, tmp_path: Path
+) -> None:
+    client.post("/meetings/m1/ingest", json=_ingest_body())
+    _corrupt_segments_table(tmp_path / "test.db")
+
+    response = client.post(
+        "/chat",
+        json={
+            "question": "anything",
+            "meeting_id": "m1",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+        },
+    )
     assert response.status_code == 500
     assert response.json()["code"] == "CHAT_STORAGE_ERROR"
 
 
-def test_chat_search_storage_failure_returns_500(client: TestClient) -> None:
-    with patch("bahlily_chat.chat.index.search", side_effect=sqlite3.OperationalError("io")):
-        response = client.post(
-            "/chat",
-            json={"question": "anything", "provider": "openai", "model": "gpt-4o-mini"},
-        )
+def test_chat_search_storage_failure_returns_500(client: TestClient, tmp_path: Path) -> None:
+    client.post("/meetings/m1/ingest", json=_ingest_body())
+    _corrupt_segments_table(tmp_path / "test.db")
+
+    response = client.post(
+        "/chat",
+        json={"question": "anything", "provider": "openai", "model": "gpt-4o-mini"},
+    )
     assert response.status_code == 500
     assert response.json()["code"] == "CHAT_STORAGE_ERROR"
 
