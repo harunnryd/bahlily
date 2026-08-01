@@ -2,11 +2,24 @@
 name = "bahlily-storage"
 version = "0.1.0"
 description = "Meetings/transcripts/summaries SQLite storage, single authoritative writer"
-authors = [
-    { name = "Harun", email = "harun.sigmawaveai@gmail.com" }
-]
+authors = [{ name = "Harun", email = "harun.sigmawaveai@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "sqlalchemy>=2.0",
+    "greenlet>=3.0",
+    "aiosqlite>=0.20",
+    "alembic>=1.13",
+    "fastapi>=0.140.13",
+    "uvicorn[standard]>=0.51.0",
+    "pydantic>=2.13.4",
+    "grpcio>=1.83.0",
+    "protobuf>=7.35.1",
+    "structlog>=24.1",
+    "bahlily-logging>=0.1.0",
+]
+
+[tool.uv.sources]
+bahlily-logging = { path = "../../packages/bahlily-logging" }
 
 [project.scripts]
 bahlily-storage = "bahlily_storage:main"
@@ -16,14 +29,25 @@ requires = ["uv_build>=0.11.7,<0.12.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
-dev = ["ruff>=0.8", "pytest>=8", "mypy>=1.13"]
+dev = [
+    "ruff>=0.8",
+    "pytest>=8",
+    "mypy>=1.13",
+    "pytest-asyncio>=0.23",
+    "grpcio-tools>=1.83.0",
+    "httpx>=0.28",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["src/bahlily_storage/pb/**"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/bahlily_storage/models.py" = ["UP045"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -31,3 +55,12 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[[tool.mypy.overrides]]
+module = ["bahlily_storage.pb.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["grpc", "grpc.*", "grpc.aio"]
+ignore_missing_imports = true
