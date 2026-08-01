@@ -99,6 +99,28 @@ async def test_meeting_list_all(session: AsyncSession) -> None:
     assert [m.id for m in offset_meetings] == ["m3", "m1"]
 
 
+async def test_meeting_list_all_breaks_started_at_ties_by_id(session: AsyncSession) -> None:
+    """Meetings sharing a `started_at` need a deterministic tiebreaker, or
+    pagination could show the same row twice (or skip one) across pages
+    depending on how SQLite happens to order otherwise-equal rows."""
+    repo = MeetingRepo(session)
+    same_time = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+    for meeting_id in ("m1", "m2", "m3"):
+        await repo.create(
+            Meeting(id=meeting_id, status="recording", started_at=same_time, segments_count=0)
+        )
+    await session.commit()
+
+    all_meetings = await repo.list_all()
+    assert [m.id for m in all_meetings] == ["m3", "m2", "m1"]
+
+    limited = await repo.list_all(limit=2)
+    assert [m.id for m in limited] == ["m3", "m2"]
+
+    offset_meetings = await repo.list_all(limit=2, offset=1)
+    assert [m.id for m in offset_meetings] == ["m2", "m1"]
+
+
 async def test_meeting_update_engine_metadata(session: AsyncSession) -> None:
     repo = MeetingRepo(session)
     await repo.create(_meeting())
