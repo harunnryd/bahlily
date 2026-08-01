@@ -4,11 +4,13 @@ import asyncio
 import contextlib
 import datetime
 from collections.abc import AsyncGenerator, AsyncIterator
+from pathlib import Path
 
 import grpc
 import grpc.aio
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from bahlily_storage.models import Base, Meeting
 from bahlily_storage.pb.transcription.v1 import transcription_pb2, transcription_pb2_grpc
@@ -56,8 +58,25 @@ DbSession = tuple[AsyncSession, async_sessionmaker[AsyncSession]]
 
 
 @pytest.fixture
-async def db_session() -> AsyncGenerator[DbSession, None]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+async def db_session(tmp_path: Path) -> AsyncGenerator[DbSession, None]:
+    # A real (temp-file) SQLite database is used instead of ":memory:" because
+    # this fixture is shared by a background TranscriptionSubscriber and the
+    # test's own polling loop, both of which open sessions concurrently via
+    # `factory()`. StaticPool alone (still needed below, to avoid
+    # "database is locked" errors since all access funnels through one
+    # physical connection) is not sufficient for ":memory:": when a test
+    # cancels the subscriber task while it holds an open session, the
+    # in-flight rollback can raise asyncio.CancelledError, which SQLAlchemy's
+    # pool treats as a reason to invalidate and transparently recreate the
+    # pooled connection. For "sqlite+aiosqlite:///:memory:" a freshly created
+    # connection is a brand-new, empty in-memory database with no tables at
+    # all ("no such table: segments"), whereas a temp-file database is still
+    # intact on disk after reconnecting.
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
