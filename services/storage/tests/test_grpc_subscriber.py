@@ -62,6 +62,7 @@ class FakeTranscriptionServicer(transcription_pb2_grpc.TranscriptionServiceServi
     ) -> None:
         self._segments = segments
         self._hang_after = hang_after
+        self.yielded_count = 0
 
     async def StreamTranscripts(
         self,
@@ -70,6 +71,7 @@ class FakeTranscriptionServicer(transcription_pb2_grpc.TranscriptionServiceServi
     ) -> AsyncIterator[transcription_pb2.StreamTranscriptsResponse]:
         for seg in self._segments:
             yield transcription_pb2.StreamTranscriptsResponse(segment=seg)
+            self.yielded_count += 1
         if self._hang_after:
             # Keep the stream open (rather than letting it end naturally) so a
             # caller can observe "connected" state that outlives the last
@@ -176,8 +178,9 @@ async def test_subscriber_skips_unknown_meeting(
     session, factory = db_session
 
     server = grpc.aio.server()
+    servicer = FakeTranscriptionServicer([_make_segment("unknown-id", 0)])
     transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(  # type: ignore[no-untyped-call]
-        FakeTranscriptionServicer([_make_segment("unknown-id", 0)]), server
+        servicer, server
     )
     server.add_insecure_port(f"localhost:{unused_tcp_port}")
     await server.start()
@@ -191,8 +194,11 @@ async def test_subscriber_skips_unknown_meeting(
         )
         try:
             await asyncio.wait_for(sub.run(), timeout=2.0)
-        except Exception:
+        except TimeoutError:
             pass
+
+        # Confirm the fake stream was actually consumed, not that nothing ran.
+        assert servicer.yielded_count > 0
 
         async with factory() as check_session:
             from sqlalchemy import select
