@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bahlily_storage.models import Meeting, Summary
@@ -62,7 +63,6 @@ async def test_meeting_increment_segments_count(session: AsyncSession) -> None:
 
 async def test_meeting_list_all(session: AsyncSession) -> None:
     repo = MeetingRepo(session)
-    # Create three meetings with different started_at times
     m1 = Meeting(
         id="m1",
         status="recording",
@@ -86,17 +86,14 @@ async def test_meeting_list_all(session: AsyncSession) -> None:
     await repo.create(m3)
     await session.commit()
 
-    # Test ordering by started_at DESC
     all_meetings = await repo.list_all()
     assert len(all_meetings) == 3
     assert [m.id for m in all_meetings] == ["m2", "m3", "m1"]
 
-    # Test limit
     limited = await repo.list_all(limit=2)
     assert len(limited) == 2
     assert [m.id for m in limited] == ["m2", "m3"]
 
-    # Test offset
     offset_meetings = await repo.list_all(limit=2, offset=1)
     assert len(offset_meetings) == 2
     assert [m.id for m in offset_meetings] == ["m3", "m1"]
@@ -107,11 +104,9 @@ async def test_meeting_update_engine_metadata(session: AsyncSession) -> None:
     await repo.create(_meeting())
     await session.commit()
 
-    # Update engine metadata with specific values
     await repo.update_engine_metadata("m1", engine="whisper", model_name="base", language="en")
     await session.commit()
 
-    # Fetch and verify all three fields were persisted
     m = await repo.get("m1")
     assert m is not None
     assert m.engine == "whisper"
@@ -288,3 +283,46 @@ async def test_upsert_batch_counts_only_new_rows(session: AsyncSession) -> None:
 
     assert await repo.upsert_batch([_row(0), _row(1)]) == 2
     assert await repo.upsert_batch([_row(1), _row(2)]) == 1
+
+
+async def test_meeting_update_rejects_unknown_field(session: AsyncSession) -> None:
+    repo = MeetingRepo(session)
+    await repo.create(_meeting())
+    await session.commit()
+
+    with pytest.raises(ValueError):
+        await repo.update("m1", id="not-allowed")
+
+
+async def test_meeting_delete_cascades_to_segments(session: AsyncSession) -> None:
+    """Regression: `Meeting.segments` is lazy-loaded (not eager `selectin`), so
+    the cascade delete must still remove child rows without a prior explicit
+    load — otherwise the `segments.meeting_id` foreign key would reject the
+    delete.
+    """
+    repo_m = MeetingRepo(session)
+    await repo_m.create(_meeting())
+    await session.commit()
+
+    repo_s = SegmentRepo(session)
+    await repo_s.upsert(
+        {
+            "meeting_id": "m1",
+            "segment_id": 0,
+            "text": "hello",
+            "confidence": None,
+            "engine": "whisper",
+            "model_name": "tiny",
+            "audio_start_time": 0.0,
+            "audio_end_time": 1.0,
+            "language": None,
+            "is_partial": False,
+            "trace_id": "t1",
+        }
+    )
+    await session.commit()
+
+    assert await repo_m.delete("m1") is True
+    await session.commit()
+
+    assert await repo_s.list_by_meeting("m1") == []

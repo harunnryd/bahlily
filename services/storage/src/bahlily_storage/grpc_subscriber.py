@@ -26,6 +26,10 @@ def subscriber_status() -> dict[str, object]:
     return dict(_status)
 
 
+def _is_valid_segment(seg: transcription_pb2.TranscriptSegment) -> bool:
+    return bool(seg.text) and seg.segment_id >= 0 and seg.audio_start_time <= seg.audio_end_time
+
+
 class TranscriptionSubscriber:
     def __init__(
         self,
@@ -76,15 +80,29 @@ class TranscriptionSubscriber:
             stub = transcription_pb2_grpc.TranscriptionServiceStub(  # type: ignore[no-untyped-call]
                 channel
             )
-            async for response in stub.StreamTranscripts(
-                transcription_pb2.StreamTranscriptsRequest()
-            ):
-                self._backoff = self._initial_backoff
-                _status["connected"] = True
-                await self._handle_segment(response.segment)
-                _status["last_segment_at"] = datetime.datetime.now(datetime.UTC).isoformat()
+            try:
+                async for response in stub.StreamTranscripts(
+                    transcription_pb2.StreamTranscriptsRequest()
+                ):
+                    self._backoff = self._initial_backoff
+                    _status["connected"] = True
+                    await self._handle_segment(response.segment)
+                    _status["last_segment_at"] = datetime.datetime.now(datetime.UTC).isoformat()
+            finally:
+                # The stream can end (peer closed it, or an exception is about
+                # to propagate) without another reconnect attempt happening for
+                # a while; don't leave /health reporting a stale "connected".
+                _status["connected"] = False
 
     async def _handle_segment(self, seg: transcription_pb2.TranscriptSegment) -> None:
+        if not _is_valid_segment(seg):
+            _log.warning(
+                "segment_validation_failed",
+                recording_id=seg.recording_id,
+                segment_id=seg.segment_id,
+            )
+            return
+
         async with self._factory() as session:
             repo_m = MeetingRepo(session)
             meeting = await repo_m.get(seg.recording_id)

@@ -66,7 +66,7 @@ class Meeting(Base):
     segments_count: Mapped[int] = mapped_column(default=0)
 
     segments: Mapped[list[Segment]] = relationship(
-        back_populates="meeting", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="meeting", cascade="all, delete-orphan"
     )
     summary: Mapped[Optional[Summary]] = relationship(
         back_populates="meeting",

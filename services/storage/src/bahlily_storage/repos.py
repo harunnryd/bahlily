@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,11 +21,19 @@ class MeetingRepo:
 
     async def list_all(self, limit: int = 20, offset: int = 0) -> list[Meeting]:
         result = await self._s.execute(
-            select(Meeting).order_by(Meeting.started_at.desc()).limit(limit).offset(offset)
+            select(Meeting)
+            .order_by(Meeting.started_at.desc(), Meeting.id.desc())
+            .limit(limit)
+            .offset(offset)
         )
         return list(result.scalars().all())
 
+    _UPDATABLE_FIELDS = frozenset({"title", "status", "ended_at", "segments_count"})
+
     async def update(self, meeting_id: str, **fields: object) -> Meeting | None:
+        unknown = set(fields) - self._UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unsupported Meeting field(s): {sorted(unknown)}")
         meeting = await self.get(meeting_id)
         if meeting is None:
             return None
@@ -73,22 +81,34 @@ class SegmentRepo:
         Callers that maintain a running `segments_count` must key off the return
         value: a redelivered `(meeting_id, segment_id)` is an UPDATE and would
         otherwise overcount.
+
+        Determines insert-vs-update from the outcome of an atomic
+        `INSERT ... ON CONFLICT DO NOTHING`, rather than a preliminary SELECT:
+        a SELECT-then-INSERT is not atomic, so two sessions racing on the same
+        `(meeting_id, segment_id)` could both observe "absent" and both report
+        a genuine insert, double-counting `segments_count` even though only one
+        row was actually created.
         """
-        existing = await self._s.execute(
-            select(Segment.id).where(
-                Segment.meeting_id == data["meeting_id"],
-                Segment.segment_id == data["segment_id"],
+        insert_stmt = (
+            sqlite_insert(Segment)
+            .values(**data)
+            .on_conflict_do_nothing(
+                index_elements=["meeting_id", "segment_id"],
             )
         )
-        inserted = existing.scalar_one_or_none() is None
-
-        stmt = sqlite_insert(Segment).values(**data)
-        update_cols = {k: stmt.excluded[k] for k in data if k not in ("meeting_id", "segment_id")}
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["meeting_id", "segment_id"],
-            set_=update_cols,
-        )
-        await self._s.execute(stmt)
+        result = await self._s.execute(insert_stmt)
+        assert isinstance(result, CursorResult)
+        inserted = result.rowcount == 1
+        if not inserted:
+            update_cols = {k: v for k, v in data.items() if k not in ("meeting_id", "segment_id")}
+            await self._s.execute(
+                update(Segment)
+                .where(
+                    Segment.meeting_id == data["meeting_id"],
+                    Segment.segment_id == data["segment_id"],
+                )
+                .values(**update_cols)
+            )
         return inserted
 
     async def upsert_batch(self, rows: list[dict[str, object]]) -> int:

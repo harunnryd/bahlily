@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import grpc
@@ -15,6 +15,28 @@ from sqlalchemy.pool import StaticPool
 from bahlily_storage.models import Base, Meeting
 from bahlily_storage.pb.transcription.v1 import transcription_pb2, transcription_pb2_grpc
 from bahlily_storage.repos import MeetingRepo, SegmentRepo
+
+
+async def _wait_until[T](
+    fetch: Callable[[], Awaitable[T]],
+    condition: Callable[[T], bool],
+    timeout: float = 5.0,
+    interval: float = 0.02,
+) -> T:
+    """Poll `fetch()` until `condition(result)` is true, instead of a fixed sleep."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        value = await fetch()
+        if condition(value):
+            return value
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"condition not met within {timeout}s (last value: {value!r})")
+        await asyncio.sleep(interval)
+
+
+async def _segment_count(factory: async_sessionmaker[AsyncSession], meeting_id: str) -> int:
+    async with factory() as session:
+        return len(await SegmentRepo(session).list_by_meeting(meeting_id))
 
 
 def _make_segment(recording_id: str, segment_id: int) -> transcription_pb2.TranscriptSegment:
@@ -32,8 +54,14 @@ def _make_segment(recording_id: str, segment_id: int) -> transcription_pb2.Trans
 
 
 class FakeTranscriptionServicer(transcription_pb2_grpc.TranscriptionServiceServicer):
-    def __init__(self, segments: list[transcription_pb2.TranscriptSegment]) -> None:
+    def __init__(
+        self,
+        segments: list[transcription_pb2.TranscriptSegment],
+        *,
+        hang_after: bool = False,
+    ) -> None:
         self._segments = segments
+        self._hang_after = hang_after
 
     async def StreamTranscripts(
         self,
@@ -42,6 +70,12 @@ class FakeTranscriptionServicer(transcription_pb2_grpc.TranscriptionServiceServi
     ) -> AsyncIterator[transcription_pb2.StreamTranscriptsResponse]:
         for seg in self._segments:
             yield transcription_pb2.StreamTranscriptsResponse(segment=seg)
+        if self._hang_after:
+            # Keep the stream open (rather than letting it end naturally) so a
+            # caller can observe "connected" state that outlives the last
+            # segment, instead of racing the subscriber's own post-stream
+            # cleanup.
+            await asyncio.sleep(30.0)
 
 
 @pytest.fixture
@@ -114,11 +148,19 @@ async def test_subscriber_persists_known_segment(
         sub = TranscriptionSubscriber(
             addr=f"localhost:{unused_tcp_port}",
             session_factory=factory,
+            initial_backoff=0.01,
+            max_backoff=0.02,
         )
+        task = asyncio.create_task(sub.run())
         try:
-            await asyncio.wait_for(sub.run(), timeout=2.0)
-        except (TimeoutError, Exception):
-            pass
+            await _wait_until(
+                lambda: _segment_count(factory, "rec-1"),
+                lambda count: count > 0,
+            )
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
         async with factory() as check_session:
             segments = await SegmentRepo(check_session).list_by_meeting("rec-1")
@@ -289,5 +331,52 @@ async def test_redelivered_segment_does_not_double_count(
         assert len(segments) == 1
         assert meeting is not None
         assert meeting.segments_count == 1
+    finally:
+        await server.stop(grace=0)
+
+
+async def test_subscriber_status_reports_connected_on_real_segment(
+    db_session: DbSession, unused_tcp_port: int
+) -> None:
+    from bahlily_storage.grpc_subscriber import TranscriptionSubscriber, subscriber_status
+
+    session, factory = db_session
+    await MeetingRepo(session).create(
+        Meeting(
+            id="rec-status",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.commit()
+
+    server = grpc.aio.server()
+    transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        FakeTranscriptionServicer([_make_segment("rec-status", 0)], hang_after=True), server
+    )
+    server.add_insecure_port(f"localhost:{unused_tcp_port}")
+    await server.start()
+
+    try:
+        sub = TranscriptionSubscriber(
+            addr=f"localhost:{unused_tcp_port}",
+            session_factory=factory,
+            initial_backoff=0.01,
+            max_backoff=0.02,
+        )
+        task = asyncio.create_task(sub.run())
+        try:
+            await _wait_until(
+                lambda: _segment_count(factory, "rec-status"),
+                lambda count: count > 0,
+            )
+            status = subscriber_status()
+            assert status["connected"] is True
+            assert status["last_segment_at"] is not None
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
     finally:
         await server.stop(grace=0)
