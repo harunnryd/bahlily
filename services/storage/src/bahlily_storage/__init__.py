@@ -24,7 +24,12 @@ async def _serve_http(server: uvicorn.Server) -> None:
     try:
         await server.serve()
     except asyncio.CancelledError:
-        await server.shutdown()
+        # `server.started` is only set once `startup()` finishes; `shutdown()`
+        # assumes `self.servers` exists, which it doesn't if cancellation
+        # landed mid-startup. Nothing was bound yet, so there's nothing to
+        # drain.
+        if server.started:
+            await server.shutdown()
         raise
 
 

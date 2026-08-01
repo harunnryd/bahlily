@@ -140,6 +140,8 @@ async def test_serve_http_calls_shutdown_on_cancellation() -> None:
     shutdown_calls = 0
 
     class FakeServer:
+        started = True
+
         async def serve(self) -> None:
             await asyncio.sleep(10)
 
@@ -153,3 +155,26 @@ async def test_serve_http_calls_shutdown_on_cancellation() -> None:
     await _run_concurrently(quick(), _serve_http(cast(uvicorn.Server, FakeServer())))
 
     assert shutdown_calls == 1
+
+
+async def test_serve_http_skips_shutdown_when_never_started() -> None:
+    """`shutdown()` reads `self.servers`, set only at the end of `startup()`;
+    calling it after a cancellation mid-startup would raise `AttributeError`."""
+    shutdown_calls = 0
+
+    class FakeServer:
+        started = False
+
+        async def serve(self) -> None:
+            await asyncio.sleep(10)
+
+        async def shutdown(self) -> None:
+            nonlocal shutdown_calls
+            shutdown_calls += 1
+
+    async def quick() -> None:
+        await asyncio.sleep(0)
+
+    await _run_concurrently(quick(), _serve_http(cast(uvicorn.Server, FakeServer())))
+
+    assert shutdown_calls == 0
