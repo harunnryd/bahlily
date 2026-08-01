@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 from collections.abc import AsyncGenerator, AsyncIterator
 
@@ -207,5 +208,67 @@ async def test_backoff_resets_once_a_segment_actually_arrives(
         # A real response arrived, so the backoff was reset to its initial value
         # (it may have grown again afterwards, but never past 8.0).
         assert sub.backoff < 8.0
+    finally:
+        await server.stop(grace=0)
+
+
+async def test_redelivered_segment_does_not_double_count(
+    db_session: DbSession, unused_tcp_port: int
+) -> None:
+    """A redelivered (meeting_id, segment_id) is an UPDATE, so must not bump the count."""
+    session, factory = db_session
+
+    await MeetingRepo(session).create(
+        Meeting(
+            id="rec-dup",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.commit()
+
+    seg = _make_segment("rec-dup", 0)
+    server = grpc.aio.server()
+    transcription_pb2_grpc.add_TranscriptionServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        FakeTranscriptionServicer([seg, seg]), server
+    )
+    server.add_insecure_port(f"localhost:{unused_tcp_port}")
+    await server.start()
+
+    try:
+        from bahlily_storage.grpc_subscriber import TranscriptionSubscriber
+
+        sub = TranscriptionSubscriber(
+            addr=f"localhost:{unused_tcp_port}",
+            session_factory=factory,
+            initial_backoff=0.01,
+            max_backoff=0.02,
+        )
+        task = asyncio.create_task(sub.run())
+        try:
+            # Wait for the redelivery to actually have happened rather than for
+            # a fixed wall-clock budget: the stream yields the same segment
+            # twice, and the fast backoff redelivers it on every reconnect.
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while asyncio.get_running_loop().time() < deadline:
+                async with factory() as check:
+                    segments = await SegmentRepo(check).list_by_meeting("rec-dup")
+                if segments:
+                    break
+                await asyncio.sleep(0.02)
+            # let several more reconnect/redelivery rounds land
+            await asyncio.sleep(0.3)
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        async with factory() as check:
+            segments = await SegmentRepo(check).list_by_meeting("rec-dup")
+            meeting = await MeetingRepo(check).get("rec-dup")
+        assert len(segments) == 1
+        assert meeting is not None
+        assert meeting.segments_count == 1
     finally:
         await server.stop(grace=0)

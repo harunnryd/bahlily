@@ -67,7 +67,21 @@ class SegmentRepo:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
 
-    async def upsert(self, data: dict[str, object]) -> None:
+    async def upsert(self, data: dict[str, object]) -> bool:
+        """Insert or update one segment. Returns True only for a genuine INSERT.
+
+        Callers that maintain a running `segments_count` must key off the return
+        value: a redelivered `(meeting_id, segment_id)` is an UPDATE and would
+        otherwise overcount.
+        """
+        existing = await self._s.execute(
+            select(Segment.id).where(
+                Segment.meeting_id == data["meeting_id"],
+                Segment.segment_id == data["segment_id"],
+            )
+        )
+        inserted = existing.scalar_one_or_none() is None
+
         stmt = sqlite_insert(Segment).values(**data)
         update_cols = {k: stmt.excluded[k] for k in data if k not in ("meeting_id", "segment_id")}
         stmt = stmt.on_conflict_do_update(
@@ -75,10 +89,11 @@ class SegmentRepo:
             set_=update_cols,
         )
         await self._s.execute(stmt)
+        return inserted
 
-    async def upsert_batch(self, rows: list[dict[str, object]]) -> None:
-        for row in rows:
-            await self.upsert(row)
+    async def upsert_batch(self, rows: list[dict[str, object]]) -> int:
+        """Upsert many segments; returns how many were genuine inserts."""
+        return sum([await self.upsert(row) for row in rows])
 
     async def list_by_meeting(self, meeting_id: str) -> list[Segment]:
         result = await self._s.execute(

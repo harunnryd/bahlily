@@ -223,3 +223,68 @@ async def test_summary_create_and_get(session: AsyncSession) -> None:
 async def test_summary_missing_returns_none(session: AsyncSession) -> None:
     repo_s = SummaryRepo(session)
     assert await repo_s.get_by_meeting("nonexistent") is None
+
+
+async def test_upsert_reports_insert_then_update(session: AsyncSession) -> None:
+    session.add(
+        Meeting(
+            id="m-up",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.flush()
+
+    repo = SegmentRepo(session)
+    row: dict[str, object] = {
+        "meeting_id": "m-up",
+        "segment_id": 0,
+        "text": "first",
+        "confidence": None,
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "language": None,
+        "is_partial": False,
+        "trace_id": "t1",
+    }
+    assert await repo.upsert(row) is True
+    assert await repo.upsert({**row, "text": "second"}) is False
+
+    segments = await repo.list_by_meeting("m-up")
+    assert len(segments) == 1
+    assert segments[0].text == "second"
+
+
+async def test_upsert_batch_counts_only_new_rows(session: AsyncSession) -> None:
+    session.add(
+        Meeting(
+            id="m-batch",
+            status="recording",
+            started_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC),
+            segments_count=0,
+        )
+    )
+    await session.flush()
+
+    repo = SegmentRepo(session)
+
+    def _row(segment_id: int) -> dict[str, object]:
+        return {
+            "meeting_id": "m-batch",
+            "segment_id": segment_id,
+            "text": f"s{segment_id}",
+            "confidence": None,
+            "engine": "whisper",
+            "model_name": "tiny",
+            "audio_start_time": 0.0,
+            "audio_end_time": 1.0,
+            "language": None,
+            "is_partial": False,
+            "trace_id": "t",
+        }
+
+    assert await repo.upsert_batch([_row(0), _row(1)]) == 2
+    assert await repo.upsert_batch([_row(1), _row(2)]) == 1

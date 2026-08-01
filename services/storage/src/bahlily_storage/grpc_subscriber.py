@@ -97,7 +97,7 @@ class TranscriptionSubscriber:
                 return
 
             engine_str = _ENGINE_MAP.get(seg.engine, "unknown")
-            await SegmentRepo(session).upsert(
+            inserted = await SegmentRepo(session).upsert(
                 {
                     "meeting_id": seg.recording_id,
                     "segment_id": seg.segment_id,
@@ -112,7 +112,10 @@ class TranscriptionSubscriber:
                     "trace_id": seg.trace_id,
                 }
             )
-            await repo_m.increment_segments_count(seg.recording_id)
+            # Only a genuine INSERT moves the counter; a redelivered segment
+            # (reconnect, at-least-once stream) is an UPDATE and must not.
+            if inserted:
+                await repo_m.increment_segments_count(seg.recording_id)
 
             if not meeting.engine:
                 await repo_m.update_engine_metadata(
