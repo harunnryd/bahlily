@@ -541,3 +541,49 @@ def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestC
     resp = client.post("/speaker-profiles/match", json={"voice_embedding": [1.0, 0.0]})
     assert resp.status_code == 200
     assert resp.json()["profile"] is None
+
+
+def test_patch_meeting_accepts_recording_path_and_diarization_status(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+
+    resp = client.patch(
+        "/meetings/m1",
+        json={"recording_path": "/data/recordings/m1.flac", "diarization_status": "pending"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["recording_path"] == "/data/recordings/m1.flac"
+    assert resp.json()["diarization_status"] == "pending"
+
+
+def test_new_meeting_defaults_diarization_status_to_not_started(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.get("/meetings/m1")
+    assert resp.json()["diarization_status"] == "not_started"
+    assert resp.json()["recording_path"] is None
+
+
+def test_batch_segments_accepts_speaker_fields(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 0,
+                    "text": "hello",
+                    "engine": "whisper",
+                    "model_name": "tiny",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "is_partial": False,
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "Speaker 1",
+                }
+            ]
+        },
+    )
+    assert resp.status_code == 204
+
+    resp = client.get("/meetings/m1/segments")
+    assert resp.json()[0]["speaker_cluster_label"] == "Speaker 1"
+    assert resp.json()[0]["speaker_profile_id"] is None

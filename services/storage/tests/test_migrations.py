@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 
 
 def test_alembic_upgrade_head(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,7 +133,6 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from bahlily_storage import db
-    from bahlily_storage.models import Base
 
     db_path = tmp_path / "legacy.db"
     monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
@@ -140,17 +140,63 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
     # Simulate the old create_all-based startup path: tables exist,
     # alembic_version does not. (Use a dedicated engine pointed at
     # db_path rather than db.init_db(), which binds to the module-level
-    # `engine` fixed at import time, not the env var set here.) Only create
-    # the tables that predate `alembic_version` tracking (revision 0001) —
-    # `Base.metadata` now also includes `summary_templates` (0003), which a
-    # genuinely legacy pre-feature DB would never have had, and passing the
-    # full metadata here would make this migration's own `create_table`
-    # collide with a table the "legacy" DB was never meant to contain.
-    legacy_tables = [Base.metadata.tables[name] for name in ("meetings", "segments", "summaries")]
+    # `engine` fixed at import time, not the env var set here.) Build the
+    # tables' columns explicitly, mirroring migration 0001's `create_table`
+    # calls, rather than pulling them from `bahlily_storage.models.Base` —
+    # the ORM models have since grown columns (0005's `recording_path`,
+    # `diarization_status`, `speaker_cluster_label`, `speaker_profile_id`)
+    # that a genuinely legacy pre-migrations DB would never have had, and
+    # create_all-ing those in would make 0005's own `add_column` collide
+    # with a column the "legacy" DB was never meant to contain.
+    legacy_metadata = sa.MetaData()
+    sa.Table(
+        "meetings",
+        legacy_metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("title", sa.String(), nullable=True),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("language", sa.String(), nullable=True),
+        sa.Column("engine", sa.String(), nullable=True),
+        sa.Column("model_name", sa.String(), nullable=True),
+        sa.Column("started_at", sa.DateTime(), nullable=False),
+        sa.Column("ended_at", sa.DateTime(), nullable=True),
+        sa.Column("segments_count", sa.Integer(), nullable=False),
+    )
+    sa.Table(
+        "segments",
+        legacy_metadata,
+        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+        sa.Column("meeting_id", sa.String(), sa.ForeignKey("meetings.id"), nullable=False),
+        sa.Column("segment_id", sa.Integer(), nullable=False),
+        sa.Column("text", sa.String(), nullable=False),
+        sa.Column("confidence", sa.Float(), nullable=True),
+        sa.Column("engine", sa.String(), nullable=False),
+        sa.Column("model_name", sa.String(), nullable=False),
+        sa.Column("audio_start_time", sa.Float(), nullable=False),
+        sa.Column("audio_end_time", sa.Float(), nullable=False),
+        sa.Column("language", sa.String(), nullable=True),
+        sa.Column("is_partial", sa.Boolean(), nullable=False),
+        sa.Column("trace_id", sa.String(), nullable=False),
+        sa.UniqueConstraint("meeting_id", "segment_id", name="uq_segments_meeting_segment"),
+    )
+    sa.Table(
+        "summaries",
+        legacy_metadata,
+        sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("meeting_id", sa.String(), sa.ForeignKey("meetings.id"), unique=True),
+        sa.Column("title", sa.String(), nullable=False),
+        sa.Column("overview", sa.String(), nullable=False),
+        sa.Column("key_points", sa.String(), nullable=False),
+        sa.Column("action_items", sa.String(), nullable=False),
+        sa.Column("quotes", sa.String(), nullable=False),
+        sa.Column("provider", sa.String(), nullable=False),
+        sa.Column("model", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+    )
     legacy_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     try:
         async with legacy_engine.begin() as aconn:
-            await aconn.run_sync(Base.metadata.create_all, tables=legacy_tables)
+            await aconn.run_sync(legacy_metadata.create_all)
     finally:
         await legacy_engine.dispose()
 
@@ -175,7 +221,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0004"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0005"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -195,16 +241,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0004"}
+    assert versions == {"0005"}
 
 
-def test_migration_0004_is_head() -> None:
+def test_migration_0005_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0004"
+    assert script.get_current_head() == "0005"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
@@ -337,3 +383,26 @@ def test_alembic_upgrade_head_creates_speaker_profiles(
 
     assert "speaker_profiles" in tables
     assert cols == {"id", "name", "voice_embedding", "created_at", "updated_at"}
+
+
+def test_alembic_upgrade_head_adds_diarization_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "diarization_fields.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+
+    from alembic import command
+
+    from bahlily_storage import db
+
+    command.upgrade(db.alembic_config(), "head")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        segment_cols = {row[1] for row in conn.execute("PRAGMA table_info(segments)")}
+        meeting_cols = {row[1] for row in conn.execute("PRAGMA table_info(meetings)")}
+    finally:
+        conn.close()
+
+    assert {"speaker_cluster_label", "speaker_profile_id"}.issubset(segment_cols)
+    assert {"recording_path", "diarization_status"}.issubset(meeting_cols)

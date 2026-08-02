@@ -64,6 +64,8 @@ class Meeting(Base):
         UtcDateTime(), nullable=True, default=None
     )
     segments_count: Mapped[int] = mapped_column(default=0)
+    recording_path: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    diarization_status: Mapped[str] = mapped_column(default="not_started")
 
     segments: Mapped[list[Segment]] = relationship(
         back_populates="meeting", cascade="all, delete-orphan"
@@ -94,6 +96,10 @@ class Segment(Base):
     language: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     is_partial: Mapped[bool]
     trace_id: Mapped[str]
+    speaker_cluster_label: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    speaker_profile_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("speaker_profiles.id"), nullable=True, default=None
+    )
 
     meeting: Mapped[Meeting] = relationship(back_populates="segments")
 

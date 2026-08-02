@@ -28,7 +28,9 @@ class MeetingRepo:
         )
         return list(result.scalars().all())
 
-    _UPDATABLE_FIELDS = frozenset({"title", "status", "ended_at", "segments_count"})
+    _UPDATABLE_FIELDS = frozenset(
+        {"title", "status", "ended_at", "segments_count", "recording_path", "diarization_status"}
+    )
 
     async def update(self, meeting_id: str, **fields: object) -> Meeting | None:
         unknown = set(fields) - self._UPDATABLE_FIELDS

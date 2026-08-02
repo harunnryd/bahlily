@@ -106,6 +106,8 @@ def _meeting_to_response(m: Meeting) -> MeetingResponse:
         started_at=m.started_at,
         ended_at=m.ended_at,
         segments_count=m.segments_count,
+        recording_path=m.recording_path,
+        diarization_status=m.diarization_status,
         has_summary=m.summary is not None,
     )
 
@@ -222,6 +224,8 @@ async def list_segments(meeting_id: str, session: SessionDep) -> list[SegmentRes
             language=s.language,
             is_partial=s.is_partial,
             trace_id=s.trace_id,
+            speaker_cluster_label=s.speaker_cluster_label,
+            speaker_profile_id=s.speaker_profile_id,
         )
         for s in segments
     ]
@@ -249,6 +253,8 @@ async def batch_upsert_segments(
             "language": seg.language,
             "is_partial": seg.is_partial,
             "trace_id": seg.trace_id,
+            "speaker_cluster_label": seg.speaker_cluster_label,
+            "speaker_profile_id": seg.speaker_profile_id,
         }
         for seg in req.segments
     ]
