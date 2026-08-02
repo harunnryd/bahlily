@@ -276,3 +276,7 @@ class SpeakerProfileRepo:
         await self._s.delete(profile)
         await self._s.flush()
         return True
+
+    async def list_all_for_matching(self) -> list[SpeakerProfile]:
+        result = await self._s.execute(select(SpeakerProfile))
+        return list(result.scalars().all())

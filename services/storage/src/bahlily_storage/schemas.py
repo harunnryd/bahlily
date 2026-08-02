@@ -153,3 +153,13 @@ class SpeakerProfileResponse(BaseModel):
     voice_embedding: list[float]
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class MatchSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_embedding: list[float] = Field(min_length=1)
+
+
+class MatchSpeakerProfileResponse(BaseModel):
+    profile: SpeakerProfileResponse | None

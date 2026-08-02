@@ -37,6 +37,8 @@ from bahlily_storage.schemas import (
     CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
+    MatchSpeakerProfileRequest,
+    MatchSpeakerProfileResponse,
     MeetingResponse,
     PatchMeetingRequest,
     PatchSpeakerProfileRequest,
@@ -46,6 +48,7 @@ from bahlily_storage.schemas import (
     SummaryResponse,
     TemplateResponse,
 )
+from bahlily_storage.speaker_matching import best_match
 
 _log = structlog.get_logger()
 
@@ -443,3 +446,18 @@ async def delete_speaker_profile(profile_id: str, session: SessionDep) -> None:
     if not await repo.delete(profile_id):
         raise StorageSpeakerProfileNotFoundError(profile_id)
     await session.commit()
+
+
+@app.post("/speaker-profiles/match")
+async def match_speaker_profile(
+    req: MatchSpeakerProfileRequest, session: SessionDep
+) -> MatchSpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all_for_matching()
+    candidates = [(p.id, json.loads(p.voice_embedding)) for p in profiles]
+    matched_id = best_match(req.voice_embedding, candidates)
+    if matched_id is None:
+        return MatchSpeakerProfileResponse(profile=None)
+    matched = await repo.get(matched_id)
+    assert matched is not None
+    return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))

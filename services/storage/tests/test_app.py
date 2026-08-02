@@ -526,3 +526,18 @@ def test_delete_speaker_profile(client: TestClient) -> None:
     resp = client.delete(f"/speaker-profiles/{profile_id}")
     assert resp.status_code == 204
     assert client.get(f"/speaker-profiles/{profile_id}").status_code == 404
+
+
+def test_match_speaker_profile_finds_the_closest_match(client: TestClient) -> None:
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [1.0, 0.0]})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0, 1.0]})
+
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [0.99, 0.01]})
+    assert resp.status_code == 200
+    assert resp.json()["profile"]["name"] == "Alice"
+
+
+def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [1.0, 0.0]})
+    assert resp.status_code == 200
+    assert resp.json()["profile"] is None
