@@ -491,5 +491,9 @@ async def match_speaker_profile(
     if matched_id is None:
         return MatchSpeakerProfileResponse(profile=None)
     matched = await repo.get(matched_id)
-    assert matched is not None
+    if matched is None:
+        # Vanished between the matching scan and this re-fetch (e.g. a
+        # concurrent DELETE /speaker-profiles/{id}) -- a genuine race, not a
+        # client error, so treat it the same as "no match" rather than 500ing.
+        return MatchSpeakerProfileResponse(profile=None)
     return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))
