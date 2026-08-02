@@ -98,7 +98,7 @@ class Segment(Base):
     trace_id: Mapped[str]
     speaker_cluster_label: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     speaker_profile_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("speaker_profiles.id"), nullable=True, default=None
+        ForeignKey("speaker_profiles.id", ondelete="SET NULL"), nullable=True, default=None
     )
 
     meeting: Mapped[Meeting] = relationship(back_populates="segments")

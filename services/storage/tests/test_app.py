@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bahlily_storage import db as db_module
 from bahlily_storage.app import app, create_meeting, create_summary
@@ -25,7 +25,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{db_path}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async def _create_schema() -> None:
@@ -526,6 +526,33 @@ def test_delete_speaker_profile(client: TestClient) -> None:
     resp = client.delete(f"/speaker-profiles/{profile_id}")
     assert resp.status_code == 204
     assert client.get(f"/speaker-profiles/{profile_id}").status_code == 404
+
+
+def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
+    profile_resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+    )
+    profile_id = profile_resp.json()["id"]
+
+    client.post("/meetings", json={"id": "m1"})
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_profile_id": profile_id,
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    resp = client.delete(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["speaker_profile_id"] is None
 
 
 def test_match_speaker_profile_finds_the_closest_match(client: TestClient) -> None:

@@ -224,7 +224,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0005"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0006"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -244,16 +244,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0005"}
+    assert versions == {"0006"}
 
 
-def test_migration_0005_is_head() -> None:
+def test_migration_0006_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0005"
+    assert script.get_current_head() == "0006"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
@@ -409,3 +409,26 @@ def test_alembic_upgrade_head_adds_diarization_columns(
 
     assert {"speaker_cluster_label", "speaker_profile_id"}.issubset(segment_cols)
     assert {"recording_path", "diarization_status"}.issubset(meeting_cols)
+
+
+def test_alembic_upgrade_head_sets_speaker_profile_fk_on_delete_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "fk_set_null.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+
+    from alembic import command
+
+    from bahlily_storage import db
+
+    command.upgrade(db.alembic_config(), "head")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        fks = conn.execute("PRAGMA foreign_key_list(segments)").fetchall()
+    finally:
+        conn.close()
+
+    # PRAGMA foreign_key_list columns: (id, seq, table, from, to, on_update, on_delete, match)
+    speaker_fk = next(fk for fk in fks if fk[2] == "speaker_profiles")
+    assert speaker_fk[6] == "SET NULL"
