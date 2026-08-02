@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
+from bahlily_transcription.diarize_engine import DiarizationResult, DiarizationTurn
 
 
 @pytest.fixture
@@ -118,3 +121,65 @@ def test_stop_session_returns_segment_count(client: TestClient) -> None:
         response = client.post("/sessions/test-id/stop")
     assert response.status_code == 200
     assert response.json()["segments_transcribed"] == 5
+
+
+def _diarize_request_body() -> dict[str, object]:
+    return {
+        "recording_path": "/data/recordings/m1.flac",
+        "segments": [
+            {
+                "text": "hello",
+                "segment_id": 0,
+                "is_partial": False,
+                "engine": "whisper",
+                "model_name": "tiny",
+                "audio_start_time": 0.0,
+                "audio_end_time": 1.0,
+                "recording_id": "m1",
+                "trace_id": "t1",
+            }
+        ],
+    }
+
+
+def test_start_diarize_without_hf_token_returns_422(client: TestClient) -> None:
+    with patch.dict("os.environ", {}, clear=True):
+        resp = client.post("/diarize", json=_diarize_request_body())
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "TRANSCRIPTION_DIARIZATION_UNAVAILABLE"
+
+
+def test_get_diarize_job_not_found(client: TestClient) -> None:
+    resp = client.get("/diarize/missing-job-id")
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
+
+
+def test_diarize_job_completes_and_is_polled_successfully(client: TestClient) -> None:
+    fake_result = DiarizationResult(
+        turns=[DiarizationTurn(start=0.0, end=1.0, speaker_label="Speaker 1")],
+        speakers={"Speaker 1": [0.1, 0.2]},
+    )
+
+    with (
+        patch.dict("os.environ", {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
+        patch(
+            "bahlily_transcription.app._diarize_engine.run",
+            return_value=fake_result,
+        ),
+    ):
+        resp = client.post("/diarize", json=_diarize_request_body())
+        assert resp.status_code == 202
+        job_id = resp.json()["job_id"]
+
+        for _ in range(50):
+            poll = client.get(f"/diarize/{job_id}")
+            if poll.json()["status"] == "completed":
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("diarize job never completed")
+
+    assert poll.json()["segments"][0]["speaker_cluster_label"] == "Speaker 1"
+    assert poll.json()["speakers"][0]["cluster_label"] == "Speaker 1"
+    assert poll.json()["speakers"][0]["voice_embedding"] == [0.1, 0.2]

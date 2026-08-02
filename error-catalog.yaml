@@ -134,3 +134,7 @@
   domain: transcription
   severity: error
   description: The pyannote diarization pipeline raised an error while processing a recording.
+- code: TRANSCRIPTION_JOB_NOT_FOUND
+  domain: transcription
+  severity: error
+  description: The requested diarization job ID does not exist.

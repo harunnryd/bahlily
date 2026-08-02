@@ -71,3 +71,10 @@ class TranscriptionDiarizationUnavailableError(BahlilyError):
 class TranscriptionDiarizationFailedError(BahlilyError):
     def __init__(self, reason: str) -> None:
         super().__init__(f"diarization failed: {reason}", code="TRANSCRIPTION_DIARIZATION_FAILED")
+
+
+class TranscriptionJobNotFoundError(BahlilyError):
+    def __init__(self, job_id: str) -> None:
+        super().__init__(
+            f"diarization job '{job_id}' not found", code="TRANSCRIPTION_JOB_NOT_FOUND"
+        )
