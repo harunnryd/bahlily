@@ -175,7 +175,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0003"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0004"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -195,16 +195,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0003"}
+    assert versions == {"0004"}
 
 
-def test_migration_0003_is_head() -> None:
+def test_migration_0004_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0003"
+    assert script.get_current_head() == "0004"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
@@ -313,3 +313,27 @@ def test_alembic_upgrade_head_creates_summary_templates(
         "created_at",
         "updated_at",
     }
+
+
+def test_alembic_upgrade_head_creates_speaker_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "speaker_profiles.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+
+    from alembic import command
+
+    from bahlily_storage import db
+
+    command.upgrade(db.alembic_config(), "head")
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        tables = {row[0] for row in rows}
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(speaker_profiles)")}
+    finally:
+        conn.close()
+
+    assert "speaker_profiles" in tables
+    assert cols == {"id", "name", "voice_embedding", "created_at", "updated_at"}

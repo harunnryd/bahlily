@@ -38,3 +38,11 @@ class StorageTemplateNotFoundError(BahlilyError):
             f"template '{template_id}' not found",
             code="STORAGE_TEMPLATE_NOT_FOUND",
         )
+
+
+class StorageSpeakerProfileNotFoundError(BahlilyError):
+    def __init__(self, speaker_profile_id: str) -> None:
+        super().__init__(
+            f"speaker profile '{speaker_profile_id}' not found",
+            code="STORAGE_SPEAKER_PROFILE_NOT_FOUND",
+        )

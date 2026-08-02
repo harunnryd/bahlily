@@ -126,3 +126,13 @@ class SummaryTemplate(Base):
     few_shot_examples: Mapped[str] = mapped_column(default="[]")
     created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
     updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+
+
+class SpeakerProfile(Base):
+    __tablename__ = "speaker_profiles"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    voice_embedding: Mapped[str]
+    created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+    updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
