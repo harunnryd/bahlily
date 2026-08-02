@@ -36,7 +36,7 @@ Bahlily is in early development. There's no built application yet, only the proj
 ## Planned features
 
 - Real-time local transcription (Whisper via `faster-whisper`, and Parakeet via `onnx-asr`)
-- Speaker diarization (`pyannote.audio`)
+- Speaker diarization (`pyannote.audio`, optional via `uv sync --extra diarization`)
 - AI summaries with a multi-provider LLM client (Ollama, Anthropic, Groq, OpenRouter, OpenAI)
 - Custom, user-authored summary templates
 - Chat over your own meeting history (retrieval-augmented, local vector store)
@@ -81,6 +81,12 @@ cargo check
 cd services/<name>
 uv sync
 uv run pytest
+
+# Speaker diarization requires the optional `diarization` extra
+# (pulls in pyannote.audio and ~80 transitive deps including torch):
+cd services/transcription
+uv sync --extra diarization
+export BAHLILY_TRANSCRIPTION_HF_TOKEN=hf_...
 ```
 
 Once per checkout, install the local hooks that enforce this project's standards automatically:

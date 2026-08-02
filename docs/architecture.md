@@ -31,7 +31,7 @@ Desktop Shell (Rust, thin)
         +--- Frontend (TypeScript/Next.js UI)
         |
         +--- Python Services (sidecars)
-                transcription (Whisper/Parakeet/diarization)
+                transcription (Whisper/Parakeet/diarization, diarization is an optional pyannote extra)
                 summarization/orchestration (LangGraph, DeepEval)
                 calendar/auto-start
                 chat/RAG
