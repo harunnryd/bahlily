@@ -23,17 +23,26 @@ from bahlily_storage.errors import (
     StorageTemplateNotFoundError,
 )
 from bahlily_storage.grpc_subscriber import subscriber_status
-from bahlily_storage.models import Meeting, Summary, SummaryTemplate
-from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo, TemplateRepo
+from bahlily_storage.models import Meeting, SpeakerProfile, Summary, SummaryTemplate
+from bahlily_storage.repos import (
+    MeetingRepo,
+    SegmentRepo,
+    SpeakerProfileRepo,
+    SummaryRepo,
+    TemplateRepo,
+)
 from bahlily_storage.schemas import (
     BatchSegmentsRequest,
     CreateMeetingRequest,
+    CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
     MeetingResponse,
     PatchMeetingRequest,
+    PatchSpeakerProfileRequest,
     PatchTemplateRequest,
     SegmentResponse,
+    SpeakerProfileResponse,
     SummaryResponse,
     TemplateResponse,
 )
@@ -108,6 +117,16 @@ def _template_to_response(t: SummaryTemplate) -> TemplateResponse:
         few_shot_examples=json.loads(t.few_shot_examples),
         created_at=t.created_at,
         updated_at=t.updated_at,
+    )
+
+
+def _speaker_profile_to_response(p: SpeakerProfile) -> SpeakerProfileResponse:
+    return SpeakerProfileResponse(
+        id=p.id,
+        name=p.name,
+        voice_embedding=json.loads(p.voice_embedding),
+        created_at=p.created_at,
+        updated_at=p.updated_at,
     )
 
 
@@ -354,4 +373,73 @@ async def delete_template(template_id: str, session: SessionDep) -> None:
     repo = TemplateRepo(session)
     if not await repo.delete(template_id):
         raise StorageTemplateNotFoundError(template_id)
+    await session.commit()
+
+
+@app.post("/speaker-profiles", status_code=201)
+async def create_speaker_profile(
+    req: CreateSpeakerProfileRequest, session: SessionDep
+) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    profile = SpeakerProfile(
+        id=str(uuid.uuid4()),
+        name=req.name,
+        voice_embedding=json.dumps(req.voice_embedding),
+        created_at=now,
+        updated_at=now,
+    )
+    await repo.create(profile)
+    await session.commit()
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)
+
+
+@app.get("/speaker-profiles")
+async def list_speaker_profiles(
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[SpeakerProfileResponse]:
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all(limit=limit, offset=offset)
+    return [_speaker_profile_to_response(p) for p in profiles]
+
+
+@app.get("/speaker-profiles/{profile_id}")
+async def get_speaker_profile(profile_id: str, session: SessionDep) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    profile = await repo.get(profile_id)
+    if profile is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    return _speaker_profile_to_response(profile)
+
+
+@app.patch("/speaker-profiles/{profile_id}")
+async def patch_speaker_profile(
+    profile_id: str, req: PatchSpeakerProfileRequest, session: SessionDep
+) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    fields: dict[str, object] = req.model_dump(exclude_none=True)
+    if "voice_embedding" in fields:
+        fields["voice_embedding"] = json.dumps(req.voice_embedding)
+    if not fields:
+        profile = await repo.get(profile_id)
+        if profile is None:
+            raise StorageSpeakerProfileNotFoundError(profile_id)
+        return _speaker_profile_to_response(profile)
+    fields["updated_at"] = datetime.datetime.now(datetime.UTC)
+    profile = await repo.update(profile_id, **fields)
+    if profile is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    await session.commit()
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)
+
+
+@app.delete("/speaker-profiles/{profile_id}", status_code=204)
+async def delete_speaker_profile(profile_id: str, session: SessionDep) -> None:
+    repo = SpeakerProfileRepo(session)
+    if not await repo.delete(profile_id):
+        raise StorageSpeakerProfileNotFoundError(profile_id)
     await session.commit()

@@ -131,3 +131,25 @@ class TemplateResponse(BaseModel):
     few_shot_examples: list[TemplateExample]
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class CreateSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    voice_embedding: list[float] = Field(min_length=1)
+
+
+class PatchSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    voice_embedding: list[float] | None = Field(default=None, min_length=1)
+
+
+class SpeakerProfileResponse(BaseModel):
+    id: str
+    name: str
+    voice_embedding: list[float]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime

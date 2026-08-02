@@ -472,3 +472,57 @@ def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient
     assert r.status_code == 200
     assert r.json()["updated_at"] == created["updated_at"]
     assert r.json()["name"] == created["name"]
+
+
+def test_create_and_get_speaker_profile(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1, 0.2, 0.3]}
+    )
+    assert resp.status_code == 201
+    profile_id = resp.json()["id"]
+
+    resp = client.get(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alice"
+    assert resp.json()["voice_embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [0.1], "nonexistent": True},
+    )
+    assert resp.status_code == 422
+
+
+def test_get_speaker_profile_not_found(client: TestClient) -> None:
+    resp = client.get("/speaker-profiles/missing")
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "STORAGE_SPEAKER_PROFILE_NOT_FOUND"
+
+
+def test_list_speaker_profiles(client: TestClient) -> None:
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.2]})
+
+    resp = client.get("/speaker-profiles")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_patch_speaker_profile(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    profile_id = resp.json()["id"]
+
+    resp = client.patch(f"/speaker-profiles/{profile_id}", json={"name": "Alicia"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alicia"
+
+
+def test_delete_speaker_profile(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    profile_id = resp.json()["id"]
+
+    resp = client.delete(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 204
+    assert client.get(f"/speaker-profiles/{profile_id}").status_code == 404

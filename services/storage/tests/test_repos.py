@@ -5,8 +5,14 @@ import datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bahlily_storage.models import Meeting, Summary, SummaryTemplate
-from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo, TemplateRepo
+from bahlily_storage.models import Meeting, SpeakerProfile, Summary, SummaryTemplate
+from bahlily_storage.repos import (
+    MeetingRepo,
+    SegmentRepo,
+    SpeakerProfileRepo,
+    SummaryRepo,
+    TemplateRepo,
+)
 
 
 def _meeting(id: str = "m1") -> Meeting:
@@ -530,3 +536,72 @@ async def test_template_delete(session: AsyncSession) -> None:
 async def test_template_delete_not_found_returns_false(session: AsyncSession) -> None:
     repo = TemplateRepo(session)
     assert await repo.delete("nonexistent") is False
+
+
+async def test_speaker_profile_create_and_get(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    profile = SpeakerProfile(
+        id="p1", name="Alice", voice_embedding="[0.1, 0.2]", created_at=now, updated_at=now
+    )
+    await repo.create(profile)
+    await session.commit()
+
+    fetched = await repo.get("p1")
+    assert fetched is not None
+    assert fetched.name == "Alice"
+
+
+async def test_speaker_profile_not_found_returns_none(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    assert await repo.get("missing") is None
+
+
+async def test_speaker_profile_list_all_orders_and_paginates(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    for i in range(3):
+        await repo.create(
+            SpeakerProfile(
+                id=f"p{i}",
+                name=f"Speaker {i}",
+                voice_embedding="[]",
+                created_at=now + datetime.timedelta(seconds=i),
+                updated_at=now,
+            )
+        )
+    await session.commit()
+
+    page = await repo.list_all(limit=2, offset=0)
+    assert [p.id for p in page] == ["p2", "p1"]
+
+
+async def test_speaker_profile_update(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    await repo.create(
+        SpeakerProfile(id="p1", name="Alice", voice_embedding="[]", created_at=now, updated_at=now)
+    )
+    await session.commit()
+
+    updated = await repo.update("p1", name="Alicia")
+    assert updated is not None
+    assert updated.name == "Alicia"
+
+
+async def test_speaker_profile_update_rejects_unknown_field(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    with pytest.raises(ValueError, match="unsupported"):
+        await repo.update("p1", nonexistent_field="x")
+
+
+async def test_speaker_profile_delete(session: AsyncSession) -> None:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    await repo.create(
+        SpeakerProfile(id="p1", name="Alice", voice_embedding="[]", created_at=now, updated_at=now)
+    )
+    await session.commit()
+
+    assert await repo.delete("p1") is True
+    assert await repo.get("p1") is None
