@@ -114,10 +114,9 @@ def test_stop_session_returns_segment_count(client: TestClient) -> None:
     mock_worker = MagicMock()
     mock_worker.stop = AsyncMock(return_value=5)
 
-    with patch(
-        "bahlily_transcription.app._sessions",
-        {"test-id": {"status": "started", "worker": mock_worker}},
-    ):
+    with patch("bahlily_transcription.app._sessions") as sessions:
+        sessions.get.return_value.state.worker = mock_worker
+        sessions.get.return_value.state.status = "started"
         response = client.post("/sessions/test-id/stop")
     assert response.status_code == 200
     assert response.json()["segments_transcribed"] == 5

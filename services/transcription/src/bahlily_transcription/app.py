@@ -6,6 +6,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from importlib import resources
 from pathlib import Path
 
@@ -29,13 +30,17 @@ from bahlily_transcription.errors import (
     TranscriptionUnsupportedLanguageError,
 )
 from bahlily_transcription.grpc_server import BroadcastChannel
+from bahlily_transcription.jobs import (
+    DiarizeJobState,
+    JobStore,
+    SessionState,
+)
 from bahlily_transcription.merge import assign_speakers
 from bahlily_transcription.models import (
     DiarizeJobResponse,
     DiarizeJobStatus,
     DiarizeRequest,
     DiarizeSpeaker,
-    TranscriptSegmentSchema,
 )
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 from bahlily_transcription.registry import ModelRegistry
@@ -60,11 +65,29 @@ _executor = ThreadPoolExecutor(max_workers=4)
 # lock, so there's no benefit to more workers competing for it, and jobs
 # should run one at a time anyway.
 _diarize_executor = ThreadPoolExecutor(max_workers=1)
-_sessions: dict[str, dict[str, object]] = {}
+_sessions = JobStore[SessionState](
+    ttl_seconds=float(os.environ.get("BAHLILY_TRANSCRIPTION_SESSIONS_TTL_SECONDS", "3600")),
+    sweep_interval_seconds=60.0,
+    is_terminal=lambda s: s.status == "failed",
+)
 _diarize_engine = DiarizeEngine()
-_diarize_jobs: dict[str, dict[str, object]] = {}
+_diarize_jobs = JobStore[DiarizeJobState](
+    ttl_seconds=float(os.environ.get("BAHLILY_TRANSCRIPTION_DIARIZE_TTL_SECONDS", "3600")),
+    sweep_interval_seconds=60.0,
+    is_terminal=lambda s: s.status in {DiarizeJobStatus.COMPLETED, DiarizeJobStatus.FAILED},
+)
 
-app = FastAPI(title="bahlily-transcription")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+    _sessions.start_sweeper()
+    _diarize_jobs.start_sweeper()
+    yield
+    await _sessions.stop_sweeper()
+    await _diarize_jobs.stop_sweeper()
+
+
+app = FastAPI(title="bahlily-transcription", lifespan=_lifespan)
 
 
 def _engines() -> dict[str, tuple[WhisperEngine | ParakeetEngine, ModelRegistry]]:
@@ -257,7 +280,8 @@ def _start_worker_task(
         executor=_executor,
         language=language,
     )
-    _sessions[recording_id] = {"status": "started", "worker": worker}
+    state = SessionState(status="started", worker=worker)
+    _sessions.put(recording_id, state)
 
     async def _run() -> None:
         try:
@@ -267,7 +291,7 @@ def _start_worker_task(
                 "session_worker_failed",
                 recording_id=recording_id,
             )
-            _sessions[recording_id]["status"] = "failed"
+            state.status = "failed"
 
     asyncio.create_task(_run())
 
@@ -282,13 +306,14 @@ async def start_session(req: StartSessionRequest) -> dict[str, str]:
 
 @app.post("/sessions/{recording_id}/stop")
 async def stop_session(recording_id: str) -> dict[str, object]:
-    if recording_id not in _sessions:
-        raise HTTPException(status_code=404, detail="session not found")
-    session = _sessions[recording_id]
-    worker: SessionWorker = session["worker"]  # type: ignore[assignment]
-    session["status"] = "stopping"
+    try:
+        job = _sessions.get(recording_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    worker = job.state.worker
+    job.state.status = "stopping"
     transcribed = await worker.stop()
-    del _sessions[recording_id]
+    _sessions.discard(recording_id)
     return {
         "recording_id": recording_id,
         "status": "stopped",
@@ -298,10 +323,14 @@ async def stop_session(recording_id: str) -> dict[str, object]:
 
 @app.get("/sessions/{recording_id}")
 def get_session(recording_id: str) -> dict[str, object]:
-    if recording_id not in _sessions:
-        raise HTTPException(status_code=404, detail="session not found")
-    session = _sessions[recording_id]
-    return {"recording_id": recording_id, "status": session["status"]}
+    try:
+        job = _sessions.get(recording_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="session not found") from None
+    status = job.state.status
+    if status == "failed":
+        _sessions.discard(recording_id)
+    return {"recording_id": recording_id, "status": status}
 
 
 @app.post("/diarize", status_code=202)
@@ -310,10 +339,11 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
         raise TranscriptionDiarizationUnavailableError()
 
     job_id = str(uuid.uuid4())
-    _diarize_jobs[job_id] = {"status": DiarizeJobStatus.PENDING, "result": None, "error": None}
+    state = DiarizeJobState(status=DiarizeJobStatus.PENDING)
+    _diarize_jobs.put(job_id, state)
 
     async def _run() -> None:
-        _diarize_jobs[job_id]["status"] = DiarizeJobStatus.RUNNING
+        state.status = DiarizeJobStatus.RUNNING
         try:
             loop = asyncio.get_running_loop()
             diarization = await loop.run_in_executor(
@@ -324,19 +354,15 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
                 DiarizeSpeaker(cluster_label=label, voice_embedding=embedding)
                 for label, embedding in diarization.speakers.items()
             ]
-            _diarize_jobs[job_id] = {
-                "status": DiarizeJobStatus.COMPLETED,
-                "result": (labeled_segments, speakers),
-                "error": None,
-            }
+            state.status = DiarizeJobStatus.COMPLETED
+            state.result = (labeled_segments, speakers)
+            state.error = None
         except Exception as exc:
             _log.exception("diarize_job_failed", job_id=job_id)
             wrapped = TranscriptionDiarizationFailedError(str(exc))
-            _diarize_jobs[job_id] = {
-                "status": DiarizeJobStatus.FAILED,
-                "result": None,
-                "error": f"{wrapped.code}: diarization failed, see server logs for details",
-            }
+            state.status = DiarizeJobStatus.FAILED
+            state.result = None
+            state.error = f"{wrapped.code}: diarization failed, see server logs for details"
 
     asyncio.create_task(_run())
     return {"job_id": job_id}
@@ -344,18 +370,19 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
 
 @app.get("/diarize/{job_id}")
 async def get_diarize_job(job_id: str) -> DiarizeJobResponse:
-    if job_id not in _diarize_jobs:
-        raise TranscriptionJobNotFoundError(job_id)
-    job = _diarize_jobs[job_id]
-    status = job["status"]
-    if status == DiarizeJobStatus.COMPLETED:
-        result: tuple[list[TranscriptSegmentSchema], list[DiarizeSpeaker]] = job["result"]  # type: ignore[assignment]
-        segments, speakers = result
-        return DiarizeJobResponse(
-            status=status,  # type: ignore[arg-type]
-            segments=segments,
-            speakers=speakers,
-        )
-    if status == DiarizeJobStatus.FAILED:
-        return DiarizeJobResponse(status=status, error=job["error"])  # type: ignore[arg-type]
-    return DiarizeJobResponse(status=status)  # type: ignore[arg-type]
+    try:
+        job = _diarize_jobs.get(job_id)
+    except KeyError:
+        raise TranscriptionJobNotFoundError(job_id) from None
+    state = job.state
+    if state.status == DiarizeJobStatus.COMPLETED:
+        assert state.result is not None
+        segments, speakers = state.result
+        response = DiarizeJobResponse(status=state.status, segments=segments, speakers=speakers)
+    elif state.status == DiarizeJobStatus.FAILED:
+        response = DiarizeJobResponse(status=state.status, error=state.error or "")
+    else:
+        response = DiarizeJobResponse(status=state.status)
+    if state.status in {DiarizeJobStatus.COMPLETED, DiarizeJobStatus.FAILED}:
+        _diarize_jobs.discard(job_id)
+    return response
