@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import threading
 import time
@@ -15,7 +16,8 @@ from bahlily_transcription.diarize_engine import (
 )
 from bahlily_transcription.errors import TranscriptionDiarizationUnavailableError
 
-pytest.importorskip("pyannote.audio")
+_has_torch = importlib.util.find_spec("torch") is not None
+_has_pyannote = importlib.util.find_spec("pyannote") is not None
 
 
 def _fake_annotation(turns: list[tuple[MagicMock, str]]) -> MagicMock:
@@ -34,6 +36,7 @@ def test_run_converts_pipeline_output_into_turns_and_embeddings() -> None:
 
     with (
         patch("bahlily_transcription.diarize_engine.Pipeline") as mock_pipeline_cls,
+        patch("bahlily_transcription.diarize_engine._select_device"),
         patch.dict(os.environ, {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
     ):
         mock_pipeline_cls.from_pretrained.return_value = mock_pipeline
@@ -81,6 +84,7 @@ def test_concurrent_run_calls_load_the_pipeline_only_once() -> None:
 
     with (
         patch("bahlily_transcription.diarize_engine.Pipeline") as mock_pipeline_cls,
+        patch("bahlily_transcription.diarize_engine._select_device"),
         patch.dict(os.environ, {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
     ):
         mock_pipeline_cls.from_pretrained.side_effect = _slow_from_pretrained
@@ -106,22 +110,37 @@ def test_concurrent_run_calls_load_the_pipeline_only_once() -> None:
     assert mock_pipeline_cls.from_pretrained.call_count == 1
 
 
+@pytest.mark.skipif(
+    not (_has_torch or _has_pyannote),
+    reason="requires torch or pyannote for device selection",
+)
 def test_select_device_prefers_cuda_then_mps_then_cpu() -> None:
-    with patch("bahlily_transcription.diarize_engine.torch.cuda.is_available", return_value=True):
-        assert str(_select_device()) == "cuda"
-    with (
-        patch("bahlily_transcription.diarize_engine.torch.cuda.is_available", return_value=False),
-        patch(
-            "bahlily_transcription.diarize_engine.torch.backends.mps.is_available",
-            return_value=True,
-        ),
-    ):
-        assert str(_select_device()) == "mps"
-    with (
-        patch("bahlily_transcription.diarize_engine.torch.cuda.is_available", return_value=False),
-        patch(
-            "bahlily_transcription.diarize_engine.torch.backends.mps.is_available",
-            return_value=False,
-        ),
-    ):
-        assert str(_select_device()) == "cpu"
+    import torch
+
+    with patch("bahlily_transcription.diarize_engine.torch", torch):
+        with patch(
+            "bahlily_transcription.diarize_engine.torch.cuda.is_available", return_value=True
+        ):
+            assert str(_select_device()) == "cuda"
+        with (
+            patch(
+                "bahlily_transcription.diarize_engine.torch.cuda.is_available",
+                return_value=False,
+            ),
+            patch(
+                "bahlily_transcription.diarize_engine.torch.backends.mps.is_available",
+                return_value=True,
+            ),
+        ):
+            assert str(_select_device()) == "mps"
+        with (
+            patch(
+                "bahlily_transcription.diarize_engine.torch.cuda.is_available",
+                return_value=False,
+            ),
+            patch(
+                "bahlily_transcription.diarize_engine.torch.backends.mps.is_available",
+                return_value=False,
+            ),
+        ):
+            assert str(_select_device()) == "cpu"

@@ -57,6 +57,9 @@ class JobStore[StateT]:
         self._jobs[job_id] = Job(job_id=job_id, state=state, created_at=now, updated_at=now)
 
     def get(self, job_id: str) -> Job[StateT]:
+        # Reading a job refreshes its `updated_at` so the TTL sweep sees recent
+        # activity; without this, a long-polling client would lose the entry
+        # the moment `updated_at` crossed `now - ttl_seconds`.
         job = self._jobs[job_id]
         job.updated_at = self._clock()
         return job

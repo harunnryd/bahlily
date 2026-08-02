@@ -282,6 +282,18 @@ def test_get_session_failed_then_evicted(client: TestClient) -> None:
     assert response.json() == {"detail": "session not found"}
 
 
+def test_get_session_completed_then_evicted(client: TestClient) -> None:
+    recording_id = "test-session-completed"
+    fake_worker = MagicMock()
+    _sessions.put(recording_id, SessionState(status="completed", worker=fake_worker))
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "session not found"}
+
+
 def test_get_session_started_does_not_evict(client: TestClient) -> None:
     recording_id = "test-session-started"
     fake_worker = MagicMock()

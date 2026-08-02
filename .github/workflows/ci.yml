@@ -138,7 +138,9 @@ jobs:
         with:
           cache-dependency-glob: "services/${{ matrix.service }}/uv.lock"
       - name: Install deps
-        run: uv sync ${{ matrix.extra && format('--extra {0}', matrix.extra) }}
+        run: |
+          set -euo pipefail
+          uv sync ${{ matrix.extra && format('--extra {0}', matrix.extra) }}
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy .
