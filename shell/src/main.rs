@@ -32,8 +32,7 @@ fn build_capture_sources(_trace_id: String) -> Result<CaptureSourcePair, String>
 fn start_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
     // Held for the whole function, not just through `begin_start()` -- an
     // overlapping `stop_recording` call must not be able to interleave with an
-    // in-progress start (see finding #3 in the final review: that race can strand
-    // a live `Session` whose pairing thread then spins forever).
+    // in-progress start, which can strand a live `Session`.
     let mut core = state.core.lock().map_err(|e| e.to_string())?;
     core.begin_start().map_err(|e| e.to_string())?;
 
@@ -105,6 +104,16 @@ fn main() {
     tauri::async_runtime::block_on(async {
         let addr =
             std::env::var("AUDIO_CORE_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string());
+        if let Ok(parsed) = addr.parse::<std::net::SocketAddr>() {
+            if !parsed.ip().is_loopback() {
+                tracing::warn!(
+                    code = "AUDIO_GRPC_NON_LOOPBACK_BIND",
+                    addr,
+                    "binding the audio grpc server to a non-loopback address exposes \
+                     unauthenticated, unencrypted microphone and system audio"
+                );
+            }
+        }
         match audio_core::grpc::serve(&addr, segment_rx).await {
             Ok((_bound_addr, serve_future)) => {
                 tauri::async_runtime::spawn(async move {

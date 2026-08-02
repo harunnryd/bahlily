@@ -101,10 +101,20 @@ pub async fn run_pipeline_once(
     segment_tx: &tokio::sync::mpsc::Sender<grpc::pb::AudioSegment>,
 ) -> std::io::Result<()> {
     let target_rate = mixer.sample_rate();
-    let mic_chunk = resample_chunk(mic_chunk, target_rate);
-    let system_chunk = resample_chunk(system_chunk, target_rate);
-    let mic_chunk = &mic_chunk;
-    let system_chunk = &system_chunk;
+    let mic_owned;
+    let mic_chunk = if mic_chunk.sample_rate == target_rate {
+        mic_chunk
+    } else {
+        mic_owned = resample_chunk(mic_chunk, target_rate);
+        &mic_owned
+    };
+    let system_owned;
+    let system_chunk = if system_chunk.sample_rate == target_rate {
+        system_chunk
+    } else {
+        system_owned = resample_chunk(system_chunk, target_rate);
+        &system_owned
+    };
 
     mixer.push_mic(&mic_chunk.data);
     mixer.push_system(&system_chunk.data);
@@ -154,12 +164,9 @@ pub async fn run_pipeline_once(
     write_result
 }
 
-/// Runs `run_pipeline_once` from a plain blocking thread (the pairing loop
-/// has no async executor of its own) via a handle to the caller's runtime.
-/// Logs and swallows a write failure rather than propagating it, matching
-/// `run_pipeline_once`'s own existing NOTE that a disk-write failure
-/// shouldn't interrupt the pairing loop's next iteration.
-pub async fn run_pipeline_once_sync_shim(
+/// Swallows a write failure rather than propagating it, so a disk-write
+/// error does not interrupt the pairing loop's next iteration.
+pub async fn run_pipeline_once_logging_write_errors(
     mic_chunk: &capture::RawChunk,
     system_chunk: &capture::RawChunk,
     mixer: &mut mixer::AudioMixer,

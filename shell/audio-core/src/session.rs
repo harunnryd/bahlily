@@ -17,15 +17,28 @@ pub fn pair_chunks(
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
+        let mut mic_disconnected = false;
+        let mut system_disconnected = false;
         if pending_mic.is_none() {
-            if let Ok(chunk) = mic_rx.recv_timeout(recv_timeout) {
-                pending_mic = Some(chunk);
+            match mic_rx.recv_timeout(recv_timeout) {
+                Ok(chunk) => pending_mic = Some(chunk),
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    mic_disconnected = true;
+                }
             }
         }
         if pending_system.is_none() {
-            if let Ok(chunk) = system_rx.recv_timeout(recv_timeout) {
-                pending_system = Some(chunk);
+            match system_rx.recv_timeout(recv_timeout) {
+                Ok(chunk) => pending_system = Some(chunk),
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    system_disconnected = true;
+                }
             }
+        }
+        if mic_disconnected && system_disconnected {
+            break;
         }
         if pending_mic.is_some() && pending_system.is_some() {
             on_pair(pending_mic.take().unwrap(), pending_system.take().unwrap());
@@ -74,7 +87,7 @@ pub struct Session {
     mic_capture: Box<dyn crate::capture::CaptureSource>,
     system_capture: Box<dyn crate::capture::CaptureSource>,
     stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
-    pairing_thread: Option<std::thread::JoinHandle<std::io::Result<Writer>>>,
+    pairing_thread: Option<std::thread::JoinHandle<Writer>>,
 }
 
 impl Session {
@@ -89,7 +102,20 @@ impl Session {
         mic_capture.start(mic_tx)?;
         system_capture.start(system_tx)?;
 
-        let mut writer = Writer::create(&config.wav_output_path, config.sample_rate)?;
+        let built = (|| -> Result<_, SessionError> {
+            let writer = Writer::create(&config.wav_output_path, config.sample_rate)?;
+            let mic_vad = SileroVad::new(&config.vad_model_path)?;
+            let system_vad = SileroVad::new(&config.vad_model_path)?;
+            Ok((writer, mic_vad, system_vad))
+        })();
+        let (mut writer, mic_vad, system_vad) = match built {
+            Ok(parts) => parts,
+            Err(err) => {
+                mic_capture.stop();
+                system_capture.stop();
+                return Err(err);
+            }
+        };
         let mut mixer = AudioMixer::new(MixerConfig {
             window_ms: config.window_ms,
             sample_rate: config.sample_rate,
@@ -98,8 +124,6 @@ impl Session {
         let start = std::time::Instant::now();
         let trace_id = config.recording_id.clone();
 
-        let mic_vad = SileroVad::new(&config.vad_model_path)?;
-        let system_vad = SileroVad::new(&config.vad_model_path)?;
         let mut mic_segmenter = SpeechSegmenter::new(
             mic_vad,
             crate::grpc::pb::DeviceType::Microphone,
@@ -117,7 +141,7 @@ impl Session {
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
-        let pairing_thread = std::thread::spawn(move || -> std::io::Result<Writer> {
+        let pairing_thread = std::thread::spawn(move || -> Writer {
             // A dedicated, self-contained runtime for this thread alone --
             // `run_pipeline_once` is `async fn` and needs *some* executor to
             // poll it, but this thread has no ambient tokio context of its
@@ -130,7 +154,7 @@ impl Session {
                 .expect("failed to build pairing-thread runtime");
 
             pair_chunks(mic_rx, system_rx, stop_rx, |mic, system| {
-                local_runtime.block_on(crate::run_pipeline_once_sync_shim(
+                local_runtime.block_on(crate::run_pipeline_once_logging_write_errors(
                     &mic,
                     &system,
                     &mut mixer,
@@ -140,7 +164,7 @@ impl Session {
                     &segment_tx,
                 ));
             });
-            Ok(writer)
+            writer
         });
 
         Ok(Self {
@@ -159,10 +183,7 @@ impl Session {
         }
         if let Some(handle) = self.pairing_thread.take() {
             match handle.join() {
-                Ok(write_result) => {
-                    let writer = write_result?;
-                    writer.finalize()?;
-                }
+                Ok(writer) => writer.finalize()?,
                 Err(payload) => {
                     return Err(SessionError::PairingThreadPanicked(panic_message(
                         &*payload,
@@ -182,7 +203,15 @@ impl Drop for Session {
             let _ = tx.send(());
         }
         if let Some(handle) = self.pairing_thread.take() {
-            let _ = handle.join();
+            if let Ok(writer) = handle.join() {
+                if let Err(err) = writer.finalize() {
+                    tracing::error!(
+                        code = "AUDIO_RECORDING_FINALIZE_FAILED",
+                        error = %err,
+                        "failed to finalize the wav file while dropping a session"
+                    );
+                }
+            }
         }
     }
 }
@@ -209,6 +238,27 @@ mod session_tests {
             Ok(())
         }
         fn stop(&mut self) {}
+    }
+
+    struct StopTrackingCapture {
+        device_type: DeviceType,
+        stopped: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl crate::capture::CaptureSource for StopTrackingCapture {
+        fn start(&mut self, tx: ChunkSender) -> Result<(), CaptureError> {
+            tx.send(crate::capture::RawChunk {
+                data: vec![0.1],
+                sample_rate: 1000,
+                timestamp: std::time::Instant::now(),
+                device_type: self.device_type,
+            });
+            Ok(())
+        }
+        fn stop(&mut self) {
+            self.stopped
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     fn bundled_vad_model_path() -> std::path::PathBuf {
@@ -284,6 +334,42 @@ mod session_tests {
         done_rx
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("dropping a session should join its pairing thread promptly");
+
+        let mut reader = hound::WavReader::open(&wav_path).unwrap();
+        assert!(reader.samples::<f32>().count() > 0);
+        let _ = std::fs::remove_file(&wav_path);
+    }
+
+    #[test]
+    fn start_stops_both_captures_when_vad_model_is_missing() {
+        let dir = std::env::temp_dir();
+        let wav_path = dir.join("audio_core_session_start_failure_test.wav");
+        let _ = std::fs::remove_file(&wav_path);
+
+        let mic_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let system_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mic = Box::new(StopTrackingCapture {
+            device_type: DeviceType::Microphone,
+            stopped: mic_stopped.clone(),
+        });
+        let system = Box::new(StopTrackingCapture {
+            device_type: DeviceType::System,
+            stopped: system_stopped.clone(),
+        });
+        let (segment_tx, _segment_rx) = tokio::sync::mpsc::channel(8);
+
+        let config = SessionConfig {
+            recording_id: "test-session-start-failure".to_string(),
+            vad_model_path: dir.join("does-not-exist.onnx"),
+            wav_output_path: wav_path.clone(),
+            sample_rate: 1000,
+            window_ms: 50,
+        };
+
+        let result = Session::start(config, mic, system, segment_tx);
+        assert!(result.is_err());
+        assert!(mic_stopped.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(system_stopped.load(std::sync::atomic::Ordering::SeqCst));
         let _ = std::fs::remove_file(&wav_path);
     }
 }
