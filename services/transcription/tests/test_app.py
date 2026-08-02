@@ -210,5 +210,5 @@ def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
     assert poll.json()["status"] == "failed"
     error = poll.json()["error"]
     assert isinstance(error, str) and error
-    assert "diarization failed" in error
-    assert "boom" in error
+    assert "TRANSCRIPTION_DIARIZATION_FAILED" in error
+    assert "boom" not in error

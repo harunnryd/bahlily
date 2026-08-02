@@ -335,7 +335,7 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
             _diarize_jobs[job_id] = {
                 "status": DiarizeJobStatus.FAILED,
                 "result": None,
-                "error": str(wrapped),
+                "error": f"{wrapped.code}: diarization failed, see server logs for details",
             }
 
     asyncio.create_task(_run())
