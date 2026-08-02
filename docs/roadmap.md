@@ -48,7 +48,7 @@ bahlily/
 └── frontend/
 ```
 
-`shell/` is the Tauri Rust shell (window, tray, updater, notifications); `audio-core/` is the one Rust business-logic module, handling capture, mixing, and VAD. Under `services/`: `transcription` wraps `faster-whisper`, `onnx-asr`, and `pyannote`; `orchestration` wraps LangChain/LangGraph and the multi-provider LLM client, with DeepEval; `chat` is RAG plus an optional MCP surface; `calendar` wraps the Google Calendar/MS Graph APIs and `icalendar`; `export` wraps `python-docx` and `weasyprint`/`reportlab`; `storage` is the single SQLite owner. `frontend/` is the Next.js/React UI.
+`shell/` is the Tauri Rust shell (window, tray, updater, notifications); `audio-core/` is the one Rust business-logic module, handling capture, mixing, and VAD. Under `services/`: `transcription` wraps `faster-whisper`, `onnx-asr`, and `pyannote.audio` (pulled in by the opt-in `diarization` extra); `orchestration` wraps LangChain/LangGraph and the multi-provider LLM client, with DeepEval; `chat` is RAG plus an optional MCP surface; `calendar` wraps the Google Calendar/MS Graph APIs and `icalendar`; `export` wraps `python-docx` and `weasyprint`/`reportlab`; `storage` is the single SQLite owner. `frontend/` is the Next.js/React UI.
 
 Each `services/*` directory should be independently runnable, with its own `pyproject.toml`/entrypoint and its own tests. Someone should be able to work on one service without standing up the rest of the stack.
 

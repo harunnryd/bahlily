@@ -329,7 +329,7 @@ def get_session(recording_id: str) -> dict[str, object]:
     except KeyError:
         raise HTTPException(status_code=404, detail="session not found") from None
     status = job.state.status
-    if status == "failed":
+    if status in {"failed", "completed"}:
         _sessions.discard(recording_id)
     return {"recording_id": recording_id, "status": status}
 
