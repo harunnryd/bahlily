@@ -56,6 +56,16 @@ def test_load_raises_when_hf_token_is_missing() -> None:
             engine.load()
 
 
+def test_load_raises_when_pipeline_dependency_is_missing() -> None:
+    with (
+        patch("bahlily_transcription.diarize_engine.Pipeline", None),
+        patch.dict(os.environ, {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
+    ):
+        engine = DiarizeEngine()
+        with pytest.raises(TranscriptionDiarizationUnavailableError):
+            engine.load()
+
+
 def test_concurrent_run_calls_load_the_pipeline_only_once() -> None:
     seg = MagicMock(start=0.0, end=1.0)
     annotation = _fake_annotation([(seg, "SPEAKER_00")])
