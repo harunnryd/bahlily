@@ -249,8 +249,16 @@ def _segment_row(meeting_id: str, seg: BatchSegmentItem) -> dict[str, object]:
         "is_partial": seg.is_partial,
         "trace_id": seg.trace_id,
     }
-    if seg.model_fields_set & set(_SPEAKER_FIELDS):
+    # Each speaker field is included independently, based on whether the
+    # caller actually set it -- not as an all-or-nothing pair. Including a
+    # key (even as `None`) tells `upsert_batch`'s `ON CONFLICT DO UPDATE` to
+    # overwrite that column; omitting it leaves any previously-stored value
+    # on an existing segment untouched. An item that sets only
+    # `speaker_profile_id`, for example, must not also carry
+    # `speaker_cluster_label: None` and silently wipe a previously-set label.
+    if "speaker_cluster_label" in seg.model_fields_set:
         row["speaker_cluster_label"] = seg.speaker_cluster_label
+    if "speaker_profile_id" in seg.model_fields_set:
         row["speaker_profile_id"] = seg.speaker_profile_id
     return row
 
@@ -264,27 +272,20 @@ async def batch_upsert_segments(
     if m is None:
         raise StorageMeetingNotFoundError(meeting_id)
     repo_s = SegmentRepo(session)
-    # Partitioned by whether the caller explicitly set either speaker field:
-    # `upsert_batch`'s `ON CONFLICT DO UPDATE` overwrites every key present in
-    # a row dict, so a row that omits these two keys entirely leaves any
-    # previously-stored diarization labels on an existing segment untouched,
-    # while a row that includes them (even as `None`) applies them. Every
-    # `upsert_batch` call must stay internally homogeneous (its own
-    # contract), hence two groups rather than one heterogeneous batch.
-    with_speaker_fields: list[dict[str, object]] = []
-    without_speaker_fields: list[dict[str, object]] = []
+    # `upsert_batch` requires every row in one call to share the same set of
+    # keys (it derives `update_cols` from `rows[0]`), so rows are grouped by
+    # which of the two speaker fields (if any) were actually set -- up to
+    # four groups: neither, only `speaker_cluster_label`, only
+    # `speaker_profile_id`, or both.
+    groups: dict[frozenset[str], list[dict[str, object]]] = {}
     for seg in req.segments:
         row = _segment_row(meeting_id, seg)
-        if seg.model_fields_set & set(_SPEAKER_FIELDS):
-            with_speaker_fields.append(row)
-        else:
-            without_speaker_fields.append(row)
+        key = frozenset(seg.model_fields_set & set(_SPEAKER_FIELDS))
+        groups.setdefault(key, []).append(row)
 
     inserted_count = 0
-    if with_speaker_fields:
-        inserted_count += await repo_s.upsert_batch(with_speaker_fields)
-    if without_speaker_fields:
-        inserted_count += await repo_s.upsert_batch(without_speaker_fields)
+    for rows in groups.values():
+        inserted_count += await repo_s.upsert_batch(rows)
     if inserted_count:
         await repo_m.add_segments_count(meeting_id, inserted_count)
     await session.commit()

@@ -555,6 +555,39 @@ def test_batch_upsert_reupload_without_speaker_fields_preserves_them(
     assert segments[0]["speaker_cluster_label"] == "Speaker 1"
 
 
+def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
+    client: TestClient,
+) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    profile_resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+    )
+    profile_id = profile_resp.json()["id"]
+
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_cluster_label": "Speaker 1",
+        "speaker_profile_id": None,
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    profile_only = {k: v for k, v in seg.items() if k != "speaker_cluster_label"}
+    profile_only["speaker_profile_id"] = profile_id
+    resp = client.post("/meetings/m1/segments/batch", json={"segments": [profile_only]})
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["speaker_cluster_label"] == "Speaker 1"
+    assert segments[0]["speaker_profile_id"] == profile_id
+
+
 def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
     profile_resp = client.post(
         "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
