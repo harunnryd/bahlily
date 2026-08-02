@@ -58,3 +58,23 @@ class TranscriptionChecksumFailedError(BahlilyError):
             f"checksum verification failed for '{name}'",
             code="TRANSCRIPTION_CHECKSUM_FAILED",
         )
+
+
+class TranscriptionDiarizationUnavailableError(BahlilyError):
+    def __init__(self) -> None:
+        super().__init__(
+            "diarization requires BAHLILY_TRANSCRIPTION_HF_TOKEN to be set",
+            code="TRANSCRIPTION_DIARIZATION_UNAVAILABLE",
+        )
+
+
+class TranscriptionDiarizationFailedError(BahlilyError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"diarization failed: {reason}", code="TRANSCRIPTION_DIARIZATION_FAILED")
+
+
+class TranscriptionJobNotFoundError(BahlilyError):
+    def __init__(self, job_id: str) -> None:
+        super().__init__(
+            f"diarization job '{job_id}' not found", code="TRANSCRIPTION_JOB_NOT_FOUND"
+        )

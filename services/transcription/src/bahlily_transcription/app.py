@@ -16,15 +16,27 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from starlette.requests import Request
 
+from bahlily_transcription.diarize_engine import DiarizeEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
+    TranscriptionDiarizationFailedError,
+    TranscriptionDiarizationUnavailableError,
     TranscriptionInsufficientDiskError,
+    TranscriptionJobNotFoundError,
     TranscriptionModelNotFoundError,
     TranscriptionModelNotLoadedError,
     TranscriptionUnsupportedLanguageError,
 )
 from bahlily_transcription.grpc_server import BroadcastChannel
+from bahlily_transcription.merge import assign_speakers
+from bahlily_transcription.models import (
+    DiarizeJobResponse,
+    DiarizeJobStatus,
+    DiarizeRequest,
+    DiarizeSpeaker,
+    TranscriptSegmentSchema,
+)
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 from bahlily_transcription.registry import ModelRegistry
 from bahlily_transcription.whisper_engine import WhisperEngine
@@ -41,7 +53,16 @@ _whisper_registry = ModelRegistry("whisper", _MODELS_DIR, _MANIFESTS_DIR)
 _parakeet_registry = ModelRegistry("parakeet", _MODELS_DIR, _MANIFESTS_DIR)
 _broadcast = BroadcastChannel()
 _executor = ThreadPoolExecutor(max_workers=4)
+# Diarization gets its own executor so a long-running /diarize pass (roughly
+# doubles inference time versus transcription alone) can't starve real-time
+# transcription of the shared pool's worker threads. A single worker is
+# intentional: diarize_engine.run() serializes model loading via its own
+# lock, so there's no benefit to more workers competing for it, and jobs
+# should run one at a time anyway.
+_diarize_executor = ThreadPoolExecutor(max_workers=1)
 _sessions: dict[str, dict[str, object]] = {}
+_diarize_engine = DiarizeEngine()
+_diarize_jobs: dict[str, dict[str, object]] = {}
 
 app = FastAPI(title="bahlily-transcription")
 
@@ -59,6 +80,8 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     TranscriptionAlreadyDownloadingError: 409,
     TranscriptionInsufficientDiskError: 422,
     TranscriptionUnsupportedLanguageError: 422,
+    TranscriptionDiarizationUnavailableError: 422,
+    TranscriptionJobNotFoundError: 404,
 }
 
 
@@ -67,6 +90,8 @@ _ERROR_STATUS: dict[type[Exception], int] = {
 @app.exception_handler(TranscriptionAlreadyDownloadingError)
 @app.exception_handler(TranscriptionInsufficientDiskError)
 @app.exception_handler(TranscriptionUnsupportedLanguageError)
+@app.exception_handler(TranscriptionDiarizationUnavailableError)
+@app.exception_handler(TranscriptionJobNotFoundError)
 async def _error_handler(request: Request, exc: Exception) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(status_code=status, content={"code": exc.code, "message": str(exc)})  # type: ignore[attr-defined]
@@ -277,3 +302,60 @@ def get_session(recording_id: str) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="session not found")
     session = _sessions[recording_id]
     return {"recording_id": recording_id, "status": session["status"]}
+
+
+@app.post("/diarize", status_code=202)
+async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
+    if not os.environ.get("BAHLILY_TRANSCRIPTION_HF_TOKEN"):
+        raise TranscriptionDiarizationUnavailableError()
+
+    job_id = str(uuid.uuid4())
+    _diarize_jobs[job_id] = {"status": DiarizeJobStatus.PENDING, "result": None, "error": None}
+
+    async def _run() -> None:
+        _diarize_jobs[job_id]["status"] = DiarizeJobStatus.RUNNING
+        try:
+            loop = asyncio.get_running_loop()
+            diarization = await loop.run_in_executor(
+                _diarize_executor, _diarize_engine.run, req.recording_path
+            )
+            labeled_segments = assign_speakers(req.segments, diarization.turns)
+            speakers = [
+                DiarizeSpeaker(cluster_label=label, voice_embedding=embedding)
+                for label, embedding in diarization.speakers.items()
+            ]
+            _diarize_jobs[job_id] = {
+                "status": DiarizeJobStatus.COMPLETED,
+                "result": (labeled_segments, speakers),
+                "error": None,
+            }
+        except Exception as exc:
+            _log.exception("diarize_job_failed", job_id=job_id)
+            wrapped = TranscriptionDiarizationFailedError(str(exc))
+            _diarize_jobs[job_id] = {
+                "status": DiarizeJobStatus.FAILED,
+                "result": None,
+                "error": f"{wrapped.code}: diarization failed, see server logs for details",
+            }
+
+    asyncio.create_task(_run())
+    return {"job_id": job_id}
+
+
+@app.get("/diarize/{job_id}")
+async def get_diarize_job(job_id: str) -> DiarizeJobResponse:
+    if job_id not in _diarize_jobs:
+        raise TranscriptionJobNotFoundError(job_id)
+    job = _diarize_jobs[job_id]
+    status = job["status"]
+    if status == DiarizeJobStatus.COMPLETED:
+        result: tuple[list[TranscriptSegmentSchema], list[DiarizeSpeaker]] = job["result"]  # type: ignore[assignment]
+        segments, speakers = result
+        return DiarizeJobResponse(
+            status=status,  # type: ignore[arg-type]
+            segments=segments,
+            speakers=speakers,
+        )
+    if status == DiarizeJobStatus.FAILED:
+        return DiarizeJobResponse(status=status, error=job["error"])  # type: ignore[arg-type]
+    return DiarizeJobResponse(status=status)  # type: ignore[arg-type]

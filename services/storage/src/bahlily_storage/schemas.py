@@ -21,6 +21,8 @@ class PatchMeetingRequest(BaseModel):
     title: str | None = None
     status: str | None = None
     ended_at: datetime.datetime | None = None
+    recording_path: str | None = None
+    diarization_status: str | None = None
 
 
 class MeetingResponse(BaseModel):
@@ -33,6 +35,8 @@ class MeetingResponse(BaseModel):
     started_at: datetime.datetime
     ended_at: datetime.datetime | None
     segments_count: int
+    recording_path: str | None
+    diarization_status: str
     has_summary: bool
 
 
@@ -47,6 +51,8 @@ class SegmentResponse(BaseModel):
     language: str | None
     is_partial: bool
     trace_id: str
+    speaker_cluster_label: str | None
+    speaker_profile_id: str | None
 
 
 class BatchSegmentItem(BaseModel):
@@ -60,6 +66,8 @@ class BatchSegmentItem(BaseModel):
     language: str | None = None
     is_partial: bool
     trace_id: str
+    speaker_cluster_label: str | None = None
+    speaker_profile_id: str | None = None
 
     @model_validator(mode="after")
     def _check_audio_range(self) -> BatchSegmentItem:
@@ -131,3 +139,35 @@ class TemplateResponse(BaseModel):
     few_shot_examples: list[TemplateExample]
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class CreateSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    voice_embedding: list[float] = Field(min_length=1)
+
+
+class PatchSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    voice_embedding: list[float] | None = Field(default=None, min_length=1)
+
+
+class SpeakerProfileResponse(BaseModel):
+    id: str
+    name: str
+    voice_embedding: list[float]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class MatchSpeakerProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_embedding: list[float] = Field(min_length=1)
+
+
+class MatchSpeakerProfileResponse(BaseModel):
+    profile: SpeakerProfileResponse | None

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bahlily_storage import db as db_module
 from bahlily_storage.app import app, create_meeting, create_summary
@@ -25,7 +25,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
 
-    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{db_path}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async def _create_schema() -> None:
@@ -472,3 +472,205 @@ def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient
     assert r.status_code == 200
     assert r.json()["updated_at"] == created["updated_at"]
     assert r.json()["name"] == created["name"]
+
+
+def test_create_and_get_speaker_profile(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1, 0.2, 0.3]}
+    )
+    assert resp.status_code == 201
+    profile_id = resp.json()["id"]
+
+    resp = client.get(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alice"
+    assert resp.json()["voice_embedding"] == [0.1, 0.2, 0.3]
+
+
+def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [0.1], "nonexistent": True},
+    )
+    assert resp.status_code == 422
+
+
+def test_get_speaker_profile_not_found(client: TestClient) -> None:
+    resp = client.get("/speaker-profiles/missing")
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "STORAGE_SPEAKER_PROFILE_NOT_FOUND"
+
+
+def test_list_speaker_profiles(client: TestClient) -> None:
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.2]})
+
+    resp = client.get("/speaker-profiles")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+
+def test_patch_speaker_profile(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    profile_id = resp.json()["id"]
+
+    resp = client.patch(f"/speaker-profiles/{profile_id}", json={"name": "Alicia"})
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alicia"
+
+
+def test_delete_speaker_profile(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    profile_id = resp.json()["id"]
+
+    resp = client.delete(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 204
+    assert client.get(f"/speaker-profiles/{profile_id}").status_code == 404
+
+
+def test_batch_upsert_reupload_without_speaker_fields_preserves_them(
+    client: TestClient,
+) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_cluster_label": "Speaker 1",
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    reupload = {k: v for k, v in seg.items() if k != "speaker_cluster_label"}
+    reupload["text"] = "hello again"
+    resp = client.post("/meetings/m1/segments/batch", json={"segments": [reupload]})
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["text"] == "hello again"
+    assert segments[0]["speaker_cluster_label"] == "Speaker 1"
+
+
+def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
+    client: TestClient,
+) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    profile_resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+    )
+    profile_id = profile_resp.json()["id"]
+
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_cluster_label": "Speaker 1",
+        "speaker_profile_id": None,
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    profile_only = {k: v for k, v in seg.items() if k != "speaker_cluster_label"}
+    profile_only["speaker_profile_id"] = profile_id
+    resp = client.post("/meetings/m1/segments/batch", json={"segments": [profile_only]})
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["speaker_cluster_label"] == "Speaker 1"
+    assert segments[0]["speaker_profile_id"] == profile_id
+
+
+def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
+    profile_resp = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+    )
+    profile_id = profile_resp.json()["id"]
+
+    client.post("/meetings", json={"id": "m1"})
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_profile_id": profile_id,
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    resp = client.delete(f"/speaker-profiles/{profile_id}")
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["speaker_profile_id"] is None
+
+
+def test_match_speaker_profile_finds_the_closest_match(client: TestClient) -> None:
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [1.0, 0.0]})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0, 1.0]})
+
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [0.99, 0.01]})
+    assert resp.status_code == 200
+    assert resp.json()["profile"]["name"] == "Alice"
+
+
+def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [1.0, 0.0]})
+    assert resp.status_code == 200
+    assert resp.json()["profile"] is None
+
+
+def test_patch_meeting_accepts_recording_path_and_diarization_status(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+
+    resp = client.patch(
+        "/meetings/m1",
+        json={"recording_path": "/data/recordings/m1.flac", "diarization_status": "pending"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["recording_path"] == "/data/recordings/m1.flac"
+    assert resp.json()["diarization_status"] == "pending"
+
+
+def test_new_meeting_defaults_diarization_status_to_not_started(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.get("/meetings/m1")
+    assert resp.json()["diarization_status"] == "not_started"
+    assert resp.json()["recording_path"] is None
+
+
+def test_batch_segments_accepts_speaker_fields(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 0,
+                    "text": "hello",
+                    "engine": "whisper",
+                    "model_name": "tiny",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "is_partial": False,
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "Speaker 1",
+                }
+            ]
+        },
+    )
+    assert resp.status_code == 204
+
+    resp = client.get("/meetings/m1/segments")
+    assert resp.json()[0]["speaker_cluster_label"] == "Speaker 1"
+    assert resp.json()[0]["speaker_profile_id"] is None

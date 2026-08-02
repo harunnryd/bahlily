@@ -78,7 +78,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 pub struct SessionConfig {
     pub recording_id: String,
     pub vad_model_path: std::path::PathBuf,
-    pub wav_output_path: std::path::PathBuf,
+    pub recording_path: std::path::PathBuf,
     pub sample_rate: u32,
     pub window_ms: u32,
 }
@@ -103,9 +103,14 @@ impl Session {
         system_capture.start(system_tx)?;
 
         let built = (|| -> Result<_, SessionError> {
-            let writer = Writer::create(&config.wav_output_path, config.sample_rate)?;
+            // VAD models load before the writer is created: loading a small
+            // ONNX model is quick and doesn't need the writer to exist yet,
+            // and a VAD failure here means `Writer::create` (which eagerly
+            // creates the `.pcm.tmp` file on disk) never runs, so there is
+            // nothing left to leak if this closure returns early.
             let mic_vad = SileroVad::new(&config.vad_model_path)?;
             let system_vad = SileroVad::new(&config.vad_model_path)?;
+            let writer = Writer::create(&config.recording_path, config.sample_rate)?;
             Ok((writer, mic_vad, system_vad))
         })();
         let (mut writer, mic_vad, system_vad) = match built {
@@ -208,7 +213,7 @@ impl Drop for Session {
                     tracing::error!(
                         code = "AUDIO_RECORDING_FINALIZE_FAILED",
                         error = %err,
-                        "failed to finalize the wav file while dropping a session"
+                        "failed to finalize the recording file while dropping a session"
                     );
                 }
             }
@@ -266,10 +271,10 @@ mod session_tests {
     }
 
     #[tokio::test]
-    async fn start_and_stop_produces_a_finalized_wav_file() {
+    async fn start_and_stop_produces_a_finalized_flac_file() {
         let dir = std::env::temp_dir();
-        let wav_path = dir.join("audio_core_session_test.wav");
-        let _ = std::fs::remove_file(&wav_path);
+        let path = dir.join("audio_core_session_test.flac");
+        let _ = std::fs::remove_file(&path);
 
         let mic = Box::new(FakeCapture {
             samples: vec![0.1; 50],
@@ -284,7 +289,7 @@ mod session_tests {
         let config = SessionConfig {
             recording_id: "test-session".to_string(),
             vad_model_path: bundled_vad_model_path(),
-            wav_output_path: wav_path.clone(),
+            recording_path: path.clone(),
             sample_rate: 1000,
             window_ms: 50,
         };
@@ -293,16 +298,16 @@ mod session_tests {
         std::thread::sleep(std::time::Duration::from_millis(200));
         session.stop().unwrap();
 
-        let mut reader = hound::WavReader::open(&wav_path).unwrap();
-        assert!(reader.samples::<f32>().count() > 0);
-        std::fs::remove_file(&wav_path).unwrap();
+        let mut reader = claxon::FlacReader::open(&path).unwrap();
+        assert!(reader.samples().count() > 0);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
     fn dropping_session_without_stop_joins_pairing_thread_promptly() {
         let dir = std::env::temp_dir();
-        let wav_path = dir.join("audio_core_session_drop_test.wav");
-        let _ = std::fs::remove_file(&wav_path);
+        let path = dir.join("audio_core_session_drop_test.flac");
+        let _ = std::fs::remove_file(&path);
 
         let mic = Box::new(FakeCapture {
             samples: vec![0.1; 50],
@@ -317,7 +322,7 @@ mod session_tests {
         let config = SessionConfig {
             recording_id: "test-session-drop".to_string(),
             vad_model_path: bundled_vad_model_path(),
-            wav_output_path: wav_path.clone(),
+            recording_path: path.clone(),
             sample_rate: 1000,
             window_ms: 50,
         };
@@ -335,16 +340,17 @@ mod session_tests {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("dropping a session should join its pairing thread promptly");
 
-        let mut reader = hound::WavReader::open(&wav_path).unwrap();
-        assert!(reader.samples::<f32>().count() > 0);
-        let _ = std::fs::remove_file(&wav_path);
+        let mut reader = claxon::FlacReader::open(&path).unwrap();
+        assert!(reader.samples().count() > 0);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
     fn start_stops_both_captures_when_vad_model_is_missing() {
         let dir = std::env::temp_dir();
-        let wav_path = dir.join("audio_core_session_start_failure_test.wav");
-        let _ = std::fs::remove_file(&wav_path);
+        let path = dir.join("audio_core_session_start_failure_test.flac");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("pcm.tmp"));
 
         let mic_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let system_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -361,7 +367,7 @@ mod session_tests {
         let config = SessionConfig {
             recording_id: "test-session-start-failure".to_string(),
             vad_model_path: dir.join("does-not-exist.onnx"),
-            wav_output_path: wav_path.clone(),
+            recording_path: path.clone(),
             sample_rate: 1000,
             window_ms: 50,
         };
@@ -370,7 +376,13 @@ mod session_tests {
         assert!(result.is_err());
         assert!(mic_stopped.load(std::sync::atomic::Ordering::SeqCst));
         assert!(system_stopped.load(std::sync::atomic::Ordering::SeqCst));
-        let _ = std::fs::remove_file(&wav_path);
+        let tmp_path = path.with_extension("pcm.tmp");
+        assert!(
+            !tmp_path.exists(),
+            "a failed VAD load must not leave an orphaned .pcm.tmp file behind"
+        );
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&tmp_path);
     }
 }
 

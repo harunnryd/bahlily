@@ -4,7 +4,7 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bahlily_storage.models import Meeting, Segment, Summary, SummaryTemplate
+from bahlily_storage.models import Meeting, Segment, SpeakerProfile, Summary, SummaryTemplate
 
 
 class MeetingRepo:
@@ -28,7 +28,9 @@ class MeetingRepo:
         )
         return list(result.scalars().all())
 
-    _UPDATABLE_FIELDS = frozenset({"title", "status", "ended_at", "segments_count"})
+    _UPDATABLE_FIELDS = frozenset(
+        {"title", "status", "ended_at", "segments_count", "recording_path", "diarization_status"}
+    )
 
     async def update(self, meeting_id: str, **fields: object) -> Meeting | None:
         unknown = set(fields) - self._UPDATABLE_FIELDS
@@ -232,3 +234,51 @@ class TemplateRepo:
         await self._s.delete(template)
         await self._s.flush()
         return True
+
+
+class SpeakerProfileRepo:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def create(self, profile: SpeakerProfile) -> SpeakerProfile:
+        self._s.add(profile)
+        await self._s.flush()
+        return profile
+
+    async def get(self, profile_id: str) -> SpeakerProfile | None:
+        return await self._s.get(SpeakerProfile, profile_id)
+
+    async def list_all(self, limit: int = 20, offset: int = 0) -> list[SpeakerProfile]:
+        result = await self._s.execute(
+            select(SpeakerProfile)
+            .order_by(SpeakerProfile.created_at.desc(), SpeakerProfile.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    _UPDATABLE_FIELDS = frozenset({"name", "voice_embedding", "updated_at"})
+
+    async def update(self, profile_id: str, **fields: object) -> SpeakerProfile | None:
+        unknown = set(fields) - self._UPDATABLE_FIELDS
+        if unknown:
+            raise ValueError(f"unsupported SpeakerProfile field(s): {sorted(unknown)}")
+        profile = await self.get(profile_id)
+        if profile is None:
+            return None
+        for key, value in fields.items():
+            setattr(profile, key, value)
+        await self._s.flush()
+        return profile
+
+    async def delete(self, profile_id: str) -> bool:
+        profile = await self.get(profile_id)
+        if profile is None:
+            return False
+        await self._s.delete(profile)
+        await self._s.flush()
+        return True
+
+    async def list_all_for_matching(self) -> list[SpeakerProfile]:
+        result = await self._s.execute(select(SpeakerProfile))
+        return list(result.scalars().all())

@@ -17,25 +17,39 @@ from bahlily_storage.db import get_session
 from bahlily_storage.errors import (
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
+    StorageSpeakerProfileNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
     StorageTemplateNotFoundError,
 )
 from bahlily_storage.grpc_subscriber import subscriber_status
-from bahlily_storage.models import Meeting, Summary, SummaryTemplate
-from bahlily_storage.repos import MeetingRepo, SegmentRepo, SummaryRepo, TemplateRepo
+from bahlily_storage.models import Meeting, SpeakerProfile, Summary, SummaryTemplate
+from bahlily_storage.repos import (
+    MeetingRepo,
+    SegmentRepo,
+    SpeakerProfileRepo,
+    SummaryRepo,
+    TemplateRepo,
+)
 from bahlily_storage.schemas import (
+    BatchSegmentItem,
     BatchSegmentsRequest,
     CreateMeetingRequest,
+    CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
+    MatchSpeakerProfileRequest,
+    MatchSpeakerProfileResponse,
     MeetingResponse,
     PatchMeetingRequest,
+    PatchSpeakerProfileRequest,
     PatchTemplateRequest,
     SegmentResponse,
+    SpeakerProfileResponse,
     SummaryResponse,
     TemplateResponse,
 )
+from bahlily_storage.speaker_matching import best_match
 
 _log = structlog.get_logger()
 
@@ -47,6 +61,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageSummaryAlreadyExistsError: 409,
     StorageSummaryNotFoundError: 404,
     StorageTemplateNotFoundError: 404,
+    StorageSpeakerProfileNotFoundError: 404,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -57,6 +72,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageSummaryAlreadyExistsError)
 @app.exception_handler(StorageSummaryNotFoundError)
 @app.exception_handler(StorageTemplateNotFoundError)
+@app.exception_handler(StorageSpeakerProfileNotFoundError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
@@ -91,6 +107,8 @@ def _meeting_to_response(m: Meeting) -> MeetingResponse:
         started_at=m.started_at,
         ended_at=m.ended_at,
         segments_count=m.segments_count,
+        recording_path=m.recording_path,
+        diarization_status=m.diarization_status,
         has_summary=m.summary is not None,
     )
 
@@ -105,6 +123,16 @@ def _template_to_response(t: SummaryTemplate) -> TemplateResponse:
         few_shot_examples=json.loads(t.few_shot_examples),
         created_at=t.created_at,
         updated_at=t.updated_at,
+    )
+
+
+def _speaker_profile_to_response(p: SpeakerProfile) -> SpeakerProfileResponse:
+    return SpeakerProfileResponse(
+        id=p.id,
+        name=p.name,
+        voice_embedding=json.loads(p.voice_embedding),
+        created_at=p.created_at,
+        updated_at=p.updated_at,
     )
 
 
@@ -197,9 +225,42 @@ async def list_segments(meeting_id: str, session: SessionDep) -> list[SegmentRes
             language=s.language,
             is_partial=s.is_partial,
             trace_id=s.trace_id,
+            speaker_cluster_label=s.speaker_cluster_label,
+            speaker_profile_id=s.speaker_profile_id,
         )
         for s in segments
     ]
+
+
+_SPEAKER_FIELDS = ("speaker_cluster_label", "speaker_profile_id")
+
+
+def _segment_row(meeting_id: str, seg: BatchSegmentItem) -> dict[str, object]:
+    row: dict[str, object] = {
+        "meeting_id": meeting_id,
+        "segment_id": seg.segment_id,
+        "text": seg.text,
+        "confidence": seg.confidence,
+        "engine": seg.engine,
+        "model_name": seg.model_name,
+        "audio_start_time": seg.audio_start_time,
+        "audio_end_time": seg.audio_end_time,
+        "language": seg.language,
+        "is_partial": seg.is_partial,
+        "trace_id": seg.trace_id,
+    }
+    # Each speaker field is included independently, based on whether the
+    # caller actually set it -- not as an all-or-nothing pair. Including a
+    # key (even as `None`) tells `upsert_batch`'s `ON CONFLICT DO UPDATE` to
+    # overwrite that column; omitting it leaves any previously-stored value
+    # on an existing segment untouched. An item that sets only
+    # `speaker_profile_id`, for example, must not also carry
+    # `speaker_cluster_label: None` and silently wipe a previously-set label.
+    if "speaker_cluster_label" in seg.model_fields_set:
+        row["speaker_cluster_label"] = seg.speaker_cluster_label
+    if "speaker_profile_id" in seg.model_fields_set:
+        row["speaker_profile_id"] = seg.speaker_profile_id
+    return row
 
 
 @app.post("/meetings/{meeting_id}/segments/batch", status_code=204)
@@ -211,23 +272,20 @@ async def batch_upsert_segments(
     if m is None:
         raise StorageMeetingNotFoundError(meeting_id)
     repo_s = SegmentRepo(session)
-    rows: list[dict[str, object]] = [
-        {
-            "meeting_id": meeting_id,
-            "segment_id": seg.segment_id,
-            "text": seg.text,
-            "confidence": seg.confidence,
-            "engine": seg.engine,
-            "model_name": seg.model_name,
-            "audio_start_time": seg.audio_start_time,
-            "audio_end_time": seg.audio_end_time,
-            "language": seg.language,
-            "is_partial": seg.is_partial,
-            "trace_id": seg.trace_id,
-        }
-        for seg in req.segments
-    ]
-    inserted_count = await repo_s.upsert_batch(rows)
+    # `upsert_batch` requires every row in one call to share the same set of
+    # keys (it derives `update_cols` from `rows[0]`), so rows are grouped by
+    # which of the two speaker fields (if any) were actually set -- up to
+    # four groups: neither, only `speaker_cluster_label`, only
+    # `speaker_profile_id`, or both.
+    groups: dict[frozenset[str], list[dict[str, object]]] = {}
+    for seg in req.segments:
+        row = _segment_row(meeting_id, seg)
+        key = frozenset(seg.model_fields_set & set(_SPEAKER_FIELDS))
+        groups.setdefault(key, []).append(row)
+
+    inserted_count = 0
+    for rows in groups.values():
+        inserted_count += await repo_s.upsert_batch(rows)
     if inserted_count:
         await repo_m.add_segments_count(meeting_id, inserted_count)
     await session.commit()
@@ -352,3 +410,91 @@ async def delete_template(template_id: str, session: SessionDep) -> None:
     if not await repo.delete(template_id):
         raise StorageTemplateNotFoundError(template_id)
     await session.commit()
+
+
+@app.post("/speaker-profiles", status_code=201)
+async def create_speaker_profile(
+    req: CreateSpeakerProfileRequest, session: SessionDep
+) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    now = datetime.datetime.now(datetime.UTC)
+    profile = SpeakerProfile(
+        id=str(uuid.uuid4()),
+        name=req.name,
+        voice_embedding=json.dumps(req.voice_embedding),
+        created_at=now,
+        updated_at=now,
+    )
+    await repo.create(profile)
+    await session.commit()
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)
+
+
+@app.get("/speaker-profiles")
+async def list_speaker_profiles(
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[SpeakerProfileResponse]:
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all(limit=limit, offset=offset)
+    return [_speaker_profile_to_response(p) for p in profiles]
+
+
+@app.get("/speaker-profiles/{profile_id}")
+async def get_speaker_profile(profile_id: str, session: SessionDep) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    profile = await repo.get(profile_id)
+    if profile is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    return _speaker_profile_to_response(profile)
+
+
+@app.patch("/speaker-profiles/{profile_id}")
+async def patch_speaker_profile(
+    profile_id: str, req: PatchSpeakerProfileRequest, session: SessionDep
+) -> SpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    fields: dict[str, object] = req.model_dump(exclude_none=True)
+    if "voice_embedding" in fields:
+        fields["voice_embedding"] = json.dumps(req.voice_embedding)
+    if not fields:
+        profile = await repo.get(profile_id)
+        if profile is None:
+            raise StorageSpeakerProfileNotFoundError(profile_id)
+        return _speaker_profile_to_response(profile)
+    fields["updated_at"] = datetime.datetime.now(datetime.UTC)
+    profile = await repo.update(profile_id, **fields)
+    if profile is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    await session.commit()
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)
+
+
+@app.delete("/speaker-profiles/{profile_id}", status_code=204)
+async def delete_speaker_profile(profile_id: str, session: SessionDep) -> None:
+    repo = SpeakerProfileRepo(session)
+    if not await repo.delete(profile_id):
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    await session.commit()
+
+
+@app.post("/speaker-profiles/match")
+async def match_speaker_profile(
+    req: MatchSpeakerProfileRequest, session: SessionDep
+) -> MatchSpeakerProfileResponse:
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all_for_matching()
+    candidates = [(p.id, json.loads(p.voice_embedding)) for p in profiles]
+    matched_id = best_match(req.voice_embedding, candidates)
+    if matched_id is None:
+        return MatchSpeakerProfileResponse(profile=None)
+    matched = await repo.get(matched_id)
+    if matched is None:
+        # Vanished between the matching scan and this re-fetch (e.g. a
+        # concurrent DELETE /speaker-profiles/{id}) -- a genuine race, not a
+        # client error, so treat it the same as "no match" rather than 500ing.
+        return MatchSpeakerProfileResponse(profile=None)
+    return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))

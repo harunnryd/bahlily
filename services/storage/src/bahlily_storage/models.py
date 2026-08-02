@@ -64,6 +64,8 @@ class Meeting(Base):
         UtcDateTime(), nullable=True, default=None
     )
     segments_count: Mapped[int] = mapped_column(default=0)
+    recording_path: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    diarization_status: Mapped[str] = mapped_column(default="not_started")
 
     segments: Mapped[list[Segment]] = relationship(
         back_populates="meeting", cascade="all, delete-orphan"
@@ -94,6 +96,10 @@ class Segment(Base):
     language: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     is_partial: Mapped[bool]
     trace_id: Mapped[str]
+    speaker_cluster_label: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
+    speaker_profile_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("speaker_profiles.id", ondelete="SET NULL"), nullable=True, default=None
+    )
 
     meeting: Mapped[Meeting] = relationship(back_populates="segments")
 
@@ -124,5 +130,15 @@ class SummaryTemplate(Base):
     system_prompt: Mapped[str]
     focus_instructions: Mapped[Optional[str]] = mapped_column(nullable=True, default=None)
     few_shot_examples: Mapped[str] = mapped_column(default="[]")
+    created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+    updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+
+
+class SpeakerProfile(Base):
+    __tablename__ = "speaker_profiles"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    voice_embedding: Mapped[str]
     created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
     updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
