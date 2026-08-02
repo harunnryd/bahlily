@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from bahlily_transcription.app import _diarize_jobs, _sessions
 from bahlily_transcription.diarize_engine import DiarizationResult, DiarizationTurn
+from bahlily_transcription.jobs import DiarizeJobState, SessionState
+from bahlily_transcription.models import DiarizeJobStatus
 
 
 @pytest.fixture
@@ -211,3 +214,73 @@ def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
     assert isinstance(error, str) and error
     assert "TRANSCRIPTION_DIARIZATION_FAILED" in error
     assert "boom" not in error
+
+
+def test_get_diarize_job_completed_then_evicted(client: TestClient) -> None:
+    job_id = "test-job-completed"
+    _diarize_jobs.put(
+        job_id,
+        DiarizeJobState(
+            status=DiarizeJobStatus.COMPLETED,
+            result=([], []),
+            error=None,
+        ),
+    )
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert job_id not in _diarize_jobs._jobs
+
+
+def test_get_diarize_job_failed_then_evicted(client: TestClient) -> None:
+    job_id = "test-job-failed"
+    _diarize_jobs.put(
+        job_id,
+        DiarizeJobState(
+            status=DiarizeJobStatus.FAILED,
+            result=None,
+            error="boom",
+        ),
+    )
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert job_id not in _diarize_jobs._jobs
+
+
+def test_get_diarize_job_pending_does_not_evict(client: TestClient) -> None:
+    job_id = "test-job-pending"
+    _diarize_jobs.put(job_id, DiarizeJobState(status=DiarizeJobStatus.PENDING))
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert job_id in _diarize_jobs._jobs
+
+
+def test_get_session_failed_then_evicted(client: TestClient) -> None:
+    recording_id = "test-session-failed"
+    fake_worker = MagicMock()
+    _sessions.put(recording_id, SessionState(status="failed", worker=fake_worker))
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert recording_id not in _sessions._jobs
+
+
+def test_get_session_started_does_not_evict(client: TestClient) -> None:
+    recording_id = "test-session-started"
+    fake_worker = MagicMock()
+    _sessions.put(recording_id, SessionState(status="started", worker=fake_worker))
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+    assert recording_id in _sessions._jobs
+
+
+def test_lifespan_starts_and_stops_sweepers() -> None:
+    from bahlily_transcription.app import app
+
+    with TestClient(app) as client:
+        client.get("/health")
+    assert _sessions._sweeper is None
+    assert _diarize_jobs._sweeper is None
