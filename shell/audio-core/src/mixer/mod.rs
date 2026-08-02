@@ -52,6 +52,10 @@ impl AudioMixer {
         }
     }
 
+    pub fn sample_rate(&self) -> u32 {
+        self.config.sample_rate
+    }
+
     pub fn push_mic(&mut self, samples: &[f32]) {
         self.mic_buffer.extend(samples);
     }
