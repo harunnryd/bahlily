@@ -178,12 +178,15 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sa.Column("is_partial", sa.Boolean(), nullable=False),
         sa.Column("trace_id", sa.String(), nullable=False),
         sa.UniqueConstraint("meeting_id", "segment_id", name="uq_segments_meeting_segment"),
+        sa.Index("ix_segments_meeting_id", "meeting_id"),
     )
     sa.Table(
         "summaries",
         legacy_metadata,
         sa.Column("id", sa.String(), primary_key=True),
-        sa.Column("meeting_id", sa.String(), sa.ForeignKey("meetings.id"), unique=True),
+        sa.Column(
+            "meeting_id", sa.String(), sa.ForeignKey("meetings.id"), nullable=False, unique=True
+        ),
         sa.Column("title", sa.String(), nullable=False),
         sa.Column("overview", sa.String(), nullable=False),
         sa.Column("key_points", sa.String(), nullable=False),
