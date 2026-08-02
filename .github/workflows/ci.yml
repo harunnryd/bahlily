@@ -126,6 +126,7 @@ jobs:
         service: ${{ fromJson(needs.discover-services.outputs.services) }}
         include:
           - service: transcription
+          - service: transcription
             extra: diarization
     defaults:
       run:

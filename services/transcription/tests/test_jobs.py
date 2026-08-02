@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -208,3 +209,26 @@ async def test_sweeper_loop_survives_sweep_exceptions() -> None:
         assert sweep_calls >= 2
     finally:
         await store.stop_sweeper()
+
+
+def test_concurrent_get_and_sweep_does_not_raise() -> None:
+    store = _store(ttl_seconds=0.0)
+
+    def put_and_get() -> None:
+        for i in range(200):
+            store.put(f"id-{i}", FakeState(status="done"))
+            try:
+                store.get(f"id-{i}")
+            except KeyError:
+                pass
+            store.discard(f"id-{i}")
+
+    def sweep() -> None:
+        for _ in range(100):
+            store._sweep_once(now=0.0)
+
+    thread = threading.Thread(target=put_and_get)
+    thread.start()
+    sweep()
+    thread.join(timeout=5)
+    assert not thread.is_alive()

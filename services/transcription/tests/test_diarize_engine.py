@@ -17,7 +17,6 @@ from bahlily_transcription.diarize_engine import (
 from bahlily_transcription.errors import TranscriptionDiarizationUnavailableError
 
 _has_torch = importlib.util.find_spec("torch") is not None
-_has_pyannote = importlib.util.find_spec("pyannote") is not None
 
 
 def _fake_annotation(turns: list[tuple[MagicMock, str]]) -> MagicMock:
@@ -111,8 +110,8 @@ def test_concurrent_run_calls_load_the_pipeline_only_once() -> None:
 
 
 @pytest.mark.skipif(
-    not (_has_torch or _has_pyannote),
-    reason="requires torch or pyannote for device selection",
+    not _has_torch,
+    reason="requires torch for device selection",
 )
 def test_select_device_prefers_cuda_then_mps_then_cpu() -> None:
     import torch
