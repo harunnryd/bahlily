@@ -126,3 +126,11 @@
   domain: storage
   severity: error
   description: The requested speaker profile ID does not exist in storage.
+- code: TRANSCRIPTION_DIARIZATION_UNAVAILABLE
+  domain: transcription
+  severity: error
+  description: A diarization job was requested but BAHLILY_TRANSCRIPTION_HF_TOKEN is not configured.
+- code: TRANSCRIPTION_DIARIZATION_FAILED
+  domain: transcription
+  severity: error
+  description: The pyannote diarization pipeline raised an error while processing a recording.

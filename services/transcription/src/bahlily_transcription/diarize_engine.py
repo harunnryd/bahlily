@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+import dataclasses
+import os
+
+import torch
+from pyannote.audio import Pipeline
+
+from bahlily_transcription.errors import TranscriptionDiarizationUnavailableError
+
+_MODEL_NAME = "pyannote/speaker-diarization-community-1"
+
+
+def _select_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+@dataclasses.dataclass(frozen=True)
+class DiarizationTurn:
+    start: float
+    end: float
+    speaker_label: str
+
+
+@dataclasses.dataclass(frozen=True)
+class DiarizationResult:
+    turns: list[DiarizationTurn]
+    speakers: dict[str, list[float]]
+
+
+class DiarizeEngine:
+    def __init__(self) -> None:
+        self._pipeline: object | None = None
+
+    def is_loaded(self) -> bool:
+        return self._pipeline is not None
+
+    def load(self) -> None:
+        token = os.environ.get("BAHLILY_TRANSCRIPTION_HF_TOKEN")
+        if not token:
+            raise TranscriptionDiarizationUnavailableError()
+        pipeline = Pipeline.from_pretrained(_MODEL_NAME, token=token)
+        pipeline.to(_select_device())  # type: ignore[union-attr]
+        self._pipeline = pipeline
+
+    def run(self, recording_path: str) -> DiarizationResult:
+        if self._pipeline is None:
+            self.load()
+        output = self._pipeline(recording_path)  # type: ignore[operator, misc]
+        turns = [
+            DiarizationTurn(start=segment.start, end=segment.end, speaker_label=label)
+            for segment, _, label in output.speaker_diarization.itertracks(yield_label=True)
+        ]
+        speakers: dict[str, list[float]] = {}
+        if output.speaker_embeddings is not None:
+            labels = output.speaker_diarization.labels()
+            for label, embedding in zip(labels, output.speaker_embeddings, strict=True):
+                speakers[label] = [float(x) for x in embedding]
+        return DiarizationResult(turns=turns, speakers=speakers)
