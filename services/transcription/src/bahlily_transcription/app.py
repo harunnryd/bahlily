@@ -20,6 +20,7 @@ from bahlily_transcription.diarize_engine import DiarizeEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
+    TranscriptionDiarizationFailedError,
     TranscriptionDiarizationUnavailableError,
     TranscriptionInsufficientDiskError,
     TranscriptionJobNotFoundError,
@@ -330,10 +331,11 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
             }
         except Exception as exc:
             _log.exception("diarize_job_failed", job_id=job_id)
+            wrapped = TranscriptionDiarizationFailedError(str(exc))
             _diarize_jobs[job_id] = {
                 "status": DiarizeJobStatus.FAILED,
                 "result": None,
-                "error": str(exc),
+                "error": str(wrapped),
             }
 
     asyncio.create_task(_run())

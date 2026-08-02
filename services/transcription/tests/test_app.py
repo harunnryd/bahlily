@@ -183,3 +183,32 @@ def test_diarize_job_completes_and_is_polled_successfully(client: TestClient) ->
     assert poll.json()["segments"][0]["speaker_cluster_label"] == "Speaker 1"
     assert poll.json()["speakers"][0]["cluster_label"] == "Speaker 1"
     assert poll.json()["speakers"][0]["voice_embedding"] == [0.1, 0.2]
+
+
+def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
+    client: TestClient,
+) -> None:
+    with (
+        patch.dict("os.environ", {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
+        patch(
+            "bahlily_transcription.app._diarize_engine.run",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        resp = client.post("/diarize", json=_diarize_request_body())
+        assert resp.status_code == 202
+        job_id = resp.json()["job_id"]
+
+        for _ in range(50):
+            poll = client.get(f"/diarize/{job_id}")
+            if poll.json()["status"] in ("completed", "failed"):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("diarize job never reached a terminal status")
+
+    assert poll.json()["status"] == "failed"
+    error = poll.json()["error"]
+    assert isinstance(error, str) and error
+    assert "diarization failed" in error
+    assert "boom" in error
