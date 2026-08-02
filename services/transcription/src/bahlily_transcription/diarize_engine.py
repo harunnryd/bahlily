@@ -46,7 +46,9 @@ class DiarizeEngine:
         if not token:
             raise TranscriptionDiarizationUnavailableError()
         pipeline = Pipeline.from_pretrained(_MODEL_NAME, token=token)
-        pipeline.to(_select_device())  # type: ignore[union-attr]
+        if pipeline is None:
+            raise TranscriptionDiarizationUnavailableError()
+        pipeline.to(_select_device())
         self._pipeline = pipeline
 
     def run(self, recording_path: str) -> DiarizationResult:
