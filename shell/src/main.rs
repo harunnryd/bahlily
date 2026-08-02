@@ -202,17 +202,4 @@ mod tests {
         assert_eq!(core.state(), audio_core::State::Idle);
         assert!(result.is_ok());
     }
-
-    #[test]
-    fn recording_flac_path_is_deterministic_for_the_same_id() {
-        // paths::recording_flac_path needs a real tauri::AppHandle, which a
-        // unit test can't construct -- this instead locks down the piece of
-        // the contract stop_recording relies on: the same recording_id must
-        // resolve to the same filename every time it's asked for, so
-        // stop_recording's second lookup returns exactly the path
-        // start_recording's Session already wrote to.
-        let a = format!("{}.flac", "some-recording-id");
-        let b = format!("{}.flac", "some-recording-id");
-        assert_eq!(a, b);
-    }
 }
