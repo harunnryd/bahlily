@@ -20,7 +20,13 @@ def best_match(embedding: list[float], profiles: list[tuple[str, list[float]]]) 
     best_id: str | None = None
     best_score = _MATCH_THRESHOLD
     for profile_id, candidate in profiles:
-        score = cosine_similarity(embedding, candidate)
+        try:
+            score = cosine_similarity(embedding, candidate)
+        except ValueError:
+            # Dimension mismatch (e.g. a stale profile from a prior embedding
+            # model) makes this candidate incompatible, not the whole request
+            # invalid -- skip it rather than failing the match for everyone.
+            continue
         if score >= best_score:
             best_score = score
             best_id = profile_id
