@@ -208,7 +208,7 @@ impl Drop for Session {
                     tracing::error!(
                         code = "AUDIO_RECORDING_FINALIZE_FAILED",
                         error = %err,
-                        "failed to finalize the wav file while dropping a session"
+                        "failed to finalize the recording file while dropping a session"
                     );
                 }
             }

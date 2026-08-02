@@ -138,3 +138,23 @@
   domain: transcription
   severity: error
   description: The requested diarization job ID does not exist.
+- code: AUDIO_RECORDING_FINALIZE_FAILED
+  domain: audio-core
+  severity: error
+  description: Failed to finalize the recording file (write the FLAC header/footer) while dropping a session that was never explicitly stopped.
+- code: AUDIO_RECORDING_WRITE_FAILED
+  domain: audio-core
+  severity: error
+  description: A local disk-write failure occurred while writing mixed samples to the recording file; the pairing loop continues rather than aborting.
+- code: AUDIO_GRPC_NON_LOOPBACK_BIND
+  domain: audio-grpc
+  severity: warn
+  description: The audio-core gRPC server was configured to bind to a non-loopback address, exposing unauthenticated, unencrypted microphone and system audio.
+- code: AUDIO_GRPC_SERVER_FAILED
+  domain: audio-grpc
+  severity: error
+  description: The audio-core gRPC server exited unexpectedly after successfully binding.
+- code: AUDIO_GRPC_BIND_FAILED
+  domain: audio-grpc
+  severity: error
+  description: The audio-core gRPC server failed to bind its configured address at startup; recording to disk still works, but gRPC streaming is unavailable.
