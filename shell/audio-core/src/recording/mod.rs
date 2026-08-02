@@ -1,88 +1,52 @@
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::Path;
+
+use flac_bound::FlacEncoder;
 
 pub struct Writer {
-    path: std::path::PathBuf,
-    sample_rate: u32,
-    temp_path: std::path::PathBuf,
-    temp_writer: BufWriter<std::fs::File>,
+    encoder: FlacEncoder<'static>,
 }
 
+// SAFETY: `Writer` is only used from the pairing thread that owns it (see
+// `Session::start` in `session.rs`). The libFLAC encoder behind `FlacEncoder`
+// holds a raw `*mut FLAC__StreamEncoder` which is `!Send` by default, but the
+// pointer is only ever dereferenced from that one thread.
+unsafe impl Send for Writer {}
+
 impl Writer {
-    /// Streams raw PCM samples to a temporary file on disk as they arrive, so
-    /// memory use during a live recording is bounded and a crash/OOM/power-loss
-    /// mid-recording leaves a recoverable raw-audio file on disk instead of
-    /// losing the entire recording (nothing would otherwise hit disk until
-    /// `finalize`). Eagerly creating the temp file here also surfaces an
-    /// unwritable directory/full disk/read-only volume immediately at
-    /// recording start rather than silently deferring the failure to when the
-    /// meeting ends.
-    ///
-    /// This is a deliberate stopgap, not true incremental FLAC writing: the
-    /// installed `flacenc` crate has no streaming-encode API (STREAMINFO's
-    /// total-sample-count and whole-file MD5 can only be computed after all
-    /// samples are known), so `finalize` still encodes the whole temp file in
-    /// one pass. A follow-up using libFLAC's "unknown length" STREAMINFO
-    /// placeholder for true crash-safe incremental encoding is tracked
-    /// separately.
-    pub fn create(path: &std::path::Path, sample_rate: u32) -> std::io::Result<Self> {
-        let temp_path = path.with_extension("pcm.tmp");
-        let temp_file = std::fs::File::create(&temp_path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-            sample_rate,
-            temp_path,
-            temp_writer: BufWriter::new(temp_file),
-        })
+    /// Opens `path` for writing and emits an "unknown length" FLAC header
+    /// (STREAMINFO `total_samples = 0`). After this returns the file on disk
+    /// is a valid FLAC stream that decodes whatever frames have already been
+    /// written. A mid-recording crash leaves a playable FLAC file (with
+    /// unknown duration) instead of an opaque raw-PCM blob.
+    pub fn create(path: &Path, sample_rate: u32) -> std::io::Result<Self> {
+        let encoder = FlacEncoder::new()
+            .ok_or_else(|| std::io::Error::other("flac encoder allocation failed"))?
+            .verify(true)
+            .channels(1)
+            .bits_per_sample(16)
+            .sample_rate(sample_rate)
+            .init_file(&path)
+            .map_err(|e| std::io::Error::other(format!("flac init failed: {e:?}")))?;
+
+        Ok(Self { encoder })
     }
 
     pub fn write_samples(&mut self, samples: &[f32]) -> std::io::Result<()> {
-        for &sample in samples {
-            self.temp_writer.write_all(&sample.to_le_bytes())?;
-        }
-        Ok(())
-    }
-
-    pub fn finalize(mut self) -> std::io::Result<()> {
-        use flacenc::component::BitRepr;
-        use flacenc::error::Verify;
-
-        self.temp_writer.flush()?;
-        drop(self.temp_writer);
-
-        let mut reader = BufReader::new(std::fs::File::open(&self.temp_path)?);
-        let mut samples: Vec<f32> = Vec::new();
-        let mut buf = [0u8; 4];
-        loop {
-            match reader.read_exact(&mut buf) {
-                Ok(()) => samples.push(f32::from_le_bytes(buf)),
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
-                Err(e) => return Err(e),
-            }
-        }
-        drop(reader);
-
         let pcm: Vec<i32> = samples
             .iter()
             .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i32)
             .collect();
 
-        let config = flacenc::config::Encoder::default()
-            .into_verified()
-            .map_err(|(_, e)| std::io::Error::other(format!("invalid flac config: {e:?}")))?;
-        let source =
-            flacenc::source::MemSource::from_samples(&pcm, 1, 16, self.sample_rate as usize);
-        let flac_stream = flacenc::encode_with_fixed_block_size(&config, source, config.block_size)
+        self.encoder
+            .process_interleaved(&pcm, pcm.len() as u32)
             .map_err(|e| std::io::Error::other(format!("flac encode failed: {e:?}")))?;
+        Ok(())
+    }
 
-        let mut sink = flacenc::bitsink::ByteSink::new();
-        flac_stream
-            .write(&mut sink)
-            .map_err(|e| std::io::Error::other(format!("flac bitstream write failed: {e:?}")))?;
-
-        let mut file = std::fs::File::create(&self.path)?;
-        file.write_all(sink.as_slice())?;
-
-        let _ = std::fs::remove_file(&self.temp_path);
+    pub fn finalize(self) -> std::io::Result<()> {
+        self.encoder
+            .finish()
+            .map_err(|e| std::io::Error::other(format!("flac finish failed: {e:?}")))?;
         Ok(())
     }
 }
