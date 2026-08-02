@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from bahlily_transcription.app import _diarize_jobs, _sessions
 from bahlily_transcription.diarize_engine import DiarizationResult, DiarizationTurn
+from bahlily_transcription.jobs import DiarizeJobState, SessionState
+from bahlily_transcription.models import DiarizeJobStatus
 
 
 @pytest.fixture
@@ -111,16 +114,22 @@ def test_delete_model_removes_from_registry(tmp_path: pytest.TempPathFactory) ->
 
 
 def test_stop_session_returns_segment_count(client: TestClient) -> None:
+    from bahlily_transcription.jobs import JobStore, SessionState
+
     mock_worker = MagicMock()
     mock_worker.stop = AsyncMock(return_value=5)
-
-    with patch(
-        "bahlily_transcription.app._sessions",
-        {"test-id": {"status": "started", "worker": mock_worker}},
-    ):
+    real_store: JobStore[SessionState] = JobStore(
+        ttl_seconds=3600.0,
+        sweep_interval_seconds=60.0,
+        is_terminal=lambda s: s.status in {"failed", "completed"},
+    )
+    real_store.put("test-id", SessionState(status="started", worker=mock_worker))
+    with patch("bahlily_transcription.app._sessions", real_store):
         response = client.post("/sessions/test-id/stop")
     assert response.status_code == 200
     assert response.json()["segments_transcribed"] == 5
+    with pytest.raises(KeyError):
+        real_store.get("test-id")
 
 
 def _diarize_request_body() -> dict[str, object]:
@@ -212,3 +221,83 @@ def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
     assert isinstance(error, str) and error
     assert "TRANSCRIPTION_DIARIZATION_FAILED" in error
     assert "boom" not in error
+
+
+def test_get_diarize_job_completed_then_evicted(client: TestClient) -> None:
+    job_id = "test-job-completed"
+    _diarize_jobs.put(
+        job_id,
+        DiarizeJobState(
+            status=DiarizeJobStatus.COMPLETED,
+            result=([], []),
+            error=None,
+        ),
+    )
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 404
+    assert response.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
+
+
+def test_get_diarize_job_failed_then_evicted(client: TestClient) -> None:
+    job_id = "test-job-failed"
+    _diarize_jobs.put(
+        job_id,
+        DiarizeJobState(
+            status=DiarizeJobStatus.FAILED,
+            result=None,
+            error="boom",
+        ),
+    )
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 404
+    assert response.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
+
+
+def test_get_diarize_job_pending_does_not_evict(client: TestClient) -> None:
+    job_id = "test-job-pending"
+    _diarize_jobs.put(job_id, DiarizeJobState(status=DiarizeJobStatus.PENDING))
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+
+
+def test_get_session_failed_then_evicted(client: TestClient) -> None:
+    recording_id = "test-session-failed"
+    fake_worker = MagicMock()
+    _sessions.put(recording_id, SessionState(status="failed", worker=fake_worker))
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "session not found"}
+
+
+def test_get_session_started_does_not_evict(client: TestClient) -> None:
+    recording_id = "test-session-started"
+    fake_worker = MagicMock()
+    _sessions.put(recording_id, SessionState(status="started", worker=fake_worker))
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+
+
+def test_lifespan_starts_and_stops_sweepers() -> None:
+    from bahlily_transcription.app import app
+
+    with TestClient(app) as client:
+        client.get("/health")
+    with TestClient(app) as client:
+        client.get("/health")
