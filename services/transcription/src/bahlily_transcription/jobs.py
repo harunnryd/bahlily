@@ -5,6 +5,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import structlog
+
 from bahlily_transcription.models import (
     DiarizeJobStatus,
     DiarizeSpeaker,
@@ -66,3 +68,46 @@ class JobStore[StateT]:
 
     def discard(self, job_id: str) -> None:
         self._jobs.pop(job_id, None)
+
+    def pop_if_terminal(self, job_id: str) -> Job[StateT] | None:
+        job = self._jobs.get(job_id)
+        if job is None:
+            return None
+        if not self._is_terminal(job.state):
+            return None
+        del self._jobs[job_id]
+        return job
+
+    def start_sweeper(self) -> None:
+        if self._sweeper is not None:
+            return
+        self._sweeper = asyncio.create_task(self._sweep_loop())
+
+    async def stop_sweeper(self) -> None:
+        task = self._sweeper
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self._sweeper = None
+
+    def _sweep_once(self, now: float) -> None:
+        expired = [
+            job_id
+            for job_id, job in self._jobs.items()
+            if self._is_terminal(job.state) and now - job.updated_at > self._ttl
+        ]
+        for job_id in expired:
+            self._jobs.pop(job_id, None)
+
+    async def _sweep_loop(self) -> None:
+        _log = structlog.get_logger()
+        while True:
+            await asyncio.sleep(self._sweep_interval)
+            try:
+                self._sweep_once(self._clock())
+            except Exception:
+                _log.exception("job_store_sweep_failed")
