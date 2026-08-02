@@ -268,7 +268,7 @@ mod pipeline_tests {
     #[tokio::test]
     async fn one_round_writes_recording_and_emits_two_segments() {
         let dir = std::env::temp_dir();
-        let path = dir.join("audio_core_pipeline_test.wav");
+        let path = dir.join("audio_core_pipeline_test.flac");
 
         let mut mixer = mixer::AudioMixer::new(mixer::MixerConfig {
             window_ms: 50,
@@ -325,15 +325,15 @@ mod pipeline_tests {
         assert_eq!(first.trace_id, trace_id_copy);
         assert_eq!(second.trace_id, trace_id_copy);
 
-        let mut reader = hound::WavReader::open(&path).unwrap();
-        assert_eq!(reader.samples::<f32>().count(), 50);
+        let mut reader = claxon::FlacReader::open(&path).unwrap();
+        assert_eq!(reader.samples().count(), 50);
         std::fs::remove_file(&path).unwrap();
     }
 
     #[tokio::test]
     async fn closed_channel_drops_segments_without_failing_the_round() {
         let dir = std::env::temp_dir();
-        let path = dir.join("audio_core_pipeline_dropped_segments_test.wav");
+        let path = dir.join("audio_core_pipeline_dropped_segments_test.flac");
 
         let mut mixer = mixer::AudioMixer::new(mixer::MixerConfig {
             window_ms: 50,
@@ -387,7 +387,7 @@ mod pipeline_tests {
     #[tokio::test]
     async fn chunks_captured_at_a_different_rate_are_resampled_before_mixing() {
         let dir = std::env::temp_dir();
-        let path = dir.join("audio_core_pipeline_resample_test.wav");
+        let path = dir.join("audio_core_pipeline_resample_test.flac");
 
         let mixer_rate = 1000;
         let window_ms = 50;
@@ -445,8 +445,8 @@ mod pipeline_tests {
         let first = rx.recv().await.unwrap();
         assert_eq!(first.sample_rate, mixer_rate);
 
-        let mut reader = hound::WavReader::open(&path).unwrap();
-        assert_eq!(reader.samples::<f32>().count(), window_size);
+        let mut reader = claxon::FlacReader::open(&path).unwrap();
+        assert_eq!(reader.samples().count(), window_size);
         std::fs::remove_file(&path).unwrap();
     }
 }
