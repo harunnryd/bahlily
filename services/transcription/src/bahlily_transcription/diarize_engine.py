@@ -4,15 +4,21 @@ import dataclasses
 import os
 import threading
 
-import torch
-from pyannote.audio import Pipeline
-
 from bahlily_transcription.errors import TranscriptionDiarizationUnavailableError
 
 _MODEL_NAME = "pyannote/speaker-diarization-community-1"
 
+try:
+    import torch
+    from pyannote.audio import Pipeline
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    Pipeline = None  # type: ignore[misc, assignment]
+
 
 def _select_device() -> torch.device:
+    if torch is None:
+        raise TranscriptionDiarizationUnavailableError()
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -42,6 +48,8 @@ class DiarizeEngine:
         return self._pipeline is not None
 
     def load(self) -> None:
+        if Pipeline is None:
+            raise TranscriptionDiarizationUnavailableError()
         token = os.environ.get("BAHLILY_TRANSCRIPTION_HF_TOKEN")
         if not token:
             raise TranscriptionDiarizationUnavailableError()

@@ -21,7 +21,6 @@ dependencies = [
     "mlx-whisper>=0.4.3;   sys_platform == 'darwin' and platform_machine == 'arm64'",
     "onnxruntime>=1.28.0",
     "onnx-asr>=0.12.0",
-    "pyannote-audio>=4.0.7",
 ]
 
 [tool.uv.sources]
@@ -33,6 +32,11 @@ bahlily-transcription = "bahlily_transcription:main"
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12.0"]
 build-backend = "uv_build"
+
+[project.optional-dependencies]
+diarization = [
+    "pyannote-audio>=4.0.7",
+]
 
 [dependency-groups]
 dev = [
@@ -76,6 +80,14 @@ warn_unused_ignores = false
 [[tool.mypy.overrides]]
 module = ["bahlily_transcription.parakeet_engine"]
 warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["bahlily_transcription.diarize_engine"]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["pyannote", "pyannote.*", "pyannote.audio"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -15,6 +15,8 @@ from bahlily_transcription.diarize_engine import (
 )
 from bahlily_transcription.errors import TranscriptionDiarizationUnavailableError
 
+pytest.importorskip("pyannote.audio")
+
 
 def _fake_annotation(turns: list[tuple[MagicMock, str]]) -> MagicMock:
     ann = MagicMock()
