@@ -114,15 +114,22 @@ def test_delete_model_removes_from_registry(tmp_path: pytest.TempPathFactory) ->
 
 
 def test_stop_session_returns_segment_count(client: TestClient) -> None:
+    from bahlily_transcription.jobs import JobStore, SessionState
+
     mock_worker = MagicMock()
     mock_worker.stop = AsyncMock(return_value=5)
-
-    with patch("bahlily_transcription.app._sessions") as sessions:
-        sessions.get.return_value.state.worker = mock_worker
-        sessions.get.return_value.state.status = "started"
+    real_store: JobStore[SessionState] = JobStore(
+        ttl_seconds=3600.0,
+        sweep_interval_seconds=60.0,
+        is_terminal=lambda s: s.status in {"failed", "completed"},
+    )
+    real_store.put("test-id", SessionState(status="started", worker=mock_worker))
+    with patch("bahlily_transcription.app._sessions", real_store):
         response = client.post("/sessions/test-id/stop")
     assert response.status_code == 200
     assert response.json()["segments_transcribed"] == 5
+    with pytest.raises(KeyError):
+        real_store.get("test-id")
 
 
 def _diarize_request_body() -> dict[str, object]:
@@ -229,7 +236,9 @@ def test_get_diarize_job_completed_then_evicted(client: TestClient) -> None:
     response = client.get(f"/diarize/{job_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
-    assert job_id not in _diarize_jobs._jobs
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 404
+    assert response.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
 
 
 def test_get_diarize_job_failed_then_evicted(client: TestClient) -> None:
@@ -245,7 +254,9 @@ def test_get_diarize_job_failed_then_evicted(client: TestClient) -> None:
     response = client.get(f"/diarize/{job_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
-    assert job_id not in _diarize_jobs._jobs
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 404
+    assert response.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
 
 
 def test_get_diarize_job_pending_does_not_evict(client: TestClient) -> None:
@@ -254,7 +265,9 @@ def test_get_diarize_job_pending_does_not_evict(client: TestClient) -> None:
     response = client.get(f"/diarize/{job_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
-    assert job_id in _diarize_jobs._jobs
+    response = client.get(f"/diarize/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
 
 
 def test_get_session_failed_then_evicted(client: TestClient) -> None:
@@ -264,7 +277,9 @@ def test_get_session_failed_then_evicted(client: TestClient) -> None:
     response = client.get(f"/sessions/{recording_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "failed"
-    assert recording_id not in _sessions._jobs
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "session not found"}
 
 
 def test_get_session_started_does_not_evict(client: TestClient) -> None:
@@ -274,13 +289,17 @@ def test_get_session_started_does_not_evict(client: TestClient) -> None:
     response = client.get(f"/sessions/{recording_id}")
     assert response.status_code == 200
     assert response.json()["status"] == "started"
-    assert recording_id in _sessions._jobs
+    response = client.get(f"/sessions/{recording_id}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
 
 
 def test_lifespan_starts_and_stops_sweepers() -> None:
     from bahlily_transcription.app import app
 
     with TestClient(app) as client:
+        assert _sessions._sweeper is not None
+        assert _diarize_jobs._sweeper is not None
         client.get("/health")
     assert _sessions._sweeper is None
     assert _diarize_jobs._sweeper is None

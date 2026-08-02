@@ -68,7 +68,7 @@ _diarize_executor = ThreadPoolExecutor(max_workers=1)
 _sessions = JobStore[SessionState](
     ttl_seconds=float(os.environ.get("BAHLILY_TRANSCRIPTION_SESSIONS_TTL_SECONDS", "3600")),
     sweep_interval_seconds=60.0,
-    is_terminal=lambda s: s.status == "failed",
+    is_terminal=lambda s: s.status in {"failed", "completed"},
 )
 _diarize_engine = DiarizeEngine()
 _diarize_jobs = JobStore[DiarizeJobState](
@@ -286,6 +286,7 @@ def _start_worker_task(
     async def _run() -> None:
         try:
             await worker.run(client.stream_segments())
+            state.status = "completed"
         except Exception:
             _log.exception(
                 "session_worker_failed",

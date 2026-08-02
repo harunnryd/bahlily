@@ -80,28 +80,6 @@ def test_discard_unknown_is_silent() -> None:
     store.discard("never-existed")
 
 
-def test_pop_if_terminal_returns_and_removes_when_terminal() -> None:
-    store = _store(is_terminal=lambda s: s.status == "done")
-    store.put("a", FakeState(status="done"))
-    job = store.pop_if_terminal("a")
-    assert job is not None
-    assert job.job_id == "a"
-    with pytest.raises(KeyError):
-        store.get("a")
-
-
-def test_pop_if_terminal_returns_none_when_not_terminal() -> None:
-    store = _store(is_terminal=lambda s: s.status == "done")
-    store.put("a", FakeState(status="running"))
-    assert store.pop_if_terminal("a") is None
-    assert store.get("a").state.status == "running"
-
-
-def test_pop_if_terminal_returns_none_when_missing() -> None:
-    store = _store()
-    assert store.pop_if_terminal("nope") is None
-
-
 def test_sweep_once_removes_terminal_older_than_ttl() -> None:
     store = _store(
         ttl_seconds=100.0,
@@ -198,4 +176,30 @@ async def test_sweeper_loop_runs_sweep() -> None:
         if "a" not in store._jobs:
             break
     assert "a" not in store._jobs
+    await store.stop_sweeper()
+
+
+async def test_sweeper_loop_survives_sweep_exceptions() -> None:
+    sweep_calls = 0
+
+    def is_terminal(state: FakeState) -> bool:
+        nonlocal sweep_calls
+        sweep_calls += 1
+        if sweep_calls == 1:
+            raise RuntimeError("simulated sweep failure")
+        return state.status == "done"
+
+    store = _store(
+        ttl_seconds=0.0,
+        sweep_interval_seconds=0.01,
+        is_terminal=is_terminal,
+    )
+    store.put("a", FakeState(status="done"))
+    store.start_sweeper()
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if "a" not in store._jobs:
+            break
+    assert "a" not in store._jobs
+    assert sweep_calls >= 2
     await store.stop_sweeper()

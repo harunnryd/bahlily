@@ -69,15 +69,6 @@ class JobStore[StateT]:
     def discard(self, job_id: str) -> None:
         self._jobs.pop(job_id, None)
 
-    def pop_if_terminal(self, job_id: str) -> Job[StateT] | None:
-        job = self._jobs.get(job_id)
-        if job is None:
-            return None
-        if not self._is_terminal(job.state):
-            return None
-        del self._jobs[job_id]
-        return job
-
     def start_sweeper(self) -> None:
         if self._sweeper is not None:
             return
