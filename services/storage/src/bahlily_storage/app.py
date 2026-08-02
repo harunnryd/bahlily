@@ -32,6 +32,7 @@ from bahlily_storage.repos import (
     TemplateRepo,
 )
 from bahlily_storage.schemas import (
+    BatchSegmentItem,
     BatchSegmentsRequest,
     CreateMeetingRequest,
     CreateSpeakerProfileRequest,
@@ -231,6 +232,29 @@ async def list_segments(meeting_id: str, session: SessionDep) -> list[SegmentRes
     ]
 
 
+_SPEAKER_FIELDS = ("speaker_cluster_label", "speaker_profile_id")
+
+
+def _segment_row(meeting_id: str, seg: BatchSegmentItem) -> dict[str, object]:
+    row: dict[str, object] = {
+        "meeting_id": meeting_id,
+        "segment_id": seg.segment_id,
+        "text": seg.text,
+        "confidence": seg.confidence,
+        "engine": seg.engine,
+        "model_name": seg.model_name,
+        "audio_start_time": seg.audio_start_time,
+        "audio_end_time": seg.audio_end_time,
+        "language": seg.language,
+        "is_partial": seg.is_partial,
+        "trace_id": seg.trace_id,
+    }
+    if seg.model_fields_set & set(_SPEAKER_FIELDS):
+        row["speaker_cluster_label"] = seg.speaker_cluster_label
+        row["speaker_profile_id"] = seg.speaker_profile_id
+    return row
+
+
 @app.post("/meetings/{meeting_id}/segments/batch", status_code=204)
 async def batch_upsert_segments(
     meeting_id: str, req: BatchSegmentsRequest, session: SessionDep
@@ -240,25 +264,27 @@ async def batch_upsert_segments(
     if m is None:
         raise StorageMeetingNotFoundError(meeting_id)
     repo_s = SegmentRepo(session)
-    rows: list[dict[str, object]] = [
-        {
-            "meeting_id": meeting_id,
-            "segment_id": seg.segment_id,
-            "text": seg.text,
-            "confidence": seg.confidence,
-            "engine": seg.engine,
-            "model_name": seg.model_name,
-            "audio_start_time": seg.audio_start_time,
-            "audio_end_time": seg.audio_end_time,
-            "language": seg.language,
-            "is_partial": seg.is_partial,
-            "trace_id": seg.trace_id,
-            "speaker_cluster_label": seg.speaker_cluster_label,
-            "speaker_profile_id": seg.speaker_profile_id,
-        }
-        for seg in req.segments
-    ]
-    inserted_count = await repo_s.upsert_batch(rows)
+    # Partitioned by whether the caller explicitly set either speaker field:
+    # `upsert_batch`'s `ON CONFLICT DO UPDATE` overwrites every key present in
+    # a row dict, so a row that omits these two keys entirely leaves any
+    # previously-stored diarization labels on an existing segment untouched,
+    # while a row that includes them (even as `None`) applies them. Every
+    # `upsert_batch` call must stay internally homogeneous (its own
+    # contract), hence two groups rather than one heterogeneous batch.
+    with_speaker_fields: list[dict[str, object]] = []
+    without_speaker_fields: list[dict[str, object]] = []
+    for seg in req.segments:
+        row = _segment_row(meeting_id, seg)
+        if seg.model_fields_set & set(_SPEAKER_FIELDS):
+            with_speaker_fields.append(row)
+        else:
+            without_speaker_fields.append(row)
+
+    inserted_count = 0
+    if with_speaker_fields:
+        inserted_count += await repo_s.upsert_batch(with_speaker_fields)
+    if without_speaker_fields:
+        inserted_count += await repo_s.upsert_batch(without_speaker_fields)
     if inserted_count:
         await repo_m.add_segments_count(meeting_id, inserted_count)
     await session.commit()

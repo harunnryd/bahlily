@@ -528,6 +528,33 @@ def test_delete_speaker_profile(client: TestClient) -> None:
     assert client.get(f"/speaker-profiles/{profile_id}").status_code == 404
 
 
+def test_batch_upsert_reupload_without_speaker_fields_preserves_them(
+    client: TestClient,
+) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    seg = {
+        "segment_id": 0,
+        "text": "hello",
+        "engine": "whisper",
+        "model_name": "tiny",
+        "audio_start_time": 0.0,
+        "audio_end_time": 1.0,
+        "is_partial": False,
+        "trace_id": "t1",
+        "speaker_cluster_label": "Speaker 1",
+    }
+    client.post("/meetings/m1/segments/batch", json={"segments": [seg]})
+
+    reupload = {k: v for k, v in seg.items() if k != "speaker_cluster_label"}
+    reupload["text"] = "hello again"
+    resp = client.post("/meetings/m1/segments/batch", json={"segments": [reupload]})
+    assert resp.status_code == 204
+
+    segments = client.get("/meetings/m1/segments").json()
+    assert segments[0]["text"] == "hello again"
+    assert segments[0]["speaker_cluster_label"] == "Speaker 1"
+
+
 def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
     profile_resp = client.post(
         "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
