@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import pydantic
 import pytest
 
 from bahlily_transcription.errors import (
@@ -80,6 +81,41 @@ def test_diarize_request_round_trips_through_json() -> None:
     )
     restored = DiarizeRequest.model_validate_json(req.model_dump_json())
     assert restored == req
+
+
+def _segment() -> TranscriptSegmentSchema:
+    return TranscriptSegmentSchema(
+        text="hello",
+        segment_id=0,
+        is_partial=False,
+        engine="whisper",
+        model_name="tiny",
+        audio_start_time=0.0,
+        audio_end_time=1.0,
+        recording_id="m1",
+        trace_id="t1",
+    )
+
+
+def test_diarize_request_rejects_a_relative_recording_path() -> None:
+    with pytest.raises(pydantic.ValidationError):
+        DiarizeRequest(recording_path="recordings/foo.flac", segments=[_segment()])
+
+
+def test_diarize_request_rejects_a_path_traversal_segment() -> None:
+    with pytest.raises(pydantic.ValidationError):
+        DiarizeRequest(
+            recording_path="/data/recordings/../../etc/passwd",
+            segments=[_segment()],
+        )
+
+
+def test_diarize_request_accepts_a_legitimate_absolute_recording_path() -> None:
+    req = DiarizeRequest(
+        recording_path="/Users/someone/.local/share/bahlily/recordings/abc123.flac",
+        segments=[_segment()],
+    )
+    assert req.recording_path.endswith("abc123.flac")
 
 
 def test_diarize_job_response_defaults_to_no_result_fields() -> None:
