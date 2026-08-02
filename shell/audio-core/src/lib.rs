@@ -82,6 +82,15 @@ impl Default for AudioCore {
     }
 }
 
+fn resample_chunk(chunk: &capture::RawChunk, target_rate: u32) -> capture::RawChunk {
+    capture::RawChunk {
+        data: mixer::resampler::resample(&chunk.data, chunk.sample_rate, target_rate),
+        sample_rate: target_rate,
+        timestamp: chunk.timestamp,
+        device_type: chunk.device_type,
+    }
+}
+
 pub async fn run_pipeline_once(
     mic_chunk: &capture::RawChunk,
     system_chunk: &capture::RawChunk,
@@ -91,6 +100,12 @@ pub async fn run_pipeline_once(
     system_segmenter: &mut vad::SpeechSegmenter<impl vad::VadGate>,
     segment_tx: &tokio::sync::mpsc::Sender<grpc::pb::AudioSegment>,
 ) -> std::io::Result<()> {
+    let target_rate = mixer.sample_rate();
+    let mic_chunk = resample_chunk(mic_chunk, target_rate);
+    let system_chunk = resample_chunk(system_chunk, target_rate);
+    let mic_chunk = &mic_chunk;
+    let system_chunk = &system_chunk;
+
     mixer.push_mic(&mic_chunk.data);
     mixer.push_system(&system_chunk.data);
     // NOTE: a local disk-write failure shouldn't drop this iteration's segments from
@@ -359,6 +374,72 @@ mod pipeline_tests {
 
         assert!(result.is_ok());
         writer.finalize().unwrap();
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn chunks_captured_at_a_different_rate_are_resampled_before_mixing() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("audio_core_pipeline_resample_test.wav");
+
+        let mixer_rate = 1000;
+        let window_ms = 50;
+        let mut mixer = mixer::AudioMixer::new(mixer::MixerConfig {
+            window_ms,
+            sample_rate: mixer_rate,
+        });
+        let mut writer = recording::Writer::create(&path, mixer_rate).unwrap();
+        let counter = Arc::new(AtomicU64::new(0));
+        let start = std::time::Instant::now();
+        let trace_id = crate::generate_trace_id();
+        let mut mic_segmenter = vad::SpeechSegmenter::new(
+            AlwaysSpeech,
+            DeviceType::Microphone,
+            counter.clone(),
+            start,
+            trace_id.clone(),
+        );
+        let mut system_segmenter =
+            vad::SpeechSegmenter::new(AlwaysSpeech, DeviceType::System, counter, start, trace_id);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+
+        // Captured at twice the mixer/writer's configured rate -- a stand-in for a
+        // real capture device's native 48000 Hz feeding a 16000 Hz pipeline.
+        let capture_rate = mixer_rate * 2;
+        let window_size = (mixer_rate as u64 * window_ms as u64 / 1000) as usize;
+        let captured_len = window_size * 2;
+        let mic_chunk = capture::RawChunk {
+            data: vec![0.2; captured_len],
+            sample_rate: capture_rate,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::Microphone,
+        };
+        let system_chunk = capture::RawChunk {
+            data: vec![0.1; captured_len],
+            sample_rate: capture_rate,
+            timestamp: std::time::Instant::now(),
+            device_type: DeviceType::System,
+        };
+
+        run_pipeline_once(
+            &mic_chunk,
+            &system_chunk,
+            &mut mixer,
+            &mut writer,
+            &mut mic_segmenter,
+            &mut system_segmenter,
+            &tx,
+        )
+        .await
+        .unwrap();
+        writer.finalize().unwrap();
+        drop(tx);
+
+        let first = rx.recv().await.unwrap();
+        assert_eq!(first.sample_rate, mixer_rate);
+
+        let mut reader = hound::WavReader::open(&path).unwrap();
+        assert_eq!(reader.samples::<f32>().count(), window_size);
         std::fs::remove_file(&path).unwrap();
     }
 }

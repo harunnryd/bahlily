@@ -12,8 +12,10 @@ pub fn pair_chunks(
     let recv_timeout = Duration::from_millis(50);
 
     loop {
-        if stop_rx.try_recv().is_ok() {
-            break;
+        match stop_rx.try_recv() {
+            Ok(()) => break,
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break,
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
         if pending_mic.is_none() {
             if let Ok(chunk) = mic_rx.recv_timeout(recv_timeout) {
@@ -46,6 +48,18 @@ pub enum SessionError {
     VadModel(#[from] crate::vad::SileroError),
     #[error("recording writer failed: {0}")]
     Writer(#[from] std::io::Error),
+    #[error("pairing thread panicked: {0}")]
+    PairingThreadPanicked(String),
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
 }
 
 pub struct SessionConfig {
@@ -82,7 +96,7 @@ impl Session {
         });
         let counter = Arc::new(AtomicU64::new(0));
         let start = std::time::Instant::now();
-        let trace_id = crate::generate_trace_id();
+        let trace_id = config.recording_id.clone();
 
         let mic_vad = SileroVad::new(&config.vad_model_path)?;
         let system_vad = SileroVad::new(&config.vad_model_path)?;
@@ -137,17 +151,39 @@ impl Session {
         })
     }
 
-    pub fn stop(mut self) -> std::io::Result<()> {
+    pub fn stop(mut self) -> Result<(), SessionError> {
         self.mic_capture.stop();
         self.system_capture.stop();
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
         if let Some(handle) = self.pairing_thread.take() {
-            let writer = handle.join().expect("pairing thread panicked")?;
-            writer.finalize()?;
+            match handle.join() {
+                Ok(write_result) => {
+                    let writer = write_result?;
+                    writer.finalize()?;
+                }
+                Err(payload) => {
+                    return Err(SessionError::PairingThreadPanicked(panic_message(
+                        &*payload,
+                    )));
+                }
+            }
         }
         Ok(())
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.mic_capture.stop();
+        self.system_capture.stop();
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.pairing_thread.take() {
+            let _ = handle.join();
+        }
     }
 }
 
@@ -175,19 +211,15 @@ mod session_tests {
         fn stop(&mut self) {}
     }
 
+    fn bundled_vad_model_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../resources/silero_vad.onnx")
+    }
+
     #[tokio::test]
     async fn start_and_stop_produces_a_finalized_wav_file() {
         let dir = std::env::temp_dir();
         let wav_path = dir.join("audio_core_session_test.wav");
         let _ = std::fs::remove_file(&wav_path);
-
-        // A real Silero ONNX model isn't available in this test environment;
-        // this test exercises only the capture/mixer/writer wiring, not VAD,
-        // so it constructs the session components directly rather than via
-        // `Session::start` (which requires a loadable model path). See
-        // `mod vad_gated_tests` below for the version gated on a real model.
-        let dir_for_writer = dir.clone();
-        let _ = dir_for_writer;
 
         let mic = Box::new(FakeCapture {
             samples: vec![0.1; 50],
@@ -199,15 +231,9 @@ mod session_tests {
         });
         let (segment_tx, _segment_rx) = tokio::sync::mpsc::channel(8);
 
-        let model_path = std::env::var("BAHLILY_TEST_VAD_MODEL_PATH").ok();
-        let Some(model_path) = model_path else {
-            eprintln!("skipping: BAHLILY_TEST_VAD_MODEL_PATH not set");
-            return;
-        };
-
         let config = SessionConfig {
             recording_id: "test-session".to_string(),
-            vad_model_path: std::path::PathBuf::from(model_path),
+            vad_model_path: bundled_vad_model_path(),
             wav_output_path: wav_path.clone(),
             sample_rate: 1000,
             window_ms: 50,
@@ -220,6 +246,45 @@ mod session_tests {
         let mut reader = hound::WavReader::open(&wav_path).unwrap();
         assert!(reader.samples::<f32>().count() > 0);
         std::fs::remove_file(&wav_path).unwrap();
+    }
+
+    #[test]
+    fn dropping_session_without_stop_joins_pairing_thread_promptly() {
+        let dir = std::env::temp_dir();
+        let wav_path = dir.join("audio_core_session_drop_test.wav");
+        let _ = std::fs::remove_file(&wav_path);
+
+        let mic = Box::new(FakeCapture {
+            samples: vec![0.1; 50],
+            device_type: DeviceType::Microphone,
+        });
+        let system = Box::new(FakeCapture {
+            samples: vec![0.2; 50],
+            device_type: DeviceType::System,
+        });
+        let (segment_tx, _segment_rx) = tokio::sync::mpsc::channel(8);
+
+        let config = SessionConfig {
+            recording_id: "test-session-drop".to_string(),
+            vad_model_path: bundled_vad_model_path(),
+            wav_output_path: wav_path.clone(),
+            sample_rate: 1000,
+            window_ms: 50,
+        };
+
+        let session = Session::start(config, mic, system, segment_tx).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            drop(session);
+            let _ = done_tx.send(());
+        });
+
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("dropping a session should join its pairing thread promptly");
+        let _ = std::fs::remove_file(&wav_path);
     }
 }
 
@@ -299,5 +364,23 @@ mod tests {
 
         stop_tx.send(()).unwrap();
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn dropped_stop_sender_exits_promptly_instead_of_spinning() {
+        let (_mic_tx, mic_rx) = bounded_chunk_channel();
+        let (_system_tx, system_rx) = bounded_chunk_channel();
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        drop(stop_tx);
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            pair_chunks(mic_rx, system_rx, stop_rx, |_, _| {});
+            let _ = done_tx.send(());
+        });
+
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("pair_chunks should exit when the stop sender is dropped, not spin forever");
     }
 }

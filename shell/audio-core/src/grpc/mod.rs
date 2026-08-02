@@ -21,6 +21,8 @@ pub struct AudioGrpcService {
 }
 
 impl AudioGrpcService {
+    /// Spawns a background relay task via `tokio::spawn`, so this must be called
+    /// with an active tokio runtime already in scope.
     pub fn new(mut rx: tokio::sync::mpsc::Receiver<AudioSegment>) -> Self {
         let (tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let relay_tx = tx.clone();

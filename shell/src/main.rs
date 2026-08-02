@@ -30,33 +30,54 @@ fn build_capture_sources(_trace_id: String) -> Result<CaptureSourcePair, String>
 
 #[tauri::command]
 fn start_recording(app: tauri::AppHandle, state: State<AppState>) -> Result<(), String> {
-    state
-        .core
-        .lock()
-        .map_err(|e| e.to_string())?
-        .begin_start()
-        .map_err(|e| e.to_string())?;
+    // Held for the whole function, not just through `begin_start()` -- an
+    // overlapping `stop_recording` call must not be able to interleave with an
+    // in-progress start (see finding #3 in the final review: that race can strand
+    // a live `Session` whose pairing thread then spins forever).
+    let mut core = state.core.lock().map_err(|e| e.to_string())?;
+    core.begin_start().map_err(|e| e.to_string())?;
 
     let recording_id = audio_core::generate_trace_id();
-    let (mic_capture, system_capture) = build_capture_sources(recording_id.clone())?;
-    let config = audio_core::session::SessionConfig {
-        recording_id: recording_id.clone(),
-        vad_model_path: paths::vad_model_path(&app)?,
-        wav_output_path: paths::recording_wav_path(&app, &recording_id)?,
-        sample_rate: 16_000,
-        window_ms: 50,
-    };
+    let result = (|| -> Result<audio_core::session::Session, String> {
+        let (mic_capture, system_capture) = build_capture_sources(recording_id.clone())?;
+        let config = audio_core::session::SessionConfig {
+            recording_id: recording_id.clone(),
+            vad_model_path: paths::vad_model_path(&app)?,
+            wav_output_path: paths::recording_wav_path(&app, &recording_id)?,
+            sample_rate: 16_000,
+            window_ms: 50,
+        };
+        audio_core::session::Session::start(
+            config,
+            mic_capture,
+            system_capture,
+            state.segment_tx.clone(),
+        )
+        .map_err(|e| e.to_string())
+    })();
 
-    let session = audio_core::session::Session::start(
-        config,
-        mic_capture,
-        system_capture,
-        state.segment_tx.clone(),
-    )
-    .map_err(|e| e.to_string())?;
+    match result {
+        Ok(session) => {
+            *state.session.lock().map_err(|e| e.to_string())? = Some(session);
+            Ok(())
+        }
+        Err(err) => {
+            let _ = core.begin_stop();
+            let _ = core.finish_stop();
+            Err(err)
+        }
+    }
+}
 
-    *state.session.lock().map_err(|e| e.to_string())? = Some(session);
-    Ok(())
+fn finish_stop_after_session_stop(
+    core: &mut audio_core::AudioCore,
+    stop_result: Option<Result<(), audio_core::session::SessionError>>,
+) -> Result<(), String> {
+    let finish_result = core.finish_stop().map_err(|e| e.to_string());
+    match stop_result {
+        Some(Err(err)) => Err(err.to_string()),
+        _ => finish_result,
+    }
 }
 
 #[tauri::command]
@@ -64,11 +85,10 @@ fn stop_recording(state: State<AppState>) -> Result<(), String> {
     let mut core = state.core.lock().map_err(|e| e.to_string())?;
     core.begin_stop().map_err(|e| e.to_string())?;
 
-    if let Some(session) = state.session.lock().map_err(|e| e.to_string())?.take() {
-        session.stop().map_err(|e| e.to_string())?;
-    }
+    let session = state.session.lock().map_err(|e| e.to_string())?.take();
+    let stop_result = session.map(|session| session.stop());
 
-    core.finish_stop().map_err(|e| e.to_string())
+    finish_stop_after_session_stop(&mut core, stop_result)
 }
 
 fn main() {
@@ -85,18 +105,28 @@ fn main() {
     tauri::async_runtime::block_on(async {
         let addr =
             std::env::var("AUDIO_CORE_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string());
-        let (_bound_addr, serve_future) = audio_core::grpc::serve(&addr, segment_rx)
-            .await
-            .expect("failed to bind audio-core grpc server");
-        tauri::async_runtime::spawn(async move {
-            if let Err(err) = serve_future.await {
+        match audio_core::grpc::serve(&addr, segment_rx).await {
+            Ok((_bound_addr, serve_future)) => {
+                tauri::async_runtime::spawn(async move {
+                    if let Err(err) = serve_future.await {
+                        tracing::error!(
+                            code = "AUDIO_GRPC_SERVER_FAILED",
+                            error = %err,
+                            "audio-core gRPC server exited"
+                        );
+                    }
+                });
+            }
+            Err(err) => {
                 tracing::error!(
-                    code = "AUDIO_GRPC_SERVER_FAILED",
+                    code = "AUDIO_GRPC_BIND_FAILED",
                     error = %err,
-                    "audio-core gRPC server exited"
+                    addr,
+                    "failed to bind audio-core grpc server; recording to disk still works, \
+                     but grpc streaming will not be available"
                 );
             }
-        });
+        }
     });
 
     tauri::Builder::default()
@@ -108,4 +138,49 @@ fn main() {
         .invoke_handler(tauri::generate_handler![start_recording, stop_recording])
         .run(tauri::generate_context!())
         .expect("error while running bahlily-shell");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finish_stop_runs_even_when_session_stop_errors() {
+        let mut core = audio_core::AudioCore::new();
+        core.begin_start().unwrap();
+        core.begin_stop().unwrap();
+
+        let stop_result = Some(Err(
+            audio_core::session::SessionError::PairingThreadPanicked("boom".to_string()),
+        ));
+
+        let result = finish_stop_after_session_stop(&mut core, stop_result);
+
+        assert_eq!(core.state(), audio_core::State::Idle);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn finish_stop_runs_and_succeeds_when_session_stop_succeeds() {
+        let mut core = audio_core::AudioCore::new();
+        core.begin_start().unwrap();
+        core.begin_stop().unwrap();
+
+        let result = finish_stop_after_session_stop(&mut core, Some(Ok(())));
+
+        assert_eq!(core.state(), audio_core::State::Idle);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn finish_stop_runs_when_there_was_no_session_to_stop() {
+        let mut core = audio_core::AudioCore::new();
+        core.begin_start().unwrap();
+        core.begin_stop().unwrap();
+
+        let result = finish_stop_after_session_stop(&mut core, None);
+
+        assert_eq!(core.state(), audio_core::State::Idle);
+        assert!(result.is_ok());
+    }
 }
