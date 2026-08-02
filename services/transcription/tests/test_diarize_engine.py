@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -50,6 +52,46 @@ def test_load_raises_when_hf_token_is_missing() -> None:
         engine = DiarizeEngine()
         with pytest.raises(TranscriptionDiarizationUnavailableError):
             engine.load()
+
+
+def test_concurrent_run_calls_load_the_pipeline_only_once() -> None:
+    seg = MagicMock(start=0.0, end=1.0)
+    annotation = _fake_annotation([(seg, "SPEAKER_00")])
+    output = MagicMock(speaker_diarization=annotation, speaker_embeddings=None)
+    mock_pipeline = MagicMock(return_value=output)
+
+    def _slow_from_pretrained(*args: object, **kwargs: object) -> MagicMock:
+        # An artificial delay makes the race window between the two threads'
+        # unlocked `self._pipeline is None` checks realistic -- without the
+        # lock in `run()`, both would observe `None` and both call this.
+        time.sleep(0.05)
+        return mock_pipeline
+
+    with (
+        patch("bahlily_transcription.diarize_engine.Pipeline") as mock_pipeline_cls,
+        patch.dict(os.environ, {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
+    ):
+        mock_pipeline_cls.from_pretrained.side_effect = _slow_from_pretrained
+        engine = DiarizeEngine()
+
+        results: list[DiarizationResult] = []
+        errors: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                results.append(engine.run("recording.flac"))
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_run) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+    assert not errors
+    assert len(results) == 2
+    assert mock_pipeline_cls.from_pretrained.call_count == 1
 
 
 def test_select_device_prefers_cuda_then_mps_then_cpu() -> None:

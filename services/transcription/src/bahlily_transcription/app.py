@@ -52,6 +52,13 @@ _whisper_registry = ModelRegistry("whisper", _MODELS_DIR, _MANIFESTS_DIR)
 _parakeet_registry = ModelRegistry("parakeet", _MODELS_DIR, _MANIFESTS_DIR)
 _broadcast = BroadcastChannel()
 _executor = ThreadPoolExecutor(max_workers=4)
+# Diarization gets its own executor so a long-running /diarize pass (roughly
+# doubles inference time versus transcription alone) can't starve real-time
+# transcription of the shared pool's worker threads. A single worker is
+# intentional: diarize_engine.run() serializes model loading via its own
+# lock, so there's no benefit to more workers competing for it, and jobs
+# should run one at a time anyway.
+_diarize_executor = ThreadPoolExecutor(max_workers=1)
 _sessions: dict[str, dict[str, object]] = {}
 _diarize_engine = DiarizeEngine()
 _diarize_jobs: dict[str, dict[str, object]] = {}
@@ -309,7 +316,7 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
         try:
             loop = asyncio.get_running_loop()
             diarization = await loop.run_in_executor(
-                _executor, _diarize_engine.run, req.recording_path
+                _diarize_executor, _diarize_engine.run, req.recording_path
             )
             labeled_segments = assign_speakers(req.segments, diarization.turns)
             speakers = [

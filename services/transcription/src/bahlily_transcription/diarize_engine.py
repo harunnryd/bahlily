@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import threading
 
 import torch
 from pyannote.audio import Pipeline
@@ -35,6 +36,7 @@ class DiarizationResult:
 class DiarizeEngine:
     def __init__(self) -> None:
         self._pipeline: object | None = None
+        self._load_lock = threading.Lock()
 
     def is_loaded(self) -> bool:
         return self._pipeline is not None
@@ -48,8 +50,16 @@ class DiarizeEngine:
         self._pipeline = pipeline
 
     def run(self, recording_path: str) -> DiarizationResult:
+        # `run` executes inside a ThreadPoolExecutor worker thread, so two
+        # concurrent /diarize calls can both observe `_pipeline is None` and
+        # both call the expensive `Pipeline.from_pretrained` -- double-loading
+        # the model and risking a CUDA OOM on a GPU machine. Double-checked
+        # locking avoids taking the lock on the common (already-loaded) path
+        # while still serializing the load itself.
         if self._pipeline is None:
-            self.load()
+            with self._load_lock:
+                if self._pipeline is None:
+                    self.load()
         output = self._pipeline(recording_path)  # type: ignore[operator, misc]
         turns = [
             DiarizationTurn(start=segment.start, end=segment.end, speaker_label=label)
