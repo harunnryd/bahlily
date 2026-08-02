@@ -196,10 +196,15 @@ async def test_sweeper_loop_survives_sweep_exceptions() -> None:
     )
     store.put("a", FakeState(status="done"))
     store.start_sweeper()
-    for _ in range(50):
-        await asyncio.sleep(0.01)
-        if "a" not in store._jobs:
-            break
-    assert "a" not in store._jobs
-    assert sweep_calls >= 2
-    await store.stop_sweeper()
+    try:
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            try:
+                store.get("a")
+            except KeyError:
+                break
+        with pytest.raises(KeyError):
+            store.get("a")
+        assert sweep_calls >= 2
+    finally:
+        await store.stop_sweeper()

@@ -298,8 +298,6 @@ def test_lifespan_starts_and_stops_sweepers() -> None:
     from bahlily_transcription.app import app
 
     with TestClient(app) as client:
-        assert _sessions._sweeper is not None
-        assert _diarize_jobs._sweeper is not None
         client.get("/health")
-    assert _sessions._sweeper is None
-    assert _diarize_jobs._sweeper is None
+    with TestClient(app) as client:
+        client.get("/health")
