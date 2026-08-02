@@ -17,6 +17,7 @@ tracing = "0.1"
 rand = "0.8"
 crossbeam-channel = "0.5"
 hound = "3.5"
+flacenc = "0.5"
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
 # `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
 # We only use `VadSession::new_from_path` (not the `static-model`-gated `new()`), and this crate
@@ -40,3 +41,6 @@ cidre = { git = "https://github.com/yury/cidre", rev = "9c20f5ee5abaad4598843a33
 [build-dependencies]
 tonic-build = "0.12"
 protoc-bin-vendored = "3"
+
+[dev-dependencies]
+claxon = "0.4"
