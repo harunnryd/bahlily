@@ -1,8 +1,8 @@
 engine: parakeet
 models:
-  - name: parakeet-tdt-1.1b
-    download_url: "https://huggingface.co/nvidia/parakeet-tdt-1.1b/resolve/main/parakeet-tdt-1.1b.onnx"
-    size_bytes: 4400000000
+  - name: nemo-parakeet-tdt-0.6b-v3
+    download_url: "https://huggingface.co/onnx-community/parakeet-tdt-0.6b-v3/resolve/main/onnx/model.onnx"
+    size_bytes: 2600000000
     # Replace with actual SHA256 after first download:
     checksum_sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
     tier: high_accuracy

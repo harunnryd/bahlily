@@ -71,7 +71,7 @@ def test_post_session_auto_selects_parakeet_for_english(client: TestClient) -> N
         patch("bahlily_transcription.app._start_worker_task"),
     ):
         mock_engine.is_model_loaded.return_value = True
-        mock_engine.current_model.return_value = "parakeet-tdt-1.1b"
+        mock_engine.current_model.return_value = "nemo-parakeet-tdt-0.6b-v3"
         response = client.post("/sessions", json={"language": "en"})
     assert response.status_code == 200
 

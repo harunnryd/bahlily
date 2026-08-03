@@ -248,3 +248,31 @@ def test_parakeet_end_time_clamped_to_audio_duration() -> None:
 
     assert result.audio_start_time == pytest.approx(1.0)
     assert result.audio_end_time == pytest.approx(1.0)
+
+
+def test_parakeet_transcribe_batch_invalid_timestamps() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result = MagicMock()
+    fake_result.text = "hi"
+    fake_result.timestamps = [float("nan")]
+    fake_result.logprobs = [-0.1]
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([fake_result])
+    eng._model = fake_model
+    eng._loaded = "nemo-parakeet-tdt-0.6b-v3"
+    with pytest.raises(TranscriptionEngineFailedError):
+        eng.transcribe_batch([np.zeros(16000, dtype=np.float32)], "en")
+
+
+def test_parakeet_transcribe_batch_invalid_logprobs() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result = MagicMock()
+    fake_result.text = "hi"
+    fake_result.timestamps = [0.0, 1.0]
+    fake_result.logprobs = ["not-a-number"]
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([fake_result])
+    eng._model = fake_model
+    eng._loaded = "nemo-parakeet-tdt-0.6b-v3"
+    with pytest.raises(TranscriptionEngineFailedError):
+        eng.transcribe_batch([np.zeros(16000, dtype=np.float32)], "en")

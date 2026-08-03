@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,32 @@ from bahlily_transcription.models import TranscriptResult
 from bahlily_transcription.registry import ModelRegistry
 
 _SAMPLE_RATE = 16000
+
+
+def _to_float_list(result: object, attr: str) -> list[float]:
+    raw = getattr(result, attr, None)
+    if raw is None:
+        return []
+    try:
+        seq = list(raw)
+    except TypeError as exc:
+        raise TranscriptionEngineFailedError(
+            "parakeet", f"model returned non-sequence for {attr}"
+        ) from exc
+    out: list[float] = []
+    for v in seq:
+        try:
+            f = float(v)
+        except (TypeError, ValueError) as exc:
+            raise TranscriptionEngineFailedError(
+                "parakeet", f"model returned non-numeric value in {attr}"
+            ) from exc
+        if not math.isfinite(f):
+            raise TranscriptionEngineFailedError(
+                "parakeet", f"model returned non-finite value in {attr}"
+            )
+        out.append(f)
+    return out
 
 
 class ParakeetEngine:
@@ -82,8 +109,8 @@ def _to_transcript_result(audio: np.ndarray, result: object) -> TranscriptResult
     if raw_text is None or not isinstance(raw_text, str):
         raise TranscriptionEngineFailedError("parakeet", "model returned non-string text")
     text = raw_text.strip()
-    timestamps = getattr(result, "timestamps", None) or []
-    logprobs = getattr(result, "logprobs", None) or []
+    timestamps = _to_float_list(result, "timestamps")
+    logprobs = _to_float_list(result, "logprobs")
     audio_duration = float(audio.shape[0]) / float(_SAMPLE_RATE)
     start = float(timestamps[0]) if timestamps else 0.0
     end = float(timestamps[-1]) if timestamps else audio_duration
