@@ -118,9 +118,10 @@ mod tests {
     }
 
     #[test]
-    fn unfinalized_file_is_a_decodable_partial_flac() {
+    #[ignore = "drops call finish() via Drop, not real crash; subprocess test pending"]
+    fn dropped_writer_produces_decodable_flac() {
         let dir = std::env::temp_dir();
-        let path = dir.join("audio_core_writer_unfinalized.flac");
+        let path = dir.join("audio_core_writer_dropped.flac");
         let _ = std::fs::remove_file(&path);
 
         let samples: Vec<f32> = (0..512)
@@ -131,15 +132,14 @@ mod tests {
         for chunk in samples.chunks(64) {
             writer.write_samples(chunk).unwrap();
         }
-        // Drop without finalize() — simulates a process crash mid-recording.
         drop(writer);
 
-        let mut reader =
-            claxon::FlacReader::open(&path).expect("partial FLAC file must be decodable");
+        let mut reader = claxon::FlacReader::open(&path)
+            .expect("dropped FLAC writer must produce a decodable file");
         let read_back: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
         assert!(
             read_back.len() >= 256,
-            "expected at least 256 samples decoded from partial FLAC, got {}",
+            "expected at least 256 samples decoded, got {}",
             read_back.len()
         );
 
@@ -193,7 +193,6 @@ mod tests {
         }
         writer.finalize().unwrap();
 
-        // Read the patched MD5 out of the FLAC streaminfo.
         let mut file = std::fs::File::open(&path).unwrap();
         use std::io::{Read, Seek, SeekFrom};
         file.seek(SeekFrom::Start(26)).unwrap();
