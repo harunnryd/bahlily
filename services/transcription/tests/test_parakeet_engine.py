@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -277,8 +277,6 @@ def test_parakeet_transcribe_batch_invalid_timestamps() -> None:
 def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> None:
     """Offline integration test: manifest with multi-file bundle, registry materializes files,
     parakeet engine loads via onnx-asr with the model-specific directory."""
-    from unittest.mock import AsyncMock, MagicMock, patch
-
     manifests_dir = tmp_path / "manifests"
     models_dir = tmp_path / "models"
     manifests_dir.mkdir()
@@ -364,6 +362,9 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     with patch("onnx_asr.load_model", return_value=fake_model) as mock_load:
         eng.load_model(model_name)
     mock_load.assert_called_once_with(model_name, path=models_dir / "parakeet" / model_name)
+
+    model_dir = models_dir / "parakeet" / model_name
+    assert not any(model_dir.glob("*.tmp")), f"leftover tmp files: {list(model_dir.glob('*.tmp'))}"
 
 
 def test_parakeet_transcribe_batch_invalid_logprobs() -> None:
