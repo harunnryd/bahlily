@@ -120,8 +120,8 @@ def test_parakeet_transcribe_returns_text_and_confidence() -> None:
     assert result.text == "hello world"
     assert result.audio_start_time == 0.0
     assert result.audio_end_time == 1.0
-    assert result.confidence is not None
-    assert result.confidence < 0
+    assert result.confidence == pytest.approx(-0.15)
+    fake_model.recognize.assert_called_once_with([audio], sample_rate=16000)
 
 
 def test_parakeet_transcribe_handles_missing_timestamps_and_logprobs() -> None:
@@ -144,19 +144,89 @@ def test_parakeet_transcribe_handles_missing_timestamps_and_logprobs() -> None:
     assert result.confidence is None
 
 
-def test_parakeet_end_time_never_shrinks_below_audio_duration() -> None:
-    eng = _engine()
-    fake_result = MagicMock()
-    fake_result.text = "one"
-    fake_result.timestamps = [0.5]
-    fake_result.logprobs = [-0.1]
+def _engine_registry() -> MagicMock:
+    registry = MagicMock()
+    info = MagicMock()
+    info.name = _MODEL_NAME
+    registry.list_models.return_value = [info]
+    return registry
+
+
+def test_parakeet_transcribe_batch_handles_multiple_inputs() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result_1 = MagicMock()
+    fake_result_1.text = "hello"
+    fake_result_1.timestamps = None
+    fake_result_1.logprobs = None
+    fake_result_2 = MagicMock()
+    fake_result_2.text = "world"
+    fake_result_2.timestamps = None
+    fake_result_2.logprobs = None
     fake_model = MagicMock()
-    fake_model.recognize.return_value = [fake_result]
+    fake_model.recognize.return_value = iter([fake_result_1, fake_result_2])
+    eng._model = fake_model
+    eng._loaded = _MODEL_NAME
+
+    audio_1 = np.zeros(16000, dtype=np.float32)
+    audio_2 = np.zeros(32000, dtype=np.float32)
+    results = eng.transcribe_batch([audio_1, audio_2], "en")
+
+    assert len(results) == 2
+    assert results[0].text == "hello"
+    assert results[1].text == "world"
+    fake_model.recognize.assert_called_once_with([audio_1, audio_2], sample_rate=16000)
+
+
+def test_parakeet_transcribe_batch_wraps_recognition_error() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_model = MagicMock()
+    fake_model.recognize.side_effect = RuntimeError("model crashed")
+    eng._model = fake_model
+    eng._loaded = _MODEL_NAME
+    with pytest.raises(TranscriptionEngineFailedError):
+        eng.transcribe_batch([np.zeros(16000, dtype=np.float32)], "en")
+
+
+def test_parakeet_transcribe_batch_invalid_result_count() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([MagicMock(text="only one")])
+    eng._model = fake_model
+    eng._loaded = _MODEL_NAME
+    with pytest.raises(TranscriptionEngineFailedError):
+        eng.transcribe_batch(
+            [np.zeros(16000, dtype=np.float32), np.zeros(16000, dtype=np.float32)],
+            "en",
+        )
+
+
+def test_parakeet_audio_end_time_from_last_token_with_trailing_silence() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result = MagicMock()
+    fake_result.text = "short"
+    fake_result.timestamps = [0.5, 1.0]
+    fake_result.logprobs = [-0.1, -0.1]
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([fake_result])
     eng._model = fake_model
     eng._loaded = _MODEL_NAME
 
     audio = np.zeros(32000, dtype=np.float32)
     result = eng.transcribe(audio, "en")
 
-    assert result.audio_start_time == 0.5
-    assert result.audio_end_time == pytest.approx(2.0)
+    assert result.audio_start_time == pytest.approx(0.5)
+    assert result.audio_end_time == pytest.approx(1.0)
+
+
+def test_parakeet_non_string_text_raises() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result = MagicMock()
+    fake_result.text = None
+    fake_result.timestamps = None
+    fake_result.logprobs = None
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([fake_result])
+    eng._model = fake_model
+    eng._loaded = _MODEL_NAME
+    with pytest.raises(TranscriptionEngineFailedError):
+        eng.transcribe(np.zeros(16000, dtype=np.float32), "en")
