@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import grpc
+import grpc.aio
 import pytest
 from fastapi.testclient import TestClient
 
 from bahlily_transcription.app import _diarize_jobs, _sessions
 from bahlily_transcription.diarize_engine import DiarizationResult, DiarizationTurn
+from bahlily_transcription.grpc_client import AudioCoreClient
 from bahlily_transcription.jobs import DiarizeJobState, SessionState
 from bahlily_transcription.models import DiarizeJobStatus
+from bahlily_transcription.pb.audio_core.v1 import audio_pb2, audio_pb2_grpc
 
 
 @pytest.fixture
@@ -63,7 +71,7 @@ def test_post_session_auto_selects_parakeet_for_english(client: TestClient) -> N
         patch("bahlily_transcription.app._start_worker_task"),
     ):
         mock_engine.is_model_loaded.return_value = True
-        mock_engine.current_model.return_value = "parakeet-tdt-1.1b"
+        mock_engine.current_model.return_value = "nemo-parakeet-tdt-0.6b-v3"
         response = client.post("/sessions", json={"language": "en"})
     assert response.status_code == 200
 
@@ -313,3 +321,64 @@ def test_lifespan_starts_and_stops_sweepers() -> None:
         client.get("/health")
     with TestClient(app) as client:
         client.get("/health")
+
+
+@asynccontextmanager
+async def _fake_audio_core_server() -> AsyncIterator[int]:
+    server = grpc.aio.server()
+
+    class _NoOpAudio(audio_pb2_grpc.AudioServiceServicer):
+        async def StreamAudio(
+            self,
+            request: audio_pb2.StreamAudioRequest,
+            context: grpc.aio.ServicerContext,
+        ) -> AsyncIterator[audio_pb2.StreamAudioResponse]:
+            await asyncio.Event().wait()
+            yield audio_pb2.StreamAudioResponse()
+
+    audio_pb2_grpc.add_AudioServiceServicer_to_server(  # type: ignore[no-untyped-call]
+        _NoOpAudio(), server
+    )
+    port = server.add_insecure_port("[::]:0")
+    await server.start()
+    try:
+        yield port
+    finally:
+        await server.stop(grace=None)
+
+
+def test_lifespan_creates_shared_audiocore_client() -> None:
+    from bahlily_transcription import app as app_module
+    from bahlily_transcription.app import app
+
+    async def _run() -> None:
+        async with _fake_audio_core_server() as port:
+            with patch.dict(os.environ, {"AUDIO_CORE_GRPC_ADDR": f"localhost:{port}"}):
+                assert app_module._audio_core_client is None
+                async with app.router.lifespan_context(app):
+                    assert app_module._audio_core_client is not None
+                    assert isinstance(app_module._audio_core_client, AudioCoreClient)
+                assert app_module._audio_core_client is None
+                async with app.router.lifespan_context(app):
+                    assert app_module._audio_core_client is not None
+                    assert isinstance(app_module._audio_core_client, AudioCoreClient)
+                assert app_module._audio_core_client is None
+
+    asyncio.run(_run())
+
+
+def test_lifespan_clears_partial_state_when_audiocore_construction_fails() -> None:
+    from bahlily_transcription import app as app_module
+    from bahlily_transcription.app import app
+
+    def _boom(addr: str = "localhost:50051") -> AudioCoreClient:
+        raise RuntimeError("simulated startup failure")
+
+    async def _run() -> None:
+        with patch("bahlily_transcription.app.AudioCoreClient", side_effect=_boom):
+            with pytest.raises(RuntimeError):
+                async with app.router.lifespan_context(app):
+                    pass
+
+    asyncio.run(_run())
+    assert app_module._audio_core_client is None
