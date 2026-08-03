@@ -17,7 +17,7 @@ tracing = "0.1"
 rand = "0.8"
 crossbeam-channel = "0.5"
 hound = "3.5"
-flacenc = "0.5"
+flac-bound = { version = "0.5", default-features = false, features = ["libflac-noogg"] }
 tokio-stream = { version = "0.1", features = ["sync", "net"] }
 # `default-features = false` drops silero's `static-model` and `audio_resampler` defaults.
 # We only use `VadSession::new_from_path` (not the `static-model`-gated `new()`), and this crate
@@ -44,3 +44,4 @@ protoc-bin-vendored = "3"
 
 [dev-dependencies]
 claxon = "0.4"
+md5 = "0.7"
