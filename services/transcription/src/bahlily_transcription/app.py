@@ -29,6 +29,7 @@ from bahlily_transcription.errors import (
     TranscriptionModelNotLoadedError,
     TranscriptionUnsupportedLanguageError,
 )
+from bahlily_transcription.grpc_client import AudioCoreClient
 from bahlily_transcription.grpc_server import BroadcastChannel
 from bahlily_transcription.jobs import (
     DiarizeJobState,
@@ -57,6 +58,7 @@ _parakeet_engine = ParakeetEngine(models_dir=_MODELS_DIR / "parakeet")
 _whisper_registry = ModelRegistry("whisper", _MODELS_DIR, _MANIFESTS_DIR)
 _parakeet_registry = ModelRegistry("parakeet", _MODELS_DIR, _MANIFESTS_DIR)
 _broadcast = BroadcastChannel()
+_audio_core_client: AudioCoreClient | None = None
 _executor = ThreadPoolExecutor(max_workers=4)
 # Diarization gets its own executor so a long-running /diarize pass (roughly
 # doubles inference time versus transcription alone) can't starve real-time
@@ -80,11 +82,18 @@ _diarize_jobs = JobStore[DiarizeJobState](
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
+    global _audio_core_client
+    _audio_core_client = AudioCoreClient(
+        addr=os.environ.get("AUDIO_CORE_GRPC_ADDR", "localhost:50051"),
+    )
     _sessions.start_sweeper()
     _diarize_jobs.start_sweeper()
-    yield
-    await _sessions.stop_sweeper()
-    await _diarize_jobs.stop_sweeper()
+    try:
+        yield
+    finally:
+        _audio_core_client = None
+        await _sessions.stop_sweeper()
+        await _diarize_jobs.stop_sweeper()
 
 
 app = FastAPI(title="bahlily-transcription", lifespan=_lifespan)
@@ -267,12 +276,9 @@ def _start_worker_task(
     engine: WhisperEngine | ParakeetEngine,
     language: str | None,
 ) -> None:
-    from bahlily_transcription.grpc_client import AudioCoreClient
-
-    client = AudioCoreClient(addr=os.environ.get("AUDIO_CORE_GRPC_ADDR", "localhost:50051"))
-    # TODO: creates one AudioCoreClient per session; spec intends one shared client
-    # with per-session workers subscribing to the same broadcast. Refactor when a
-    # shared client is added.
+    client = _audio_core_client
+    if client is None:
+        raise TranscriptionDiarizationFailedError("audio core client not initialized")
     worker = SessionWorker(
         recording_id=recording_id,
         engine=engine,
