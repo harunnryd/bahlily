@@ -21,15 +21,18 @@ def test_parakeet_not_loaded_by_default() -> None:
     assert eng.current_model() is None
 
 
-def test_parakeet_load_model_calls_onnx_asr() -> None:
+def test_parakeet_load_model_calls_onnx_asr_and_enables_timestamps() -> None:
     eng = ParakeetEngine(Path("/tmp/models"))
-    fake_model = MagicMock()
-    with patch("onnx_asr.load_model", return_value=fake_model) as mock_load:
+    base_model = MagicMock()
+    timestamped_model = MagicMock()
+    base_model.with_timestamps.return_value = timestamped_model
+    with patch("onnx_asr.load_model", return_value=base_model) as mock_load:
         eng.load_model("nemo-parakeet-ctc-0.6b")
     mock_load.assert_called_once_with("nemo-parakeet-ctc-0.6b", path=Path("/tmp/models"))
+    base_model.with_timestamps.assert_called_once_with()
     assert eng.is_model_loaded()
     assert eng.current_model() == "nemo-parakeet-ctc-0.6b"
-    assert eng._model is fake_model
+    assert eng._model is timestamped_model
 
 
 def test_parakeet_load_failure_raises_engine_error() -> None:
@@ -54,7 +57,7 @@ def test_parakeet_transcribe_returns_text_and_confidence() -> None:
     fake_result.timestamps = [0.0, 1.0]
     fake_result.logprobs = [-0.1, -0.2]
     fake_model = MagicMock()
-    fake_model.recognize_batch.return_value = iter([fake_result])
+    fake_model.recognize.return_value = [fake_result]
     eng._model = fake_model
     eng._loaded = "nemo-parakeet-ctc-0.6b"
 
@@ -75,7 +78,7 @@ def test_parakeet_transcribe_handles_missing_timestamps_and_logprobs() -> None:
     fake_result.timestamps = None
     fake_result.logprobs = None
     fake_model = MagicMock()
-    fake_model.recognize_batch.return_value = iter([fake_result])
+    fake_model.recognize.return_value = [fake_result]
     eng._model = fake_model
     eng._loaded = "nemo-parakeet-ctc-0.6b"
 
