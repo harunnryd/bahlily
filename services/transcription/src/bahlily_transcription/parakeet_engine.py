@@ -68,7 +68,7 @@ class ParakeetEngine:
         from onnx_asr import load_model as onnx_asr_load_model
 
         try:
-            self._model = onnx_asr_load_model(name, path=self._models_dir).with_timestamps()
+            self._model = onnx_asr_load_model(name, path=self._models_dir / name).with_timestamps()
         except Exception as exc:
             raise TranscriptionEngineFailedError("parakeet", str(exc)) from exc
         self._loaded = name

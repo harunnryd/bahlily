@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,7 +13,7 @@ from bahlily_transcription.errors import (
     TranscriptionEngineFailedError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelFile, ModelInfo
+from bahlily_transcription.models import ModelFile, ModelInfo, ModelStatus
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 
 _MODEL_NAME = "nemo-parakeet-ctc-0.6b"
@@ -56,7 +61,7 @@ def test_parakeet_load_model_calls_onnx_asr_and_enables_timestamps() -> None:
     base_model.with_timestamps.return_value = timestamped_model
     with patch("onnx_asr.load_model", return_value=base_model) as mock_load:
         eng.load_model(_MODEL_NAME)
-    mock_load.assert_called_once_with(_MODEL_NAME, path=Path("/tmp/models"))
+    mock_load.assert_called_once_with(_MODEL_NAME, path=Path("/tmp/models") / _MODEL_NAME)
     base_model.with_timestamps.assert_called_once_with()
     assert eng.is_model_loaded()
     assert eng.current_model() == _MODEL_NAME
@@ -267,6 +272,98 @@ def test_parakeet_transcribe_batch_invalid_timestamps() -> None:
     eng._loaded = "nemo-parakeet-tdt-0.6b-v3"
     with pytest.raises(TranscriptionEngineFailedError):
         eng.transcribe_batch([np.zeros(16000, dtype=np.float32)], "en")
+
+
+def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> None:
+    """Offline integration test: manifest with multi-file bundle, registry materializes files,
+    parakeet engine loads via onnx-asr with the model-specific directory."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    manifests_dir = tmp_path / "manifests"
+    models_dir = tmp_path / "models"
+    manifests_dir.mkdir()
+    models_dir.mkdir()
+
+    file_contents = {
+        "config.json": b'{"sample_rate": 16000}',
+        "model.onnx": b"\x00" * 1024,
+        "vocab.txt": b"<pad>\n",
+    }
+    expected_shas = {
+        path: hashlib.sha256(contents).hexdigest() for path, contents in file_contents.items()
+    }
+
+    model_name = "nemo-parakeet-tdt-0.6b-v3"
+    manifest_path = manifests_dir / "parakeet.yaml"
+    manifest_path.write_text(f"engine: parakeet\nmodels:\n  - name: {model_name}\n    files:\n")
+    for path, _contents in file_contents.items():
+        sha = expected_shas[path]
+        manifest_path.write_text(
+            manifest_path.read_text()
+            + f"      - path: {path}\n"
+            + f"        url: https://example.com/{path}\n"
+            + f"        sha256: {sha}\n"
+        )
+    manifest_path.write_text(
+        manifest_path.read_text()
+        + f"    size_bytes: {sum(len(c) for c in file_contents.values())}\n"
+        + "    tier: test\n"
+    )
+
+    from bahlily_transcription.registry import ModelRegistry
+
+    registry = ModelRegistry("parakeet", models_dir, manifests_dir)
+    assert registry.get_status(model_name) == ModelStatus.MISSING
+
+    def make_stream(contents: bytes) -> object:
+        class StreamResponse:
+            async def __aenter__(self) -> StreamResponse:
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def aiter_bytes(self, chunk_size: int) -> AsyncGenerator[bytes, None]:
+                async def chunks() -> AsyncGenerator[bytes, None]:
+                    for i in range(0, len(contents), chunk_size):
+                        yield contents[i : i + chunk_size]
+
+                return chunks()
+
+        return StreamResponse()
+
+    def fake_stream_get(_method: str, url: str, **_kwargs: object) -> object:
+        path = url.rsplit("/", 1)[-1]
+        return make_stream(file_contents[path])
+
+    fake_client = MagicMock()
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+    fake_client.stream = fake_stream_get
+
+    async def run_download() -> list[object]:
+        with patch("httpx.AsyncClient", return_value=fake_client):
+            progresses: list[object] = []
+            async for p in registry.download(model_name):
+                progresses.append(p)
+            return progresses
+
+    progresses = asyncio.run(run_download())
+    final_status = registry.get_status(model_name)
+    assert final_status == ModelStatus.AVAILABLE
+    assert len(progresses) == len(file_contents) + 1
+    for path, expected in file_contents.items():
+        actual = (models_dir / "parakeet" / model_name / path).read_bytes()
+        assert actual == expected, f"file {path} contents mismatch"
+
+    eng = ParakeetEngine(models_dir / "parakeet", registry=registry)
+    fake_model = MagicMock()
+    with patch("onnx_asr.load_model", return_value=fake_model) as mock_load:
+        eng.load_model(model_name)
+    mock_load.assert_called_once_with(model_name, path=models_dir / "parakeet" / model_name)
 
 
 def test_parakeet_transcribe_batch_invalid_logprobs() -> None:
