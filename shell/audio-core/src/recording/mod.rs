@@ -6,10 +6,14 @@ pub struct Writer {
     encoder: FlacEncoder<'static>,
 }
 
-// SAFETY: `Writer` is only used from the pairing thread that owns it (see
-// `Session::start` in `session.rs`). The libFLAC encoder behind `FlacEncoder`
-// holds a raw `*mut FLAC__StreamEncoder` which is `!Send` by default, but the
-// pointer is only ever dereferenced from that one thread.
+// SAFETY: `Writer` is created on `Session::start`'s caller thread, moved into
+// the pairing thread via the spawn closure, and returned to the caller through
+// `JoinHandle::join` before `finalize` runs (see `Session::start` in
+// `session.rs`). The libFLAC encoder holds a `*mut FLAC__StreamEncoder` which
+// is `!Send` by default. The encoder has no creation-thread affinity, but
+// `process_interleaved` and `finish` are never invoked concurrently: the writer
+// moves sequentially between threads and is only touched by one thread at a
+// time.
 unsafe impl Send for Writer {}
 
 impl Writer {
@@ -20,13 +24,17 @@ impl Writer {
     /// unknown duration) instead of an opaque raw-PCM blob.
     pub fn create(path: &Path, sample_rate: u32) -> std::io::Result<Self> {
         let encoder = FlacEncoder::new()
-            .ok_or_else(|| std::io::Error::other("flac encoder allocation failed"))?
+            .ok_or_else(|| std::io::Error::other("flac encoder allocation failed"))?;
+        let encoder = encoder
             .verify(true)
             .channels(1)
             .bits_per_sample(16)
             .sample_rate(sample_rate)
             .init_file(&path)
-            .map_err(|e| std::io::Error::other(format!("flac init failed: {e:?}")))?;
+            .map_err(|e| {
+                let _ = std::fs::remove_file(path);
+                std::io::Error::other(format!("flac init failed: {e:?}"))
+            })?;
 
         Ok(Self { encoder })
     }

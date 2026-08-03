@@ -374,12 +374,7 @@ mod session_tests {
         assert!(system_stopped.load(std::sync::atomic::Ordering::SeqCst));
         match std::fs::read(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Ok(contents) => {
-                assert!(
-                    contents.starts_with(b"fLaC"),
-                    "recording_path must not exist with non-FLAC contents after a failed VAD load"
-                );
-            }
+            Ok(_) => panic!("recording_path must not exist after a failed VAD load"),
             Err(e) => panic!("unexpected error reading recording_path: {e}"),
         }
         let _ = std::fs::remove_file(&path);
