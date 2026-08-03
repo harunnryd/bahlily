@@ -97,7 +97,8 @@ class ModelRegistry:
     async def _download_one_file(self, file: ModelFile, model_dir: Path, name: str) -> int:
         target = model_dir / file.path
         target.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = model_dir / f".{file.path.replace('/', '__')}.download.tmp"
+        path_hash = hashlib.sha256(file.path.encode()).hexdigest()[:8]
+        tmp_path = model_dir / f".{file.path.replace('/', '__')}.{path_hash}.download.tmp"
         sha256 = hashlib.sha256()
         bytes_downloaded = 0
         try:
@@ -214,6 +215,8 @@ class ModelRegistry:
                     or not file_path
                     or file_path.startswith("/")
                     or ".." in file_path.split("/")
+                    or "\\" in file_path
+                    or ".." in file_path.split("\\")
                 ):
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
@@ -266,13 +269,6 @@ class ModelRegistry:
             for chunk in iter(lambda: f.read(_CHUNK_SIZE), b""):
                 sha256.update(chunk)
         return sha256.hexdigest() == expected
-
-    def _refresh_status(self, name: str) -> None:
-        model_path = self._models_dir / name / "model.bin"
-        if model_path.exists():
-            self._status[name] = ModelStatus.AVAILABLE
-        else:
-            self._status[name] = ModelStatus.MISSING
 
     def _get_model_info(self, name: str) -> ModelInfo:
         return self._manifest[name]

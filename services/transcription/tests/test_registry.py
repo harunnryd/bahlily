@@ -88,11 +88,24 @@ def test_status_available_after_model_dir_created(
 ) -> None:
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
-    for file in registry._manifest["tiny"].files:
+    file_contents = b"fake model data"
+    actual_sha = hashlib.sha256(file_contents).hexdigest()
+    new_files = tuple(
+        ModelFile(path=file.path, url=file.url, sha256=actual_sha)
+        for file in registry._manifest["tiny"].files
+    )
+    registry._manifest["tiny"] = ModelInfo(
+        name="tiny",
+        engine=registry._engine,
+        size_bytes=registry._manifest["tiny"].size_bytes,
+        files=new_files,
+        tier=registry._manifest["tiny"].tier,
+    )
+    for file in new_files:
         model_file = model_dir / file.path
         model_file.parent.mkdir(parents=True, exist_ok=True)
-        model_file.write_bytes(b"fake model data")
-    registry._refresh_status("tiny")
+        model_file.write_bytes(file_contents)
+    registry._scan_existing()
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
 
 
@@ -385,4 +398,38 @@ def test_manifest_loader_rejects_invalid_sha256(models_dir: Path, manifests_dir:
         "    tier: test\n"
     )
     with pytest.raises(ValueError, match="sha256"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_parent_directory_path(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: ../config.json\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="must be relative"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_backslash_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: ..\\evil\\config.json\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="must be relative"):
         ModelRegistry("whisper", models_dir, manifests_dir)
