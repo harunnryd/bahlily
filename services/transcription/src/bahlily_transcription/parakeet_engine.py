@@ -86,6 +86,8 @@ class ParakeetEngine:
     ) -> list[TranscriptResult]:
         if self._model is None:
             raise TranscriptionEngineFailedError("parakeet", "model not loaded")
+        # Parakeet TDT v3 auto-detects language from the audio; the shared
+        # Engine interface parameter is intentionally not passed to recognize().
         try:
             raw_results = self._model.recognize(audios, sample_rate=_SAMPLE_RATE)  # type: ignore[union-attr, attr-defined]
             results = list(raw_results)

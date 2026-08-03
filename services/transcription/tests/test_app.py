@@ -328,8 +328,10 @@ async def _fake_audio_core_server() -> AsyncIterator[int]:
     server = grpc.aio.server()
 
     class _NoOpAudio(audio_pb2_grpc.AudioServiceServicer):
-        async def StreamAudio(  # type: ignore[no-untyped-def]
-            self, request, context
+        async def StreamAudio(
+            self,
+            request: audio_pb2.StreamAudioRequest,
+            context: grpc.aio.ServicerContext,
         ) -> AsyncIterator[audio_pb2.StreamAudioResponse]:
             await asyncio.Event().wait()
             yield audio_pb2.StreamAudioResponse()
