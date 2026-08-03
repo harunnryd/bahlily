@@ -52,17 +52,18 @@ class ParakeetEngine:
             raise TranscriptionEngineFailedError("parakeet", "model not loaded")
         results = self._model.recognize(audios, sample_rate=_SAMPLE_RATE)  # type: ignore[union-attr, attr-defined]
         return [
-            _to_transcript_result(idx, audio, result)
-            for idx, (audio, result) in enumerate(zip(audios, results, strict=True))
+            _to_transcript_result(audio, result)
+            for audio, result in zip(audios, results, strict=True)
         ]
 
 
-def _to_transcript_result(idx: int, audio: np.ndarray, result: object) -> TranscriptResult:
+def _to_transcript_result(audio: np.ndarray, result: object) -> TranscriptResult:
     timestamps = getattr(result, "timestamps", None) or []
     logprobs = getattr(result, "logprobs", None) or []
     text = getattr(result, "text", "").strip()
+    audio_duration = float(audio.shape[0]) / float(_SAMPLE_RATE)
     start = float(timestamps[0]) if timestamps else 0.0
-    end = float(timestamps[-1]) if timestamps else float(audio.shape[0]) / float(_SAMPLE_RATE)
+    end = max(audio_duration, float(timestamps[-1]) if timestamps else audio_duration)
     confidence = float(sum(logprobs) / len(logprobs)) if logprobs else None
     return TranscriptResult(
         text=text,

@@ -82,10 +82,28 @@ def test_parakeet_transcribe_handles_missing_timestamps_and_logprobs() -> None:
     eng._model = fake_model
     eng._loaded = "nemo-parakeet-ctc-0.6b"
 
-    audio = np.zeros(16000, dtype=np.float32)
+    audio = np.zeros(24000, dtype=np.float32)
     result = eng.transcribe(audio, "en")
 
     assert result.text == "no timestamps"
     assert result.audio_start_time == 0.0
-    assert result.audio_end_time == 1.0
+    assert result.audio_end_time == pytest.approx(1.5)
     assert result.confidence is None
+
+
+def test_parakeet_end_time_never_shrinks_below_audio_duration() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"))
+    fake_result = MagicMock()
+    fake_result.text = "one"
+    fake_result.timestamps = [0.5]
+    fake_result.logprobs = [-0.1]
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = [fake_result]
+    eng._model = fake_model
+    eng._loaded = "nemo-parakeet-ctc-0.6b"
+
+    audio = np.zeros(32000, dtype=np.float32)
+    result = eng.transcribe(audio, "en")
+
+    assert result.audio_start_time == 0.5
+    assert result.audio_end_time == pytest.approx(2.0)
