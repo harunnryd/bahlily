@@ -27,8 +27,25 @@ impl Writer {
     /// unknown duration) instead of an opaque raw-PCM blob.
     pub fn create(path: &Path, sample_rate: u32) -> std::io::Result<Self> {
         let mut file = Box::new(File::create(path)?);
+        // SAFETY: `file` is a `Box<File>` owned by this function scope. The
+        // cast transmutes `&mut File` (with the box's lifetime) to
+        // `&'static mut File`. This is sound because:
+        // - `Box::as_mut` returns the only `&mut` to the boxed `File`;
+        //   no other reference exists at this point.
+        // - `file` is not moved or dropped for the rest of the function
+        //   (it is moved into `Self` at the end, which happens after
+        //   `init_write` has finished using the reference).
+        // - The encoder's `'static` borrow is consumed by `init_write`;
+        //   after return, the encoder no longer holds the reference.
         let file_ref: &'static mut File = unsafe { &mut *(file.as_mut() as *mut File) };
         let mut output = Box::new(WriteWrapper(file_ref));
+        // SAFETY: `output` is a `Box<WriteWrapper>` owned by this function
+        // scope. The cast transmutes `&mut WriteWrapper<'static>` (with the
+        // box's lifetime) to `&'static mut WriteWrapper<'static>`. This is
+        // sound for the same reasons as the `file` cast above: no competing
+        // reference exists, `output` is not moved until the end of the
+        // function, and the encoder consumes the reference inside
+        // `init_write`.
         let output_ref: &'static mut WriteWrapper<'static> =
             unsafe { &mut *(output.as_mut() as *mut WriteWrapper<'static>) };
         let encoder = FlacEncoder::new()
