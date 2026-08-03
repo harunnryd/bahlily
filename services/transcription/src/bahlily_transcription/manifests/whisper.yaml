@@ -1,23 +1,23 @@
 engine: whisper
 models:
   - name: large-v3-turbo
+    repo_id: Systran/faster-whisper-large-v3-turbo
     files:
       - path: model.bin
-        url: "https://huggingface.co/Systran/faster-whisper-large-v3-turbo/resolve/main/model.bin"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
     size_bytes: 1628614656
     tier: high_accuracy
   - name: medium
+    repo_id: Systran/faster-whisper-medium
     files:
       - path: model.bin
-        url: "https://huggingface.co/Systran/faster-whisper-medium/resolve/main/model.bin"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
     size_bytes: 764014080
     tier: balanced
   - name: tiny
+    repo_id: Systran/faster-whisper-tiny
     files:
       - path: model.bin
-        url: "https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/model.bin"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
     size_bytes: 75968000
     tier: fast

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
-from collections.abc import AsyncGenerator
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -26,10 +24,10 @@ def _fake_registry(names: list[str]) -> MagicMock:
             name=n,
             engine="parakeet",
             size_bytes=1,
+            repo_id="owner/" + n,
             files=(
                 ModelFile(
                     path="model.onnx",
-                    url="https://example.com/model.onnx",
                     sha256="x" * 64,
                 ),
             ),
@@ -292,15 +290,15 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     }
 
     model_name = "nemo-parakeet-tdt-0.6b-v3"
+    repo_id = "onnx-community/parakeet-tdt-0.6b-v3"
     manifest_path = manifests_dir / "parakeet.yaml"
-    manifest_path.write_text(f"engine: parakeet\nmodels:\n  - name: {model_name}\n    files:\n")
+    manifest_path.write_text(
+        f"engine: parakeet\nmodels:\n  - name: {model_name}\n    repo_id: {repo_id}\n    files:\n"
+    )
     for path, _contents in file_contents.items():
         sha = expected_shas[path]
         manifest_path.write_text(
-            manifest_path.read_text()
-            + f"      - path: {path}\n"
-            + f"        url: https://example.com/{path}\n"
-            + f"        sha256: {sha}\n"
+            manifest_path.read_text() + f"      - path: {path}\n" + f"        sha256: {sha}\n"
         )
     manifest_path.write_text(
         manifest_path.read_text()
@@ -313,46 +311,36 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     registry = ModelRegistry("parakeet", models_dir, manifests_dir)
     assert registry.get_status(model_name) == ModelStatus.MISSING
 
-    def make_stream(contents: bytes) -> object:
-        class StreamResponse:
-            async def __aenter__(self) -> StreamResponse:
-                return self
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        local_dir = kwargs["local_dir"]
+        allow_raw = kwargs.get("allow_patterns")
+        allow_list: list[str] | None = (
+            [str(p) for p in allow_raw] if isinstance(allow_raw, (list, tuple)) else None
+        )
+        for path, contents in file_contents.items():
+            if allow_list is None or path in allow_list:
+                target = Path(str(local_dir)) / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(contents)
+        return str(local_dir)
 
-            async def __aexit__(self, *_args: object) -> None:
-                return None
+    import asyncio
 
-            def raise_for_status(self) -> None:
-                return None
+    from bahlily_transcription.models import DownloadProgress
 
-            def aiter_bytes(self, chunk_size: int) -> AsyncGenerator[bytes, None]:
-                async def chunks() -> AsyncGenerator[bytes, None]:
-                    for i in range(0, len(contents), chunk_size):
-                        yield contents[i : i + chunk_size]
+    progresses: list[DownloadProgress] = []
+    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
 
-                return chunks()
-
-        return StreamResponse()
-
-    def fake_stream_get(_method: str, url: str, **_kwargs: object) -> object:
-        path = url.rsplit("/", 1)[-1]
-        return make_stream(file_contents[path])
-
-    fake_client = MagicMock()
-    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
-    fake_client.__aexit__ = AsyncMock(return_value=None)
-    fake_client.stream = fake_stream_get
-
-    async def run_download() -> list[object]:
-        with patch("httpx.AsyncClient", return_value=fake_client):
-            progresses: list[object] = []
+        async def _run() -> None:
             async for p in registry.download(model_name):
                 progresses.append(p)
-            return progresses
 
-    progresses = asyncio.run(run_download())
+        asyncio.run(_run())
+
     final_status = registry.get_status(model_name)
     assert final_status == ModelStatus.AVAILABLE
-    assert len(progresses) == len(file_contents) + 1
+    assert len(progresses) == 1
+    assert progresses[0].status == ModelStatus.AVAILABLE
     for path, expected in file_contents.items():
         actual = (models_dir / "parakeet" / model_name / path).read_bytes()
         assert actual == expected, f"file {path} contents mismatch"

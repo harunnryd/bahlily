@@ -1,26 +1,19 @@
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import shutil
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-import httpx
 import yaml
+from huggingface_hub import snapshot_download
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
-    TranscriptionChecksumFailedError,
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
 )
 from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
-
-_CHUNK_SIZE = 8 * 1024
-# Generous read timeout for large model downloads; connect/write timeouts stay at defaults.
-_DOWNLOAD_TIMEOUT = httpx.Timeout(timeout=None, connect=10.0)
 
 
 class ModelRegistry:
@@ -61,79 +54,33 @@ class ModelRegistry:
         model_dir = self._models_dir / name
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        bytes_downloaded = 0
         try:
-            for file in info.files:
-                file_bytes = await self._download_one_file(file, model_dir, name)
-                bytes_downloaded += file_bytes
-                if name in self._cancelled:
-                    return
-                yield DownloadProgress(
-                    model_name=name,
-                    engine=self._engine,
-                    bytes_downloaded=bytes_downloaded,
-                    total_bytes=info.size_bytes,
-                    status=ModelStatus.DOWNLOADING,
-                )
-                if name in self._cancelled:
-                    return
+            if name in self._cancelled:
+                self._status[name] = ModelStatus.MISSING
+                return
+            snapshot_download(
+                repo_id=info.repo_id,
+                repo_type="model",
+                local_dir=str(model_dir),
+                allow_patterns=[file.path for file in info.files],
+            )
+            if name in self._cancelled:
+                self._status[name] = ModelStatus.MISSING
+                return
             self._status[name] = ModelStatus.AVAILABLE
             yield DownloadProgress(
                 model_name=name,
                 engine=self._engine,
-                bytes_downloaded=bytes_downloaded,
+                bytes_downloaded=info.size_bytes,
                 total_bytes=info.size_bytes,
                 status=ModelStatus.AVAILABLE,
             )
-        except TranscriptionChecksumFailedError:
-            raise
         except Exception:
             self._status[name] = ModelStatus.ERROR
             raise
         finally:
             self._in_flight.discard(name)
             self._cancelled.discard(name)
-
-    async def _download_one_file(self, file: ModelFile, model_dir: Path, name: str) -> int:
-        target = model_dir / file.path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        path_hash = hashlib.sha256(file.path.encode()).hexdigest()[:8]
-        tmp_path = model_dir / f".{file.path.replace('/', '__')}.{path_hash}.download.tmp"
-        sha256 = hashlib.sha256()
-        bytes_downloaded = 0
-        try:
-            loop = asyncio.get_running_loop()
-            async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT) as client:
-                async with client.stream("GET", file.url) as response:
-                    response.raise_for_status()
-                    f = await loop.run_in_executor(None, open, str(tmp_path), "wb")
-                    try:
-                        async for chunk in response.aiter_bytes(_CHUNK_SIZE):
-                            if name in self._cancelled:
-                                break
-                            await loop.run_in_executor(None, f.write, chunk)
-                            sha256.update(chunk)
-                            bytes_downloaded += len(chunk)
-                    finally:
-                        await loop.run_in_executor(None, f.close)
-
-            if name in self._cancelled:
-                tmp_path.unlink(missing_ok=True)
-                self._status[name] = ModelStatus.MISSING
-                return bytes_downloaded
-
-            if sha256.hexdigest() != file.sha256:
-                tmp_path.unlink(missing_ok=True)
-                self._status[name] = ModelStatus.CORRUPTED
-                raise TranscriptionChecksumFailedError(name)
-
-            tmp_path.rename(target)
-            return bytes_downloaded
-        except TranscriptionChecksumFailedError:
-            raise
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
 
     def cancel_download(self, name: str) -> None:
         if name not in self._manifest:
@@ -160,7 +107,7 @@ class ModelRegistry:
                 f"malformed manifest at {manifest_path}: expected {{models: [...]}} at root"
             )
         models: list[Any] = raw["models"]
-        required_top = {"name", "files", "size_bytes", "tier"}
+        required_top = {"name", "repo_id", "files", "size_bytes", "tier"}
         manifest: dict[str, ModelInfo] = {}
         for i, m in enumerate(models):
             if not isinstance(m, dict):
@@ -191,6 +138,12 @@ class ModelRegistry:
                     f"malformed manifest at {manifest_path}: duplicate model name "
                     f"{entry_name!r} at entry {i}"
                 )
+            repo_id = m["repo_id"]
+            if not isinstance(repo_id, str) or not repo_id or "/" not in repo_id:
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} repo_id "
+                    f"must be 'owner/name' format, got {repo_id!r}"
+                )
             size_bytes = m["size_bytes"]
             if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
                 raise ValueError(
@@ -215,7 +168,7 @@ class ModelRegistry:
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} not a mapping"
                     )
-                required_file = {"path", "url", "sha256"}
+                required_file = {"path", "sha256"}
                 missing_file = required_file - raw_file.keys()
                 if missing_file:
                     raise ValueError(
@@ -241,12 +194,6 @@ class ModelRegistry:
                         f"duplicate path {file_path!r}"
                     )
                 seen_paths.add(file_path)
-                file_url = raw_file["url"]
-                if not isinstance(file_url, str) or not file_url.startswith("https://"):
-                    raise ValueError(
-                        f"malformed manifest at {manifest_path}: entry {i} file {j} url "
-                        f"must be https://"
-                    )
                 file_sha = raw_file["sha256"]
                 if not isinstance(file_sha, str) or (
                     file_sha != "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
@@ -256,11 +203,12 @@ class ModelRegistry:
                         f"malformed manifest at {manifest_path}: entry {i} file {j} sha256 "
                         f"must be 64-char hex or the placeholder string"
                     )
-                files.append(ModelFile(path=file_path, url=file_url, sha256=file_sha))
+                files.append(ModelFile(path=file_path, sha256=file_sha))
             manifest[entry_name] = ModelInfo(
                 name=entry_name,
                 engine=self._engine,
                 size_bytes=m["size_bytes"],
+                repo_id=repo_id,
                 files=tuple(files),
                 tier=m["tier"],
             )
@@ -269,25 +217,11 @@ class ModelRegistry:
     def _scan_existing(self) -> None:
         for name, info in self._manifest.items():
             model_path = self._models_dir / name
-            for tmp in model_path.glob("*.download.tmp"):
-                tmp.unlink(missing_ok=True)
             all_present = all((model_path / file.path).exists() for file in info.files)
-            all_verified = all_present and all(
-                self._verify_checksum(model_path / file.path, file.sha256) for file in info.files
-            )
-            if all_verified:
+            if all_present:
                 self._status[name] = ModelStatus.AVAILABLE
-            elif all_present:
-                self._status[name] = ModelStatus.CORRUPTED
             else:
                 self._status[name] = ModelStatus.MISSING
-
-    def _verify_checksum(self, path: Path, expected: str) -> bool:
-        sha256 = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(_CHUNK_SIZE), b""):
-                sha256.update(chunk)
-        return sha256.hexdigest() == expected
 
     def _get_model_info(self, name: str) -> ModelInfo:
         return self._manifest[name]

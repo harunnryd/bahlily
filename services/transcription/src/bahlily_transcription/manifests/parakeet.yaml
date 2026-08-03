@@ -1,15 +1,13 @@
 engine: parakeet
 models:
   - name: nemo-parakeet-tdt-0.6b-v3
+    repo_id: onnx-community/parakeet-tdt-0.6b-v3
     files:
       - path: config.json
-        url: "https://huggingface.co/onnx-community/parakeet-tdt-0.6b-v3/resolve/main/onnx/config.json"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
       - path: model.onnx
-        url: "https://huggingface.co/onnx-community/parakeet-tdt-0.6b-v3/resolve/main/onnx/model.onnx"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
       - path: vocab.txt
-        url: "https://huggingface.co/onnx-community/parakeet-tdt-0.6b-v3/resolve/main/onnx/vocab.txt"
-        sha256: "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
+        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD
     size_bytes: 2600000000
     tier: high_accuracy

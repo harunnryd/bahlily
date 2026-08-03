@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from unittest.mock import patch
 
-import httpx
 import pytest
-import respx
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
-    TranscriptionChecksumFailedError,
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
 )
@@ -32,16 +30,16 @@ def manifests_dir(tmp_path: Path) -> Path:
         "engine: whisper\n"
         "models:\n"
         "  - name: large-v3-turbo\n"
+        "    repo_id: owner/large-v3-turbo\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/large/model.bin\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 1628614656\n"
         "    tier: high_accuracy\n"
         "  - name: tiny\n"
+        "    repo_id: owner/tiny\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/tiny/model.bin\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 75968000\n"
         "    tier: fast\n"
@@ -58,14 +56,15 @@ def _seed_manifest_entry(
     registry: ModelRegistry,
     name: str,
     content: bytes,
-    url: str = "https://fake.host/model.bin",
+    repo_id: str = "owner/seed",
 ) -> str:
     checksum = hashlib.sha256(content).hexdigest()
     registry._manifest[name] = ModelInfo(
         name=name,
         engine=registry._engine,
         size_bytes=len(content),
-        files=(ModelFile(path="model.bin", url=url, sha256=checksum),),
+        repo_id=repo_id,
+        files=(ModelFile(path="model.bin", sha256=checksum),),
         tier="fast",
     )
     return checksum
@@ -91,13 +90,13 @@ def test_status_available_after_model_dir_created(
     file_contents = b"fake model data"
     actual_sha = hashlib.sha256(file_contents).hexdigest()
     new_files = tuple(
-        ModelFile(path=file.path, url=file.url, sha256=actual_sha)
-        for file in registry._manifest["tiny"].files
+        ModelFile(path=file.path, sha256=actual_sha) for file in registry._manifest["tiny"].files
     )
     registry._manifest["tiny"] = ModelInfo(
         name="tiny",
         engine=registry._engine,
         size_bytes=registry._manifest["tiny"].size_bytes,
+        repo_id=registry._manifest["tiny"].repo_id,
         files=new_files,
         tier=registry._manifest["tiny"].tier,
     )
@@ -114,6 +113,24 @@ def test_model_not_found_raises(registry: ModelRegistry) -> None:
         registry.get_status("nonexistent-model")
 
 
+def _fake_snapshot_download(file_contents: dict[str, bytes], models_dir: Path) -> object:
+    def fake(repo_id: str, **kwargs: object) -> str:
+        local_dir = Path(str(kwargs["local_dir"]))
+        local_dir.mkdir(parents=True, exist_ok=True)
+        allow_raw = kwargs.get("allow_patterns")
+        allow_list: list[str] | None = (
+            [str(p) for p in allow_raw] if isinstance(allow_raw, (list, tuple)) else None
+        )
+        for path, contents in file_contents.items():
+            if allow_list is None or path in allow_list:
+                target = local_dir / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(contents)
+        return str(local_dir)
+
+    return fake
+
+
 @pytest.mark.asyncio
 async def test_download_yields_progress_and_verifies_checksum(
     registry: ModelRegistry, models_dir: Path
@@ -124,45 +141,37 @@ async def test_download_yields_progress_and_verifies_checksum(
         name="tiny",
         engine=registry._engine,
         size_bytes=len(config) + len(weights),
+        repo_id="owner/tiny",
         files=(
             ModelFile(
                 path="config.json",
-                url="https://fake.host/config.json",
                 sha256=hashlib.sha256(config).hexdigest(),
             ),
             ModelFile(
                 path="model.bin",
-                url="https://fake.host/model.bin",
                 sha256=hashlib.sha256(weights).hexdigest(),
             ),
         ),
         tier="fast",
     )
 
-    with respx.mock:
-        respx.get("https://fake.host/config.json").mock(
-            return_value=httpx.Response(200, content=config)
-        )
-        respx.get("https://fake.host/model.bin").mock(
-            return_value=httpx.Response(200, content=weights)
-        )
+    file_contents = {"config.json": config, "model.bin": weights}
+    with patch(
+        "bahlily_transcription.registry.snapshot_download",
+        side_effect=_fake_snapshot_download(file_contents, models_dir),
+    ):
         events = [progress async for progress in registry.download("tiny")]
 
-    assert len(events) == 3
-    assert [event.status for event in events] == [
-        ModelStatus.DOWNLOADING,
-        ModelStatus.DOWNLOADING,
-        ModelStatus.AVAILABLE,
-    ]
-    assert events[0].bytes_downloaded == len(config)
-    assert events[1].bytes_downloaded == len(config) + len(weights)
+    assert len(events) == 1
+    assert events[0].status == ModelStatus.AVAILABLE
+    assert events[0].bytes_downloaded == len(config) + len(weights)
     assert (models_dir / "whisper" / "tiny" / "config.json").read_bytes() == config
     assert (models_dir / "whisper" / "tiny" / "model.bin").read_bytes() == weights
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
 
 
 @pytest.mark.asyncio
-async def test_download_sets_corrupted_on_checksum_mismatch(
+async def test_download_sets_error_when_snapshot_download_fails(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
     config = b"valid config"
@@ -171,37 +180,29 @@ async def test_download_sets_corrupted_on_checksum_mismatch(
         name="tiny",
         engine=registry._engine,
         size_bytes=len(config) + len(weights),
+        repo_id="owner/tiny",
         files=(
             ModelFile(
                 path="config.json",
-                url="https://fake.host/config.json",
                 sha256=hashlib.sha256(config).hexdigest(),
             ),
             ModelFile(
                 path="model.bin",
-                url="https://fake.host/model.bin",
                 sha256="0" * 64,
             ),
         ),
         tier="fast",
     )
 
-    with respx.mock:
-        respx.get("https://fake.host/config.json").mock(
-            return_value=httpx.Response(200, content=config)
-        )
-        respx.get("https://fake.host/model.bin").mock(
-            return_value=httpx.Response(200, content=weights)
-        )
-        with pytest.raises(TranscriptionChecksumFailedError):
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        raise RuntimeError("simulated post-download sha mismatch")
+
+    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
+        with pytest.raises(RuntimeError, match="sha mismatch"):
             async for _ in registry.download("tiny"):
                 pass
 
-    model_dir = models_dir / "whisper" / "tiny"
-    assert (model_dir / "config.json").read_bytes() == config
-    assert not (model_dir / "model.bin").exists()
-    assert not list(model_dir.glob("*.download.tmp"))
-    assert registry.get_status("tiny") == ModelStatus.CORRUPTED
+    assert registry.get_status("tiny") == ModelStatus.ERROR
 
 
 @pytest.mark.asyncio
@@ -246,10 +247,10 @@ async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> 
         name="tiny",
         engine=registry._engine,
         size_bytes=10**18,
+        repo_id="owner/tiny",
         files=(
             ModelFile(
                 path="model.bin",
-                url="https://fake.host/model.bin",
                 sha256="0" * 64,
             ),
         ),
@@ -260,17 +261,17 @@ async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> 
             pass
 
 
-def test_scan_existing_removes_stale_download_tmp_files(
-    models_dir: Path, manifests_dir: Path
-) -> None:
+def test_scan_existing_does_not_clean_hf_cache(models_dir: Path, manifests_dir: Path) -> None:
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
-    stale_tmp = model_dir / ".model.bin.download.tmp"
-    stale_tmp.write_bytes(b"partial download")
+    hf_marker = model_dir / ".cache" / "huggingface"
+    hf_marker.mkdir(parents=True)
+    (hf_marker / "metadata.json").write_text("{}")
 
     registry = ModelRegistry(engine="whisper", models_dir=models_dir, manifests_dir=manifests_dir)
 
-    assert not stale_tmp.exists()
+    assert hf_marker.exists()
+    assert (hf_marker / "metadata.json").exists()
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
@@ -279,17 +280,20 @@ async def test_cancel_during_download_stops_progress(registry: ModelRegistry) ->
     content = b"x" * 1000
     _seed_manifest_entry(registry, "tiny", content)
 
-    with respx.mock:
-        respx.get("https://fake.host/model.bin").mock(
-            return_value=httpx.Response(200, content=content)
-        )
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        registry.cancel_download("tiny")
+        local_dir = Path(str(kwargs["local_dir"]))
+        local_dir.mkdir(parents=True, exist_ok=True)
+        target = local_dir / "model.bin"
+        target.write_bytes(content)
+        return str(local_dir)
+
+    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
         events = []
         async for progress in registry.download("tiny"):
             events.append(progress)
-            registry.cancel_download("tiny")
 
-    assert len(events) == 1
-    assert events[0].status == ModelStatus.DOWNLOADING
+    assert len(events) == 0
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
@@ -298,16 +302,16 @@ def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests
         "engine: whisper\n"
         "models:\n"
         "  - name: tiny\n"
+        "    repo_id: owner/tiny-a\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/tiny\n"
         "        sha256: " + "a" * 64 + "\n"
         "    size_bytes: 1000\n"
         "    tier: fast\n"
         "  - name: tiny\n"
+        "    repo_id: owner/tiny-b\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/tiny2\n"
         "        sha256: " + "b" * 64 + "\n"
         "    size_bytes: 2000\n"
         "    tier: balanced\n"
@@ -336,12 +340,11 @@ def test_manifest_loader_parses_files_list(models_dir: Path, manifests_dir: Path
         "engine: whisper\n"
         "models:\n"
         "  - name: multi\n"
+        "    repo_id: owner/multi\n"
         "    files:\n"
         "      - path: config.json\n"
-        "        url: https://example.com/config.json\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/model.bin\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 200\n"
         "    tier: test\n"
@@ -350,7 +353,8 @@ def test_manifest_loader_parses_files_list(models_dir: Path, manifests_dir: Path
     info = reg.list_models()[0]
     assert len(info.files) == 2
     assert info.files[0].path == "config.json"
-    assert info.files[1].url == "https://example.com/model.bin"
+    assert info.files[1].path == "model.bin"
+    assert info.repo_id == "owner/multi"
 
 
 def test_manifest_loader_rejects_absolute_file_path(models_dir: Path, manifests_dir: Path) -> None:
@@ -358,9 +362,9 @@ def test_manifest_loader_rejects_absolute_file_path(models_dir: Path, manifests_
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: /etc/passwd\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 100\n"
         "    tier: test\n"
@@ -369,30 +373,14 @@ def test_manifest_loader_rejects_absolute_file_path(models_dir: Path, manifests_
         ModelRegistry("whisper", models_dir, manifests_dir)
 
 
-def test_manifest_loader_rejects_non_https_url(models_dir: Path, manifests_dir: Path) -> None:
-    (manifests_dir / "whisper.yaml").write_text(
-        "engine: whisper\n"
-        "models:\n"
-        "  - name: bad\n"
-        "    files:\n"
-        "      - path: model.bin\n"
-        "        url: http://insecure.example.com/x\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
-        "    size_bytes: 100\n"
-        "    tier: test\n"
-    )
-    with pytest.raises(ValueError, match="https://"):
-        ModelRegistry("whisper", models_dir, manifests_dir)
-
-
 def test_manifest_loader_rejects_invalid_sha256(models_dir: Path, manifests_dir: Path) -> None:
     (manifests_dir / "whisper.yaml").write_text(
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: not-a-real-sha\n"
         "    size_bytes: 100\n"
         "    tier: test\n"
@@ -408,9 +396,9 @@ def test_manifest_loader_rejects_parent_directory_path(
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: ../config.json\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 100\n"
         "    tier: test\n"
@@ -424,9 +412,9 @@ def test_manifest_loader_rejects_backslash_path(models_dir: Path, manifests_dir:
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: ..\\evil\\config.json\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 100\n"
         "    tier: test\n"
@@ -442,9 +430,9 @@ def test_manifest_loader_rejects_non_integer_size_bytes(
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: '100'\n"
         "    tier: test\n"
@@ -458,9 +446,9 @@ def test_manifest_loader_rejects_negative_size_bytes(models_dir: Path, manifests
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: -1\n"
         "    tier: test\n"
@@ -474,9 +462,9 @@ def test_manifest_loader_rejects_boolean_size_bytes(models_dir: Path, manifests_
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: true\n"
         "    tier: test\n"
@@ -490,9 +478,9 @@ def test_manifest_loader_rejects_non_string_tier(models_dir: Path, manifests_dir
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 100\n"
         "    tier: 123\n"
@@ -506,9 +494,9 @@ def test_manifest_loader_rejects_empty_tier(models_dir: Path, manifests_dir: Pat
         "engine: whisper\n"
         "models:\n"
         "  - name: bad\n"
+        "    repo_id: owner/bad\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/x\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 100\n"
         "    tier: ''\n"
@@ -524,15 +512,45 @@ def test_manifest_loader_rejects_duplicate_file_paths(
         "engine: whisper\n"
         "models:\n"
         "  - name: dup\n"
+        "    repo_id: owner/dup\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/a\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "      - path: model.bin\n"
-        "        url: https://example.com/b\n"
         "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
         "    size_bytes: 200\n"
         "    tier: test\n"
     )
     with pytest.raises(ValueError, match="duplicate path"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_missing_repo_id(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="missing fields"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_malformed_repo_id(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: just-a-name\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="owner/name"):
         ModelRegistry("whisper", models_dir, manifests_dir)

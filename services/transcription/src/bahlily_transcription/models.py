@@ -19,7 +19,6 @@ class TranscriptResult:
 @dataclass(frozen=True)
 class ModelFile:
     path: str
-    url: str
     sha256: str
 
 
@@ -28,6 +27,7 @@ class ModelInfo:
     name: str
     engine: str
     size_bytes: int
+    repo_id: str
     files: tuple[ModelFile, ...]
     tier: str
 
