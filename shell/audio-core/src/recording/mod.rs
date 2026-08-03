@@ -1,19 +1,22 @@
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
-use flac_bound::FlacEncoder;
+use flac_bound::{FlacEncoder, WriteWrapper};
 
 pub struct Writer {
     encoder: FlacEncoder<'static>,
+    output: Box<WriteWrapper<'static>>,
+    file: Box<File>,
+    path: PathBuf,
 }
 
 // SAFETY: `Writer` is created on `Session::start`'s caller thread, moved into
 // the pairing thread via the spawn closure, and returned to the caller through
 // `JoinHandle::join` before `finalize` runs (see `Session::start` in
 // `session.rs`). The libFLAC encoder holds a `*mut FLAC__StreamEncoder` which
-// is `!Send` by default. The encoder has no creation-thread affinity, but
-// `process_interleaved` and `finish` are never invoked concurrently: the writer
-// moves sequentially between threads and is only touched by one thread at a
-// time.
+// is `!Send` by default. The encoder has no creation-thread affinity, the boxed
+// callback targets stay at fixed addresses, and field order drops the encoder
+// before its output and file. Encoder operations remain sequential.
 unsafe impl Send for Writer {}
 
 impl Writer {
@@ -23,20 +26,26 @@ impl Writer {
     /// written. A mid-recording crash leaves a playable FLAC file (with
     /// unknown duration) instead of an opaque raw-PCM blob.
     pub fn create(path: &Path, sample_rate: u32) -> std::io::Result<Self> {
+        let mut file = Box::new(File::create(path)?);
+        let file_ref: &'static mut File = unsafe { &mut *(file.as_mut() as *mut File) };
+        let mut output = Box::new(WriteWrapper(file_ref));
+        let output_ref: &'static mut WriteWrapper<'static> =
+            unsafe { &mut *(output.as_mut() as *mut WriteWrapper<'static>) };
         let encoder = FlacEncoder::new()
-            .ok_or_else(|| std::io::Error::other("flac encoder allocation failed"))?;
-        let encoder = encoder
+            .ok_or_else(|| std::io::Error::other("flac encoder allocation failed"))?
             .verify(true)
             .channels(1)
             .bits_per_sample(16)
             .sample_rate(sample_rate)
-            .init_file(&path)
-            .map_err(|e| {
-                let _ = std::fs::remove_file(path);
-                std::io::Error::other(format!("flac init failed: {e:?}"))
-            })?;
+            .init_write(output_ref)
+            .map_err(|e| std::io::Error::other(format!("flac init failed: {e:?}")))?;
 
-        Ok(Self { encoder })
+        Ok(Self {
+            encoder,
+            output,
+            file,
+            path: path.to_path_buf(),
+        })
     }
 
     pub fn write_samples(&mut self, samples: &[f32]) -> std::io::Result<()> {
@@ -52,10 +61,19 @@ impl Writer {
     }
 
     pub fn finalize(self) -> std::io::Result<()> {
-        self.encoder
-            .finish()
-            .map_err(|e| std::io::Error::other(format!("flac finish failed: {e:?}")))?;
-        Ok(())
+        let Self {
+            encoder,
+            output,
+            file,
+            path,
+        } = self;
+        let finish_result = encoder.finish().map(|_| ()).map_err(|e| {
+            std::io::Error::other(format!("flac finish failed for {}: {e:?}", path.display()))
+        });
+        drop(output);
+        let sync_result = file.sync_all();
+        finish_result?;
+        sync_result
     }
 }
 
@@ -126,7 +144,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "drops call finish() via Drop, not real crash; subprocess test pending"]
     fn dropped_writer_produces_decodable_flac() {
         let dir = std::env::temp_dir();
         let path = dir.join("audio_core_writer_dropped.flac");
@@ -171,6 +188,44 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
     }
 
+    #[test]
+    fn finalized_streaminfo_stays_unknown_with_nonseekable_init_write() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("audio_core_writer_streaminfo.flac");
+        let _ = std::fs::remove_file(&path);
+
+        let mut writer = Writer::create(&path, 16000).unwrap();
+        let samples: Vec<f32> = (0..32)
+            .map(|i| (i as f32 / 16.0 - 1.0).clamp(-1.0, 1.0))
+            .collect();
+        writer.write_samples(&samples).unwrap();
+        writer.finalize().unwrap();
+
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut magic = [0u8; 4];
+        file.read_exact(&mut magic).unwrap();
+        assert_eq!(&magic, b"fLaC");
+
+        file.seek(SeekFrom::Start(18)).unwrap();
+        let mut packed_streaminfo = [0u8; 8];
+        file.read_exact(&mut packed_streaminfo).unwrap();
+        let total_samples = u64::from_be_bytes(packed_streaminfo) & 0x0f_ffff_ffff;
+        assert_eq!(
+            total_samples, 0,
+            "nonseekable init_write must leave STREAMINFO total samples unknown"
+        );
+
+        let mut md5_in_file = [0u8; 16];
+        file.read_exact(&mut md5_in_file).unwrap();
+        assert_eq!(
+            md5_in_file, [0u8; 16],
+            "nonseekable init_write must leave STREAMINFO MD5 unknown"
+        );
+
+        std::fs::remove_file(&path).unwrap();
+    }
+
     fn flac_md5_of(samples: &[i32]) -> [u8; 16] {
         let mut hasher = md5::Context::new();
         for &s in samples {
@@ -181,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn finalized_flac_md5_matches_independent_computation() {
+    fn finalized_flac_md5_stays_unknown_with_nonseekable_init_write() {
         let dir = std::env::temp_dir();
         let path = dir.join("audio_core_writer_md5.flac");
         let _ = std::fs::remove_file(&path);
@@ -206,7 +261,14 @@ mod tests {
         file.seek(SeekFrom::Start(26)).unwrap();
         let mut md5_in_file = [0u8; 16];
         file.read_exact(&mut md5_in_file).unwrap();
-        assert_eq!(md5_in_file, expected_md5);
+        assert_ne!(
+            expected_md5, [0u8; 16],
+            "independent PCM MD5 must be nonzero for this fixture"
+        );
+        assert_eq!(
+            md5_in_file, [0u8; 16],
+            "nonseekable init_write must leave STREAMINFO MD5 unknown"
+        );
 
         std::fs::remove_file(&path).unwrap();
     }
