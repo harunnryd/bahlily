@@ -433,3 +433,106 @@ def test_manifest_loader_rejects_backslash_path(models_dir: Path, manifests_dir:
     )
     with pytest.raises(ValueError, match="must be relative"):
         ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_non_integer_size_bytes(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: '100'\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="size_bytes"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_negative_size_bytes(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: -1\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="size_bytes"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_boolean_size_bytes(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: true\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="size_bytes"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_non_string_tier(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: 123\n"
+    )
+    with pytest.raises(ValueError, match="tier"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_empty_tier(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/x\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: ''\n"
+    )
+    with pytest.raises(ValueError, match="tier"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_duplicate_file_paths(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: dup\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/a\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "      - path: model.bin\n"
+        "        url: https://example.com/b\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 200\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="duplicate path"):
+        ModelRegistry("whisper", models_dir, manifests_dir)

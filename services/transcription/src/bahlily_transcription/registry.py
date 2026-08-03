@@ -191,12 +191,25 @@ class ModelRegistry:
                     f"malformed manifest at {manifest_path}: duplicate model name "
                     f"{entry_name!r} at entry {i}"
                 )
+            size_bytes = m["size_bytes"]
+            if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} size_bytes must be "
+                    f"non-negative int, got {size_bytes!r}"
+                )
+            tier = m["tier"]
+            if not isinstance(tier, str) or not tier:
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} tier must be "
+                    f"non-empty string, got {tier!r}"
+                )
             raw_files = m["files"]
             if not isinstance(raw_files, list) or not raw_files:
                 raise ValueError(
                     f"malformed manifest at {manifest_path}: entry {i} files must be non-empty list"
                 )
             files: list[ModelFile] = []
+            seen_paths: set[str] = set()
             for j, raw_file in enumerate(raw_files):
                 if not isinstance(raw_file, dict):
                     raise ValueError(
@@ -222,6 +235,12 @@ class ModelRegistry:
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
                         f"{file_path!r} must be relative without .. components"
                     )
+                if file_path in seen_paths:
+                    raise ValueError(
+                        f"malformed manifest at {manifest_path}: entry {i} file {j} "
+                        f"duplicate path {file_path!r}"
+                    )
+                seen_paths.add(file_path)
                 file_url = raw_file["url"]
                 if not isinstance(file_url, str) or not file_url.startswith("https://"):
                     raise ValueError(
