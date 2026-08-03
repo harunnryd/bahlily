@@ -4,8 +4,12 @@ from pathlib import Path
 
 import numpy as np
 
-from bahlily_transcription.errors import TranscriptionEngineFailedError
+from bahlily_transcription.errors import (
+    TranscriptionEngineFailedError,
+    TranscriptionModelNotFoundError,
+)
 from bahlily_transcription.models import TranscriptResult
+from bahlily_transcription.registry import ModelRegistry
 
 _SAMPLE_RATE = 16000
 
@@ -13,8 +17,9 @@ _SAMPLE_RATE = 16000
 class ParakeetEngine:
     _name = "parakeet"
 
-    def __init__(self, models_dir: Path) -> None:
+    def __init__(self, models_dir: Path, registry: ModelRegistry) -> None:
         self._models_dir = models_dir
+        self._registry = registry
         self._loaded: str | None = None
         self._model: object | None = None
 
@@ -29,6 +34,10 @@ class ParakeetEngine:
         return self._loaded
 
     def load_model(self, name: str) -> None:
+        known_names = {info.name for info in self._registry.list_models()}
+        if name not in known_names:
+            raise TranscriptionModelNotFoundError(name)
+
         from onnx_asr import load_model as onnx_asr_load_model
 
         try:

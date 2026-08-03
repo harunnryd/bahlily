@@ -54,9 +54,12 @@ _MODELS_DIR = Path(os.environ.get("BAHLILY_MODELS_DIR", str(Path.home() / ".bahl
 _MANIFESTS_DIR = Path(str(resources.files("bahlily_transcription") / "manifests"))
 
 _whisper_engine = WhisperEngine(models_dir=_MODELS_DIR / "whisper")
-_parakeet_engine = ParakeetEngine(models_dir=_MODELS_DIR / "parakeet")
 _whisper_registry = ModelRegistry("whisper", _MODELS_DIR, _MANIFESTS_DIR)
 _parakeet_registry = ModelRegistry("parakeet", _MODELS_DIR, _MANIFESTS_DIR)
+_parakeet_engine = ParakeetEngine(
+    models_dir=_MODELS_DIR / "parakeet",
+    registry=_parakeet_registry,
+)
 _broadcast = BroadcastChannel()
 _audio_core_client: AudioCoreClient | None = None
 _executor = ThreadPoolExecutor(max_workers=4)
