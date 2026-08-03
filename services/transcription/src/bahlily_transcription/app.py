@@ -86,14 +86,16 @@ async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     _audio_core_client = AudioCoreClient(
         addr=os.environ.get("AUDIO_CORE_GRPC_ADDR", "localhost:50051"),
     )
-    _sessions.start_sweeper()
-    _diarize_jobs.start_sweeper()
     try:
+        _sessions.start_sweeper()
+        _diarize_jobs.start_sweeper()
         yield
     finally:
         _audio_core_client = None
-        await _sessions.stop_sweeper()
-        await _diarize_jobs.stop_sweeper()
+        try:
+            await _sessions.stop_sweeper()
+        finally:
+            await _diarize_jobs.stop_sweeper()
 
 
 app = FastAPI(title="bahlily-transcription", lifespan=_lifespan)
