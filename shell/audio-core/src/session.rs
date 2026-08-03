@@ -103,11 +103,8 @@ impl Session {
         system_capture.start(system_tx)?;
 
         let built = (|| -> Result<_, SessionError> {
-            // VAD models load before the writer is created: loading a small
-            // ONNX model is quick and doesn't need the writer to exist yet,
-            // and a VAD failure here means `Writer::create` (which eagerly
-            // creates the `.pcm.tmp` file on disk) never runs, so there is
-            // nothing left to leak if this closure returns early.
+            // VAD load runs before Writer::create so a VAD failure leaves
+            // no partial recording file on disk.
             let mic_vad = SileroVad::new(&config.vad_model_path)?;
             let system_vad = SileroVad::new(&config.vad_model_path)?;
             let writer = Writer::create(&config.recording_path, config.sample_rate)?;
@@ -350,7 +347,6 @@ mod session_tests {
         let dir = std::env::temp_dir();
         let path = dir.join("audio_core_session_start_failure_test.flac");
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(path.with_extension("pcm.tmp"));
 
         let mic_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let system_stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -376,13 +372,17 @@ mod session_tests {
         assert!(result.is_err());
         assert!(mic_stopped.load(std::sync::atomic::Ordering::SeqCst));
         assert!(system_stopped.load(std::sync::atomic::Ordering::SeqCst));
-        let tmp_path = path.with_extension("pcm.tmp");
-        assert!(
-            !tmp_path.exists(),
-            "a failed VAD load must not leave an orphaned .pcm.tmp file behind"
-        );
+        match std::fs::read(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(contents) => {
+                assert!(
+                    contents.starts_with(b"fLaC"),
+                    "recording_path must not exist with non-FLAC contents after a failed VAD load"
+                );
+            }
+            Err(e) => panic!("unexpected error reading recording_path: {e}"),
+        }
         let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&tmp_path);
     }
 }
 
