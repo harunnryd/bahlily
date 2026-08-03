@@ -87,6 +87,10 @@ def _to_transcript_result(audio: np.ndarray, result: object) -> TranscriptResult
     audio_duration = float(audio.shape[0]) / float(_SAMPLE_RATE)
     start = float(timestamps[0]) if timestamps else 0.0
     end = float(timestamps[-1]) if timestamps else audio_duration
+    start = max(0.0, min(start, audio_duration))
+    end = max(0.0, min(end, audio_duration))
+    if end < start:
+        end = start
     confidence = float(sum(logprobs) / len(logprobs)) if logprobs else None
     return TranscriptResult(
         text=text,

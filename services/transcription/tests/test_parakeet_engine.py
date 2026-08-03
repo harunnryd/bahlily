@@ -230,3 +230,21 @@ def test_parakeet_non_string_text_raises() -> None:
     eng._loaded = _MODEL_NAME
     with pytest.raises(TranscriptionEngineFailedError):
         eng.transcribe(np.zeros(16000, dtype=np.float32), "en")
+
+
+def test_parakeet_end_time_clamped_to_audio_duration() -> None:
+    eng = ParakeetEngine(Path("/tmp/models"), registry=_engine_registry())
+    fake_result = MagicMock()
+    fake_result.text = "single"
+    fake_result.timestamps = [1.5]
+    fake_result.logprobs = [-0.1]
+    fake_model = MagicMock()
+    fake_model.recognize.return_value = iter([fake_result])
+    eng._model = fake_model
+    eng._loaded = _MODEL_NAME
+
+    audio = np.zeros(16000, dtype=np.float32)
+    result = eng.transcribe(audio, "en")
+
+    assert result.audio_start_time == pytest.approx(1.0)
+    assert result.audio_end_time == pytest.approx(1.0)
