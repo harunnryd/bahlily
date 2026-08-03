@@ -16,6 +16,8 @@ from bahlily_transcription.models import (
     DiarizeRequest,
     DiarizeSpeaker,
     DownloadProgress,
+    ModelFile,
+    ModelInfo,
     ModelStatus,
     TranscriptResult,
     TranscriptSegmentSchema,
@@ -148,3 +150,34 @@ def test_diarize_job_response_completed_carries_segments_and_speakers() -> None:
     assert resp.speakers is not None
     assert resp.segments[0].speaker_cluster_label == "Speaker 1"
     assert resp.speakers[0].voice_embedding == [0.1, 0.2]
+
+
+def test_model_file_is_frozen() -> None:
+    file = ModelFile(path="model.bin", url="https://example.com/x", sha256="abc")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        file.path = "other.bin"  # type: ignore[misc]
+
+
+def test_model_info_with_files() -> None:
+    f1 = ModelFile(path="config.json", url="https://example.com/c", sha256="abc")
+    f2 = ModelFile(path="model.bin", url="https://example.com/m", sha256="def")
+    info = ModelInfo(
+        name="m",
+        engine="whisper",
+        size_bytes=200,
+        files=(f1, f2),
+        tier="test",
+    )
+    assert info.name == "m"
+    assert info.engine == "whisper"
+    assert info.size_bytes == 200
+    assert info.tier == "test"
+    assert info.files == (f1, f2)
+    assert len(info.files) == 2
+
+
+def test_model_info_equality_with_same_files() -> None:
+    f = ModelFile(path="model.bin", url="https://example.com/m", sha256="abc")
+    a = ModelInfo("m", "whisper", 100, (f,), "test")
+    b = ModelInfo("m", "whisper", 100, (f,), "test")
+    assert a == b

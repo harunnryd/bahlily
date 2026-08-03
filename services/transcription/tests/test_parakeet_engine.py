@@ -8,7 +8,7 @@ from bahlily_transcription.errors import (
     TranscriptionEngineFailedError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelInfo
+from bahlily_transcription.models import ModelFile, ModelInfo
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 
 _MODEL_NAME = "nemo-parakeet-ctc-0.6b"
@@ -21,8 +21,13 @@ def _fake_registry(names: list[str]) -> MagicMock:
             name=n,
             engine="parakeet",
             size_bytes=1,
-            checksum_sha256="x" * 64,
-            download_url="http://example",
+            files=(
+                ModelFile(
+                    path="model.onnx",
+                    url="https://example.com/model.onnx",
+                    sha256="x" * 64,
+                ),
+            ),
             tier="small",
         )
         for n in names
