@@ -206,6 +206,38 @@ async def test_download_sets_missing_when_checksum_verification_fails(
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
+@pytest.mark.asyncio
+async def test_download_retries_with_force_download_after_checksum_mismatch(
+    registry: ModelRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    good_content = b"correct-content"
+    bad_content = b"corrupted-content"
+    _seed_manifest_entry(registry, "tiny", good_content)
+
+    calls: list[bool] = []
+
+    def fake_download(**kwargs: object) -> str:
+        force = bool(kwargs.get("force_download", False))
+        calls.append(force)
+        target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(good_content if force else bad_content)
+        return str(target)
+
+    monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", fake_download)
+
+    events: list[DownloadProgress] = []
+    async for progress in registry.download("tiny"):
+        events.append(progress)
+
+    assert calls == [False, True], "must retry once with force_download after a mismatch"
+    assert len(events) == 1
+    assert events[0].status == ModelStatus.AVAILABLE
+    assert registry.get_status("tiny") == ModelStatus.AVAILABLE
+    assert (registry._models_dir / "tiny" / "model.bin").read_bytes() == good_content
+
+
 def test_manifest_loader_rejects_placeholder_sha(models_dir: Path, manifests_dir: Path) -> None:
     (manifests_dir / "whisper.yaml").write_text(
         "engine: whisper\n"
@@ -333,6 +365,50 @@ def test_remove_rejects_in_flight_download(registry: ModelRegistry, models_dir: 
 
 
 @pytest.mark.asyncio
+async def test_remove_rejects_genuinely_concurrent_in_flight_download(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """remove() and download() share the same lock around the _in_flight
+    check, so a remove() that lands while a download is genuinely writing
+    files can't race past the check and delete out from under it."""
+    import asyncio
+    import threading
+
+    content = b"x" * 1000
+    _seed_manifest_entry(registry, "tiny", content)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_download(**kwargs: object) -> str:
+        started.set()
+        release.wait(timeout=10.0)
+        target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return str(target)
+
+    monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", slow_download)
+
+    events: list[DownloadProgress] = []
+
+    async def collect() -> None:
+        async for progress in registry.download("tiny"):
+            events.append(progress)
+
+    task = asyncio.create_task(collect())
+    await asyncio.to_thread(started.wait, 2.0)
+
+    with pytest.raises(TranscriptionAlreadyDownloadingError):
+        registry.remove("tiny")
+
+    release.set()
+    await task
+
+    assert registry.get_status("tiny") == ModelStatus.AVAILABLE
+    assert (registry._models_dir / "tiny" / "model.bin").read_bytes() == content
+
+
+@pytest.mark.asyncio
 async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> None:
     registry._manifest["tiny"] = ModelInfo(
         name="tiny",
@@ -388,6 +464,20 @@ def test_scan_existing_does_not_clean_hf_cache(models_dir: Path, manifests_dir: 
 
     assert hf_marker.exists()
     assert (hf_marker / "metadata.json").exists()
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
+def test_scan_existing_treats_directory_at_file_path_as_missing(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    """A directory sitting where a manifest file is declared must not crash
+    registry construction (opening a directory for reading raises) -- it
+    should just be treated as unavailable."""
+    model_dir = models_dir / "whisper" / "tiny"
+    (model_dir / "model.bin").mkdir(parents=True)
+
+    registry = ModelRegistry(engine="whisper", models_dir=models_dir, manifests_dir=manifests_dir)
+
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
@@ -803,45 +893,44 @@ async def test_cancel_stops_subsequent_file_downloads(
 
 
 def test_scan_existing_always_rehashes_and_catches_corruption(
-    registry: ModelRegistry, models_dir: Path, monkeypatch: pytest.MonkeyPatch
+    models_dir: Path, manifests_dir: Path
 ) -> None:
-    """_scan_existing() must fully re-verify content on every call -- a prior
-    size/mtime-based bypass was removed because same-length corruption paired
-    with a restored mtime was trusted as valid without ever being hashed."""
+    """Startup scanning (via the public constructor/get_status API) must fully
+    re-verify content every time -- a prior size/mtime-based bypass was
+    removed because same-length corruption paired with a restored mtime was
+    trusted as valid without ever being hashed."""
     import os
 
-    from bahlily_transcription import registry as registry_module
-
     content = b"x" * 1000
-    _seed_manifest_entry(registry, "tiny", content)
+    checksum = hashlib.sha256(content).hexdigest()
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: tiny\n"
+        "    repo_id: owner/tiny\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        f"        sha256: {checksum}\n"
+        "    size_bytes: 1000\n"
+        "    tier: fast\n"
+    )
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
     target = model_dir / "model.bin"
     target.write_bytes(content)
 
-    calls: list[Path] = []
-    real_verify = registry_module._verify_file_sha
-
-    def counting_verify(path: Path, expected_sha: str) -> bool:
-        calls.append(path)
-        return real_verify(path, expected_sha)
-
-    monkeypatch.setattr("bahlily_transcription.registry._verify_file_sha", counting_verify)
-
-    registry._scan_existing()
+    registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
-    assert len(calls) == 1
 
-    # Unchanged content, unchanged mtime -- still re-hashed every time.
-    registry._scan_existing()
+    # Unchanged content, unchanged mtime -- still re-verified on every fresh
+    # construction/scan, not skipped based on stale metadata.
+    registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
-    assert len(calls) == 2, "content must be re-verified on every scan, not skipped"
 
     # Different-length corruption is caught.
     target.write_bytes(content + b"extra-tail-bytes")
-    registry._scan_existing()
+    registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.MISSING
-    assert len(calls) == 3
 
     # Same-length corruption, with the original mtime restored, must also be
     # caught -- this is exactly the case the removed marker bypass got wrong.
@@ -851,9 +940,8 @@ def test_scan_existing_always_rehashes_and_catches_corruption(
     target.write_bytes(same_length_corruption)
     os.utime(target, (stat_before.st_atime, stat_before.st_mtime))
 
-    registry._scan_existing()
+    registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.MISSING
-    assert len(calls) == 4
 
 
 def test_cancel_download_noop_when_not_downloading(registry: ModelRegistry) -> None:

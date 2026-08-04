@@ -58,7 +58,7 @@ def _verify_files(model_path: Path, files: tuple[ModelFile, ...]) -> bool:
     """
     for file in files:
         target = model_path / file.path
-        if not target.exists() or not _verify_file_sha(target, file.sha256):
+        if not target.is_file() or not _verify_file_sha(target, file.sha256):
             return False
     return True
 
@@ -106,6 +106,7 @@ class ModelRegistry:
             for file in info.files:
                 if name in self._cancelled:
                     return
+                target = model_dir / file.path
                 hf_hub_download(
                     repo_id=info.repo_id,
                     repo_type="model",
@@ -113,10 +114,24 @@ class ModelRegistry:
                     revision=info.revision,
                     local_dir=model_dir,
                 )
+                if target.is_file() and _verify_file_sha(target, file.sha256):
+                    continue
+                if name in self._cancelled:
+                    return
+                # The first download's content didn't match -- retry once,
+                # bypassing any (possibly corrupt) local cache, before giving up.
+                hf_hub_download(
+                    repo_id=info.repo_id,
+                    repo_type="model",
+                    filename=file.path,
+                    revision=info.revision,
+                    local_dir=model_dir,
+                    force_download=True,
+                )
+                if not target.is_file() or not _verify_file_sha(target, file.sha256):
+                    raise TranscriptionChecksumFailedError(name)
             if name in self._cancelled:
                 return
-            if not _verify_files(model_dir, info.files):
-                raise TranscriptionChecksumFailedError(name)
 
         try:
             model_dir.mkdir(parents=True, exist_ok=True)
@@ -200,12 +215,13 @@ class ModelRegistry:
     def remove(self, name: str) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
-        if name in self._in_flight:
-            raise TranscriptionAlreadyDownloadingError(name)
-        model_dir = self._models_dir / name
-        if model_dir.exists():
-            shutil.rmtree(model_dir)
-        self._status[name] = ModelStatus.MISSING
+        with self._lock:
+            if name in self._in_flight:
+                raise TranscriptionAlreadyDownloadingError(name)
+            model_dir = self._models_dir / name
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            self._status[name] = ModelStatus.MISSING
 
     def _load_manifest(self) -> None:
         manifest_path = self._manifests_dir / f"{self._engine}.yaml"
