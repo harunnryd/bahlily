@@ -307,7 +307,7 @@ async def test_cancel_during_download_stops_progress(
         await progress_task
 
     assert cancel_called.is_set()
-    assert registry.get_status("tiny") in (ModelStatus.ERROR, ModelStatus.MISSING)
+    assert registry.get_status("tiny") is ModelStatus.MISSING
 
 
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:

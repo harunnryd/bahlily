@@ -93,7 +93,10 @@ class ModelRegistry:
                 status=ModelStatus.AVAILABLE,
             )
         except Exception:
-            self._status[name] = ModelStatus.ERROR
+            if name in self._cancelled:
+                self._status[name] = ModelStatus.MISSING
+            else:
+                self._status[name] = ModelStatus.ERROR
             raise
         finally:
             self._in_flight.discard(name)
