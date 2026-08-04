@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 from collections.abc import AsyncGenerator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -156,10 +156,14 @@ class ModelRegistry:
                     f"{entry_name!r} at entry {i}"
                 )
             repo_id = m["repo_id"]
-            if not isinstance(repo_id, str) or not repo_id or "/" not in repo_id:
+            if (
+                not isinstance(repo_id, str)
+                or len(repo_id.split("/")) != 2
+                or not all(repo_id.split("/"))
+            ):
                 raise ValueError(
                     f"malformed manifest at {manifest_path}: entry {i} repo_id "
-                    f"must be 'owner/name' format, got {repo_id!r}"
+                    f"must be 'owner/name' format with non-empty owner and name, got {repo_id!r}"
                 )
             size_bytes = m["size_bytes"]
             if not isinstance(size_bytes, int) or isinstance(size_bytes, bool) or size_bytes < 0:
@@ -204,6 +208,12 @@ class ModelRegistry:
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
                         f"{file_path!r} must be relative without .. components"
+                    )
+                normalized = PurePosixPath(file_path)
+                if not normalized.parts or str(normalized) != file_path or normalized.is_absolute():
+                    raise ValueError(
+                        f"malformed manifest at {manifest_path}: entry {i} file {j} path "
+                        f"{file_path!r} is not a canonical relative POSIX path"
                     )
                 if file_path in seen_paths:
                     raise ValueError(

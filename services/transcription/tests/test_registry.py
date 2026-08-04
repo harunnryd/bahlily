@@ -567,3 +567,89 @@ def test_manifest_loader_rejects_malformed_repo_id(models_dir: Path, manifests_d
     )
     with pytest.raises(ValueError, match="owner/name"):
         ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_repo_id_with_single_component(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: just-a-name\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="owner/name"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_repo_id_with_empty_components(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        '    repo_id: "owner/"\n'
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="owner/name"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_dot_file_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        '      - path: "."\n'
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_dot_slash_file_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        '      - path: "./model.bin"\n'
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_double_slash_file_path(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        '      - path: "dir//model.bin"\n'
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
