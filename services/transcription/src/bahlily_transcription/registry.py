@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 from collections.abc import AsyncGenerator
 from pathlib import Path, PurePosixPath
@@ -18,6 +19,7 @@ from bahlily_transcription.errors import (
 from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
 
 _CHUNK_SIZE = 8 * 1024
+_GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
 
 
 def _verify_file_sha(path: Path, expected_sha: str) -> bool:
@@ -217,6 +219,11 @@ class ModelRegistry:
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
                         f"{file_path!r} is not a canonical relative POSIX path"
+                    )
+                if _GLOB_CHARS_PATTERN.search(file_path):
+                    raise ValueError(
+                        f"malformed manifest at {manifest_path}: entry {i} file {j} path "
+                        f"{file_path!r} must not contain glob metacharacters (*, ?, [, ])"
                     )
                 if file_path in seen_paths:
                     raise ValueError(

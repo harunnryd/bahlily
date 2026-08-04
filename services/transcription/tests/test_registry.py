@@ -370,6 +370,54 @@ def test_manifest_loader_parses_files_list(models_dir: Path, manifests_dir: Path
     assert info.repo_id == "owner/multi"
 
 
+def test_manifest_loader_rejects_glob_star_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        "      - path: 'model*.bin'\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="glob"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_glob_question_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        "      - path: 'model?.bin'\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="glob"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_glob_bracket_path(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/name\n"
+        "    files:\n"
+        "      - path: 'model[a-z].bin'\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="glob"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
 def test_manifest_loader_rejects_absolute_file_path(models_dir: Path, manifests_dir: Path) -> None:
     (manifests_dir / "whisper.yaml").write_text(
         "engine: whisper\n"
