@@ -34,14 +34,14 @@ def manifests_dir(tmp_path: Path) -> Path:
         "    repo_id: owner/large-v3-turbo\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "a" * 64 + "\n"
         "    size_bytes: 1628614656\n"
         "    tier: high_accuracy\n"
         "  - name: tiny\n"
         "    repo_id: owner/tiny\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "b" * 64 + "\n"
         "    size_bytes: 75968000\n"
         "    tier: fast\n"
     )
@@ -207,85 +207,91 @@ async def test_download_sets_missing_when_checksum_verification_fails(
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
+def test_manifest_loader_rejects_placeholder_sha(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="64 lowercase hex"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_rejects_uppercase_sha(models_dir: Path, manifests_dir: Path) -> None:
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: bad\n"
+        "    repo_id: owner/bad\n"
+        "    files:\n"
+        "      - path: model.bin\n"
+        "        sha256: " + "A" * 64 + "\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    with pytest.raises(ValueError, match="64 lowercase hex"):
+        ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def test_manifest_loader_accepts_real_lowercase_sha(models_dir: Path, manifests_dir: Path) -> None:
+    real_sha = hashlib.sha256(b"real model bytes").hexdigest()
+    (manifests_dir / "whisper.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: good\n"
+        "    repo_id: owner/good\n"
+        "    files:\n"
+        f"      - path: model.bin\n"
+        f"        sha256: {real_sha}\n"
+        "    size_bytes: 100\n"
+        "    tier: test\n"
+    )
+    registry = ModelRegistry("whisper", models_dir, manifests_dir)
+    info = registry.list_models()[0]
+    assert info.files[0].sha256 == real_sha
+
+
 @pytest.mark.asyncio
-async def test_download_skips_sha_verification_for_placeholder_entries(
+async def test_download_succeeds_with_real_sha_after_placeholder_removed(
     registry: ModelRegistry,
 ) -> None:
     info = registry.list_models()[0]
-    content = b"placeholder-content"
+    content = b"real-content"
     name = info.name
-    placeholder_manifest_dir = registry._manifests_dir
-    placeholder_manifest = placeholder_manifest_dir / f"{registry._engine}.yaml"
-    placeholder_manifest.write_text(
+    manifest_dir = registry._manifests_dir
+    manifest_path = manifest_dir / f"{registry._engine}.yaml"
+    manifest_path.write_text(
         f"engine: {registry._engine}\n"
         "models:\n"
         f"  - name: {name}\n"
-        "    repo_id: owner/placeholder\n"
+        "    repo_id: owner/real\n"
         "    files:\n"
-        "      - path: placeholder.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "      - path: model.bin\n"
+        f"        sha256: {hashlib.sha256(content).hexdigest()}\n"
         f"    size_bytes: {len(content)}\n"
         "    tier: test\n"
     )
     fresh_registry = ModelRegistry(
         registry._engine,
         registry._models_dir.parent,
-        placeholder_manifest_dir,
+        manifest_dir,
     )
 
     def fake_snapshot(repo_id: str, **kwargs: object) -> str:
         local_dir = kwargs["local_dir"]
-        (Path(str(local_dir)) / "placeholder.bin").write_bytes(content)
+        (Path(str(local_dir)) / "model.bin").write_bytes(content)
         return str(local_dir)
 
     with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
         progresses = [progress async for progress in fresh_registry.download(name)]
 
     assert fresh_registry.get_status(name) == ModelStatus.AVAILABLE
-    assert any(progress.status == ModelStatus.AVAILABLE for progress in progresses)
-
-
-@pytest.mark.asyncio
-async def test_download_logs_warning_when_sha_is_placeholder(
-    registry: ModelRegistry,
-) -> None:
-    import structlog.testing
-
-    info = registry.list_models()[0]
-    content = b"unverified-content"
-    name = info.name
-    placeholder_manifest_dir = registry._manifests_dir
-    placeholder_manifest = placeholder_manifest_dir / f"{registry._engine}.yaml"
-    placeholder_manifest.write_text(
-        f"engine: {registry._engine}\n"
-        "models:\n"
-        f"  - name: {name}\n"
-        "    repo_id: owner/placeholder\n"
-        "    files:\n"
-        "      - path: placeholder.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
-        f"    size_bytes: {len(content)}\n"
-        "    tier: test\n"
-    )
-    fresh_registry = ModelRegistry(
-        registry._engine,
-        registry._models_dir.parent,
-        placeholder_manifest_dir,
-    )
-
-    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
-        local_dir = Path(str(kwargs["local_dir"]))
-        (local_dir / "placeholder.bin").write_bytes(content)
-        return str(local_dir)
-
-    with structlog.testing.capture_logs() as cap:
-        with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
-            progresses = [progress async for progress in fresh_registry.download(name)]
-
-    assert fresh_registry.get_status(name) == ModelStatus.AVAILABLE
-    assert any(entry["event"] == "model_placeholder_sha_skipped" for entry in cap), (
-        "expected placeholder-SHA warning was not emitted"
-    )
     assert any(progress.status == ModelStatus.AVAILABLE for progress in progresses)
 
 
@@ -417,6 +423,16 @@ async def test_cancel_during_async_generator_holds_in_flight_until_worker_dones(
     next_task = asyncio.create_task(download_gen.__anext__())
     await asyncio.to_thread(started.wait, 2.0)
     next_task.cancel()
+    await asyncio.sleep(0.1)
+
+    assert info.name in registry._in_flight
+
+    second_gen = registry.download(info.name)
+    with pytest.raises(TranscriptionAlreadyDownloadingError):
+        async for _ in second_gen:
+            pass
+
+    release.set()
     with pytest.raises(asyncio.CancelledError):
         await next_task
     try:
@@ -426,16 +442,64 @@ async def test_cancel_during_async_generator_holds_in_flight_until_worker_dones(
         pass
 
     assert registry.get_status(info.name) is ModelStatus.MISSING
-    assert info.name in registry._in_flight
+    assert info.name not in registry._in_flight
+    assert info.name not in registry._cancelled
 
-    second_gen = registry.download(info.name)
-    with pytest.raises(TranscriptionAlreadyDownloadingError):
-        async for _ in second_gen:
+
+@pytest.mark.asyncio
+async def test_download_resets_status_when_snapshot_download_raises(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = b"x" * 1000
+    _seed_manifest_entry(registry, "tiny", content)
+
+    def failing_snapshot(repo_id: str, **kwargs: object) -> str:
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", failing_snapshot)
+
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        async for _ in registry.download("tiny"):
             pass
 
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
+@pytest.mark.asyncio
+async def test_cancel_download_before_worker_completes_suppresses_available(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import threading
+
+    content = b"x" * 1000
+    _seed_manifest_entry(registry, "tiny", content)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_snapshot(repo_id: str, **kwargs: object) -> str:
+        started.set()
+        release.wait(timeout=10.0)
+        local_dir = Path(str(kwargs["local_dir"]))
+        (local_dir / "model.bin").write_bytes(content)
+        return str(local_dir)
+
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", slow_snapshot)
+
+    events: list[DownloadProgress] = []
+
+    async def collect() -> None:
+        async for progress in registry.download("tiny"):
+            events.append(progress)
+
+    task = asyncio.create_task(collect())
+    await asyncio.to_thread(started.wait, 2.0)
+    registry.cancel_download("tiny")
     release.set()
-    registry._in_flight.discard(info.name)
-    registry._cancelled.discard(info.name)
+    await task
+
+    assert events == []
+    assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:
@@ -484,9 +548,9 @@ def test_manifest_loader_parses_files_list(models_dir: Path, manifests_dir: Path
         "    repo_id: owner/multi\n"
         "    files:\n"
         "      - path: config.json\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "a" * 64 + "\n"
         "      - path: model.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "b" * 64 + "\n"
         "    size_bytes: 200\n"
         "    tier: test\n"
     )
@@ -704,9 +768,9 @@ def test_manifest_loader_rejects_duplicate_file_paths(
         "    repo_id: owner/dup\n"
         "    files:\n"
         "      - path: model.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "a" * 64 + "\n"
         "      - path: model.bin\n"
-        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        "        sha256: " + "b" * 64 + "\n"
         "    size_bytes: 200\n"
         "    tier: test\n"
     )
@@ -829,3 +893,31 @@ def test_manifest_loader_rejects_double_slash_file_path(
     )
     with pytest.raises(ValueError, match="canonical"):
         ModelRegistry("whisper", models_dir, manifests_dir)
+
+
+def _packaged_manifests_dir() -> Path:
+    return Path(__file__).parent.parent / "src" / "bahlily_transcription" / "manifests"
+
+
+def test_whisper_manifest_loads_with_no_placeholder_hashes(models_dir: Path) -> None:
+    manifest_path = _packaged_manifests_dir() / "whisper.yaml"
+    registry = ModelRegistry("whisper", models_dir, _packaged_manifests_dir())
+    models = registry.list_models()
+    assert models
+    for model in models:
+        for file in model.files:
+            assert len(file.sha256) == 64
+            assert all(c in "0123456789abcdef" for c in file.sha256)
+    assert "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD" not in manifest_path.read_text()
+
+
+def test_parakeet_manifest_loads_with_no_placeholder_hashes(models_dir: Path) -> None:
+    manifest_path = _packaged_manifests_dir() / "parakeet.yaml"
+    registry = ModelRegistry("parakeet", models_dir, _packaged_manifests_dir())
+    models = registry.list_models()
+    assert models
+    for model in models:
+        for file in model.files:
+            assert len(file.sha256) == 64
+            assert all(c in "0123456789abcdef" for c in file.sha256)
+    assert "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD" not in manifest_path.read_text()

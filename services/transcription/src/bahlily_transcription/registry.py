@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import hashlib
 import re
 import shutil
@@ -8,7 +9,6 @@ from collections.abc import AsyncGenerator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import structlog
 import yaml
 from huggingface_hub import snapshot_download
 
@@ -21,10 +21,7 @@ from bahlily_transcription.errors import (
 from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
 
 _CHUNK_SIZE = 8 * 1024
-_PLACEHOLDER_SHA = "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD"
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
-
-_log = structlog.get_logger()
 
 
 def _verify_file_sha(path: Path, expected_sha: str) -> bool:
@@ -73,33 +70,26 @@ class ModelRegistry:
         self._status[name] = ModelStatus.DOWNLOADING
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        loop = asyncio.get_running_loop()
-        concurrent_future: Any = loop.run_in_executor(
-            None,
-            lambda: snapshot_download(
-                repo_id=info.repo_id,
-                repo_type="model",
-                local_dir=model_dir,
-                allow_patterns=[file.path for file in info.files],
-            ),
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        concurrent_future: concurrent.futures.Future[str] = executor.submit(
+            snapshot_download,
+            repo_id=info.repo_id,
+            repo_type="model",
+            local_dir=model_dir,
+            allow_patterns=[file.path for file in info.files],
         )
         asyncio_future = asyncio.wrap_future(concurrent_future)
         try:
             try:
                 await asyncio_future
+                if name in self._cancelled:
+                    self._status[name] = ModelStatus.MISSING
+                    return
                 for file in info.files:
                     target = model_dir / file.path
                     if not target.exists():
                         self._status[name] = ModelStatus.MISSING
                         raise TranscriptionChecksumFailedError(name)
-                    if file.sha256 == _PLACEHOLDER_SHA:
-                        _log.warning(
-                            "model_placeholder_sha_skipped",
-                            model_name=name,
-                            engine=self._engine,
-                            file=file.path,
-                        )
-                        continue
                     if not _verify_file_sha(target, file.sha256):
                         self._status[name] = ModelStatus.MISSING
                         raise TranscriptionChecksumFailedError(name)
@@ -115,13 +105,23 @@ class ModelRegistry:
                 concurrent_future.cancel()
                 self._status[name] = ModelStatus.MISSING
                 raise
-        finally:
-            try:
-                await asyncio_future
             except Exception:
-                pass
+                self._status[name] = ModelStatus.MISSING
+                raise
+        finally:
+            while True:
+                try:
+                    await asyncio.shield(asyncio.wrap_future(concurrent_future))
+                except asyncio.CancelledError:
+                    if concurrent_future.done():
+                        break
+                    continue
+                except Exception:
+                    pass
+                break
             self._in_flight.discard(name)
             self._cancelled.discard(name)
+            executor.shutdown(wait=False)
 
     def cancel_download(self, name: str) -> None:
         if name not in self._manifest:
@@ -251,13 +251,14 @@ class ModelRegistry:
                     )
                 seen_paths.add(file_path)
                 file_sha = raw_file["sha256"]
-                if not isinstance(file_sha, str) or (
-                    file_sha != _PLACEHOLDER_SHA
-                    and (len(file_sha) != 64 or any(c not in "0123456789abcdef" for c in file_sha))
+                if (
+                    not isinstance(file_sha, str)
+                    or len(file_sha) != 64
+                    or any(c not in "0123456789abcdef" for c in file_sha)
                 ):
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} sha256 "
-                        f"must be 64-char hex or the placeholder string"
+                        f"must be exactly 64 lowercase hex characters"
                     )
                 files.append(ModelFile(path=file_path, sha256=file_sha))
             manifest[entry_name] = ModelInfo(
@@ -275,10 +276,7 @@ class ModelRegistry:
             model_path = self._models_dir / name
             all_valid = all(
                 (model_path / file.path).exists()
-                and (
-                    file.sha256 == _PLACEHOLDER_SHA
-                    or _verify_file_sha(model_path / file.path, file.sha256)
-                )
+                and _verify_file_sha(model_path / file.path, file.sha256)
                 for file in info.files
             )
             if all_valid:
