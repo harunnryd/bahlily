@@ -172,7 +172,7 @@ async def test_download_yields_progress_and_verifies_checksum(
 
 
 @pytest.mark.asyncio
-async def test_download_sets_error_when_checksum_verification_fails(
+async def test_download_sets_missing_when_checksum_verification_fails(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
     config = b"valid config"
@@ -204,7 +204,7 @@ async def test_download_sets_error_when_checksum_verification_fails(
             async for _ in registry.download("tiny"):
                 pass
 
-    assert registry.get_status("tiny") == ModelStatus.ERROR
+    assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
 @pytest.mark.asyncio
@@ -242,6 +242,50 @@ async def test_download_skips_sha_verification_for_placeholder_entries(
         progresses = [progress async for progress in fresh_registry.download(name)]
 
     assert fresh_registry.get_status(name) == ModelStatus.AVAILABLE
+    assert any(progress.status == ModelStatus.AVAILABLE for progress in progresses)
+
+
+@pytest.mark.asyncio
+async def test_download_logs_warning_when_sha_is_placeholder(
+    registry: ModelRegistry,
+) -> None:
+    import structlog.testing
+
+    info = registry.list_models()[0]
+    content = b"unverified-content"
+    name = info.name
+    placeholder_manifest_dir = registry._manifests_dir
+    placeholder_manifest = placeholder_manifest_dir / f"{registry._engine}.yaml"
+    placeholder_manifest.write_text(
+        f"engine: {registry._engine}\n"
+        "models:\n"
+        f"  - name: {name}\n"
+        "    repo_id: owner/placeholder\n"
+        "    files:\n"
+        "      - path: placeholder.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        f"    size_bytes: {len(content)}\n"
+        "    tier: test\n"
+    )
+    fresh_registry = ModelRegistry(
+        registry._engine,
+        registry._models_dir.parent,
+        placeholder_manifest_dir,
+    )
+
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        local_dir = Path(str(kwargs["local_dir"]))
+        (local_dir / "placeholder.bin").write_bytes(content)
+        return str(local_dir)
+
+    with structlog.testing.capture_logs() as cap:
+        with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
+            progresses = [progress async for progress in fresh_registry.download(name)]
+
+    assert fresh_registry.get_status(name) == ModelStatus.AVAILABLE
+    assert any(entry["event"] == "model_placeholder_sha_skipped" for entry in cap), (
+        "expected placeholder-SHA warning was not emitted"
+    )
     assert any(progress.status == ModelStatus.AVAILABLE for progress in progresses)
 
 
@@ -349,7 +393,7 @@ async def test_cancel_during_download_stops_progress(
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_async_generator_properly_cleans_up(
+async def test_cancel_during_async_generator_holds_in_flight_until_worker_dones(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import asyncio
@@ -382,14 +426,16 @@ async def test_cancel_during_async_generator_properly_cleans_up(
         pass
 
     assert registry.get_status(info.name) is ModelStatus.MISSING
-    assert info.name not in registry._in_flight
+    assert info.name in registry._in_flight
 
     second_gen = registry.download(info.name)
-    try:
+    with pytest.raises(TranscriptionAlreadyDownloadingError):
         async for _ in second_gen:
             pass
-    except Exception:
-        pass
+
+    release.set()
+    registry._in_flight.discard(info.name)
+    registry._cancelled.discard(info.name)
 
 
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:

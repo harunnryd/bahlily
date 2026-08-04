@@ -35,12 +35,6 @@ def _verify_file_sha(path: Path, expected_sha: str) -> bool:
     return sha256.hexdigest() == expected_sha
 
 
-async def _wait_for_future(future: Any) -> Any:
-    while not future.done():
-        await asyncio.sleep(0.01)
-    return future.result()
-
-
 class ModelRegistry:
     def __init__(self, engine: str, models_dir: Path, manifests_dir: Path) -> None:
         self._engine = engine
@@ -69,6 +63,7 @@ class ModelRegistry:
             raise TranscriptionAlreadyDownloadingError(name)
 
         info = self._get_model_info(name)
+        model_dir = self._models_dir / name
         free = shutil.disk_usage(self._models_dir).free
         if free < info.size_bytes:
             raise TranscriptionInsufficientDiskError(info.size_bytes, free)
@@ -76,26 +71,26 @@ class ModelRegistry:
         self._in_flight.add(name)
         self._cancelled.discard(name)
         self._status[name] = ModelStatus.DOWNLOADING
-        model_dir = self._models_dir / name
         model_dir.mkdir(parents=True, exist_ok=True)
 
         loop = asyncio.get_running_loop()
-        future: Any = loop.run_in_executor(
+        concurrent_future: Any = loop.run_in_executor(
             None,
             lambda: snapshot_download(
                 repo_id=info.repo_id,
                 repo_type="model",
-                local_dir=str(model_dir),
+                local_dir=model_dir,
                 allow_patterns=[file.path for file in info.files],
             ),
         )
+        asyncio_future = asyncio.wrap_future(concurrent_future)
         try:
             try:
-                await future
+                await asyncio_future
                 for file in info.files:
                     target = model_dir / file.path
                     if not target.exists():
-                        self._status[name] = ModelStatus.ERROR
+                        self._status[name] = ModelStatus.MISSING
                         raise TranscriptionChecksumFailedError(name)
                     if file.sha256 == _PLACEHOLDER_SHA:
                         _log.warning(
@@ -106,11 +101,8 @@ class ModelRegistry:
                         )
                         continue
                     if not _verify_file_sha(target, file.sha256):
-                        self._status[name] = ModelStatus.ERROR
+                        self._status[name] = ModelStatus.MISSING
                         raise TranscriptionChecksumFailedError(name)
-                if name in self._cancelled:
-                    self._status[name] = ModelStatus.MISSING
-                    return
                 self._status[name] = ModelStatus.AVAILABLE
                 yield DownloadProgress(
                     model_name=name,
@@ -120,21 +112,14 @@ class ModelRegistry:
                     status=ModelStatus.AVAILABLE,
                 )
             except asyncio.CancelledError:
+                concurrent_future.cancel()
                 self._status[name] = ModelStatus.MISSING
-                if not future.done():
-                    future.cancel()
-                try:
-                    await asyncio.wait_for(asyncio.shield(_wait_for_future(future)), timeout=5.0)
-                except (TimeoutError, Exception):
-                    pass
-                raise
-            except Exception:
-                if name in self._cancelled:
-                    self._status[name] = ModelStatus.MISSING
-                else:
-                    self._status[name] = ModelStatus.ERROR
                 raise
         finally:
+            try:
+                await asyncio_future
+            except Exception:
+                pass
             self._in_flight.discard(name)
             self._cancelled.discard(name)
 
@@ -288,8 +273,15 @@ class ModelRegistry:
     def _scan_existing(self) -> None:
         for name, info in self._manifest.items():
             model_path = self._models_dir / name
-            all_present = all((model_path / file.path).exists() for file in info.files)
-            if all_present:
+            all_valid = all(
+                (model_path / file.path).exists()
+                and (
+                    file.sha256 == _PLACEHOLDER_SHA
+                    or _verify_file_sha(model_path / file.path, file.sha256)
+                )
+                for file in info.files
+            )
+            if all_valid:
                 self._status[name] = ModelStatus.AVAILABLE
             else:
                 self._status[name] = ModelStatus.MISSING
