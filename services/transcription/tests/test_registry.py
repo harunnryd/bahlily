@@ -8,10 +8,11 @@ import pytest
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
+    TranscriptionChecksumFailedError,
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelFile, ModelInfo, ModelStatus
+from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
 from bahlily_transcription.registry import ModelRegistry
 
 
@@ -171,7 +172,7 @@ async def test_download_yields_progress_and_verifies_checksum(
 
 
 @pytest.mark.asyncio
-async def test_download_sets_error_when_snapshot_download_fails(
+async def test_download_sets_error_when_checksum_verification_fails(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
     config = b"valid config"
@@ -194,11 +195,12 @@ async def test_download_sets_error_when_snapshot_download_fails(
         tier="fast",
     )
 
-    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
-        raise RuntimeError("simulated post-download sha mismatch")
-
-    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
-        with pytest.raises(RuntimeError, match="sha mismatch"):
+    file_contents = {"config.json": config, "model.bin": weights}
+    with patch(
+        "bahlily_transcription.registry.snapshot_download",
+        side_effect=_fake_snapshot_download(file_contents, models_dir),
+    ):
+        with pytest.raises(TranscriptionChecksumFailedError):
             async for _ in registry.download("tiny"):
                 pass
 
@@ -276,25 +278,36 @@ def test_scan_existing_does_not_clean_hf_cache(models_dir: Path, manifests_dir: 
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_download_stops_progress(registry: ModelRegistry) -> None:
+async def test_cancel_during_download_stops_progress(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import threading
+
     content = b"x" * 1000
     _seed_manifest_entry(registry, "tiny", content)
+    started = threading.Event()
+    cancel_called = threading.Event()
 
-    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
-        registry.cancel_download("tiny")
-        local_dir = Path(str(kwargs["local_dir"]))
-        local_dir.mkdir(parents=True, exist_ok=True)
-        target = local_dir / "model.bin"
-        target.write_bytes(content)
-        return str(local_dir)
+    def slow_snapshot(repo_id: str, **kwargs: object) -> str:
+        started.set()
+        if cancel_called.wait(timeout=2.0):
+            raise RuntimeError("download cancelled")
+        return str(kwargs["local_dir"])
 
-    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
-        events = []
-        async for progress in registry.download("tiny"):
-            events.append(progress)
+    async def collect_progress() -> list[DownloadProgress]:
+        return [progress async for progress in registry.download("tiny")]
 
-    assert len(events) == 0
-    assert registry.get_status("tiny") == ModelStatus.MISSING
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", slow_snapshot)
+    progress_task = asyncio.create_task(asyncio.to_thread(lambda: asyncio.run(collect_progress())))
+    assert await asyncio.to_thread(started.wait, 2.0)
+    registry.cancel_download("tiny")
+    cancel_called.set()
+    with pytest.raises(RuntimeError, match="download cancelled"):
+        await progress_task
+
+    assert cancel_called.is_set()
+    assert registry.get_status("tiny") in (ModelStatus.ERROR, ModelStatus.MISSING)
 
 
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:

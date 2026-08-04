@@ -9,7 +9,7 @@ from bahlily_transcription.errors import (
     TranscriptionEngineFailedError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import TranscriptResult
+from bahlily_transcription.models import ModelStatus, TranscriptResult
 from bahlily_transcription.registry import ModelRegistry
 
 _SAMPLE_RATE = 16000
@@ -64,6 +64,14 @@ class ParakeetEngine:
         known_names = {info.name for info in self._registry.list_models()}
         if name not in known_names:
             raise TranscriptionModelNotFoundError(name)
+
+        status = self._registry.get_status(name)
+        if status is not ModelStatus.AVAILABLE:
+            raise TranscriptionEngineFailedError(
+                "parakeet",
+                f"model {name!r} is not available (status: {status.value}); "
+                "download via /models first",
+            )
 
         from onnx_asr import load_model as onnx_asr_load_model
 

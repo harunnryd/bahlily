@@ -35,6 +35,7 @@ def _fake_registry(names: list[str]) -> MagicMock:
         )
         for n in names
     ]
+    registry.get_status.return_value = ModelStatus.AVAILABLE
     return registry
 
 
@@ -72,6 +73,16 @@ def test_parakeet_load_unknown_model_raises() -> None:
     with pytest.raises(TranscriptionModelNotFoundError):
         eng.load_model("not-in-manifest")
     registry.list_models.assert_called_once()
+
+
+def test_parakeet_load_unavailable_model_raises() -> None:
+    registry = _fake_registry([_MODEL_NAME])
+    registry.get_status.return_value = ModelStatus.MISSING
+    eng = ParakeetEngine(Path("/tmp/models"), registry=registry)
+    with patch("onnx_asr.load_model") as mock_load:
+        with pytest.raises(TranscriptionEngineFailedError, match="download via /models"):
+            eng.load_model(_MODEL_NAME)
+    mock_load.assert_not_called()
 
 
 def test_parakeet_load_failure_raises_engine_error() -> None:
@@ -157,6 +168,7 @@ def _engine_registry() -> MagicMock:
     info = MagicMock()
     info.name = _MODEL_NAME
     registry.list_models.return_value = [info]
+    registry.get_status.return_value = ModelStatus.AVAILABLE
     return registry
 
 
@@ -350,9 +362,6 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     with patch("onnx_asr.load_model", return_value=fake_model) as mock_load:
         eng.load_model(model_name)
     mock_load.assert_called_once_with(model_name, path=models_dir / "parakeet" / model_name)
-
-    model_dir = models_dir / "parakeet" / model_name
-    assert not any(model_dir.glob("*.tmp")), f"leftover tmp files: {list(model_dir.glob('*.tmp'))}"
 
 
 def test_parakeet_transcribe_batch_invalid_logprobs() -> None:

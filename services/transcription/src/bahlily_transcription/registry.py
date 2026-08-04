@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -10,10 +11,21 @@ from huggingface_hub import snapshot_download
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
+    TranscriptionChecksumFailedError,
     TranscriptionInsufficientDiskError,
     TranscriptionModelNotFoundError,
 )
 from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
+
+_CHUNK_SIZE = 8 * 1024
+
+
+def _verify_file_sha(path: Path, expected_sha: str) -> bool:
+    sha256 = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(_CHUNK_SIZE), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest() == expected_sha
 
 
 class ModelRegistry:
@@ -64,6 +76,11 @@ class ModelRegistry:
                 local_dir=str(model_dir),
                 allow_patterns=[file.path for file in info.files],
             )
+            for file in info.files:
+                target = model_dir / file.path
+                if not target.exists() or not _verify_file_sha(target, file.sha256):
+                    self._status[name] = ModelStatus.ERROR
+                    raise TranscriptionChecksumFailedError(name)
             if name in self._cancelled:
                 self._status[name] = ModelStatus.MISSING
                 return
