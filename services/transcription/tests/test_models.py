@@ -46,7 +46,7 @@ def test_model_status_values_exist() -> None:
 
 def test_download_progress_is_frozen() -> None:
     p = DownloadProgress(
-        model_name="large-v3-turbo",
+        model_name="medium",
         engine="whisper",
         bytes_downloaded=500,
         total_bytes=1000,

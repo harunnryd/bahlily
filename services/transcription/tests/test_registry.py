@@ -30,13 +30,13 @@ def manifests_dir(tmp_path: Path) -> Path:
     (directory / "whisper.yaml").write_text(
         "engine: whisper\n"
         "models:\n"
-        "  - name: large-v3-turbo\n"
-        "    repo_id: owner/large-v3-turbo\n"
+        "  - name: medium\n"
+        "    repo_id: owner/medium\n"
         "    files:\n"
         "      - path: model.bin\n"
         "        sha256: " + "a" * 64 + "\n"
         "    size_bytes: 1628614656\n"
-        "    tier: high_accuracy\n"
+        "    tier: balanced\n"
         "  - name: tiny\n"
         "    repo_id: owner/tiny\n"
         "    files:\n"
@@ -74,7 +74,7 @@ def _seed_manifest_entry(
 def test_list_models_returns_all_manifest_entries(registry: ModelRegistry) -> None:
     models = registry.list_models()
     names = {model.name for model in models}
-    assert "large-v3-turbo" in names
+    assert "medium" in names
     assert "tiny" in names
     assert all(model.files for model in models)
 
@@ -501,8 +501,63 @@ async def test_cancel_download_before_worker_completes_suppresses_available(
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
+def test_registry_configures_bounded_transfer_timeout() -> None:
+    import huggingface_hub.constants as hf_constants
+
+    from bahlily_transcription import registry as registry_module
+
+    assert hf_constants.HF_HUB_DOWNLOAD_TIMEOUT == registry_module._TRANSFER_TIMEOUT_SECONDS
+    assert hf_constants.HF_HUB_DOWNLOAD_TIMEOUT == 30
+
+
 @pytest.mark.asyncio
-async def test_cancel_during_checksum_verification_prevents_available(
+async def test_cancel_during_single_file_transfer_stops_within_bounded_time(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A single-file model has no between-files boundary to check cancellation
+    at -- cancelling while its one file is still 'in flight' must still stop
+    the download promptly rather than waiting out the whole transfer."""
+    import asyncio
+    import threading
+    import time
+
+    content = b"x" * 1000
+    _seed_manifest_entry(registry, "tiny", content)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_download(**kwargs: object) -> str:
+        started.set()
+        release.wait(timeout=10.0)
+        target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return str(target)
+
+    monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", slow_download)
+
+    events: list[DownloadProgress] = []
+
+    async def collect() -> None:
+        async for progress in registry.download("tiny"):
+            events.append(progress)
+
+    task = asyncio.create_task(collect())
+    await asyncio.to_thread(started.wait, 2.0)
+    registry.cancel_download("tiny")
+    start = time.monotonic()
+    release.set()
+    await task
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 2.0, f"cleanup took {elapsed:.2f}s, expected a bounded stop"
+    assert events == []
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+    assert "tiny" not in registry._in_flight
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_second_file_download_prevents_available(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import asyncio
@@ -555,6 +610,56 @@ async def test_cancel_during_checksum_verification_prevents_available(
     # transfer that was already in flight.
     assert (registry._models_dir / "tiny" / "a.bin").read_bytes() == content_a
     assert (registry._models_dir / "tiny" / "b.bin").read_bytes() == content_b
+    assert events == []
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
+@pytest.mark.asyncio
+async def test_cancel_while_verify_files_is_hashing_prevents_available(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both file transfers complete successfully -- cancellation lands while
+    _verify_files() is actively hashing, not during the download step."""
+    import asyncio
+    import threading
+
+    content = b"x" * 1000
+    checksum = _seed_manifest_entry(registry, "tiny", content)
+
+    def fake_download(**kwargs: object) -> str:
+        target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return str(target)
+
+    verify_started = threading.Event()
+    release_verify = threading.Event()
+
+    def blocking_verify(path: Path, expected_sha: str) -> bool:
+        verify_started.set()
+        release_verify.wait(timeout=10.0)
+        return expected_sha == checksum
+
+    monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", fake_download)
+    monkeypatch.setattr("bahlily_transcription.registry._verify_file_sha", blocking_verify)
+
+    events: list[DownloadProgress] = []
+
+    async def collect() -> None:
+        async for progress in registry.download("tiny"):
+            events.append(progress)
+
+    task = asyncio.create_task(collect())
+    await asyncio.to_thread(verify_started.wait, 2.0)
+    registry.cancel_download("tiny")
+    release_verify.set()
+    await task
+
+    # The file downloaded successfully and its checksum genuinely matches --
+    # verification would legitimately pass and mark AVAILABLE if not for the
+    # cancellation flag being re-checked under lock right before that
+    # transition, proving cancellation still wins mid-hash.
+    assert (registry._models_dir / "tiny" / "model.bin").read_bytes() == content
     assert events == []
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
@@ -706,6 +811,39 @@ def test_scan_existing_skips_rehash_when_marker_matches(
     registry._scan_existing()
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
     assert len(calls) == 2, "a stale mtime should force a re-hash"
+
+    # Marker now reflects this file's current (post-bump) size/mtime -- save
+    # those values so scenario (b) below can restore the exact recorded mtime.
+    recorded_stat = target.stat()
+
+    # (a) Different-length content is always caught: it changes the recorded
+    # size (and, incidentally, the mtime too), so the marker can't match.
+    target.write_bytes(content + b"extra-tail-bytes")
+    registry._scan_existing()
+    assert registry.get_status("tiny") == ModelStatus.MISSING, (
+        "a size change must be caught even though a rehash was needed"
+    )
+    assert len(calls) == 3
+    # Verification failed, so the marker was left untouched at its prior
+    # (still-valid) recorded values from before this corruption.
+
+    # (b) Known limitation of the size+mtime marker: content corrupted to the
+    # exact same length, with the exact recorded mtime restored, is
+    # indistinguishable from an unchanged file without re-hashing -- which is
+    # exactly the cost this optimization exists to avoid. Detecting this would
+    # require hashing the content, defeating the whole point of the marker.
+    # This is confirmed here as a documented trade-off, not silently fixed.
+    same_length_corruption = bytes(b ^ 0xFF for b in content)
+    assert len(same_length_corruption) == recorded_stat.st_size
+    target.write_bytes(same_length_corruption)
+    os.utime(target, (recorded_stat.st_atime, recorded_stat.st_mtime))
+
+    registry._scan_existing()
+    assert registry.get_status("tiny") == ModelStatus.AVAILABLE, (
+        "documented limitation: same-size corruption with the exact recorded "
+        "mtime restored is trusted without re-hashing"
+    )
+    assert len(calls) == 3, "marker match short-circuited verification -- no new hash call"
 
 
 def test_cancel_download_noop_when_not_downloading(registry: ModelRegistry) -> None:

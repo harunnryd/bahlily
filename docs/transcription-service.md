@@ -49,7 +49,7 @@ Whisper runs on `faster-whisper` (CTranslate2) for CUDA/x86, and whisper.cpp/MLX
 
 Parakeet runs on `onnxruntime` plus `onnx-asr`. Its models are English-focused and don't produce a confidence score or take a language parameter, so those fields should just report `null` honestly rather than fake a value.
 
-Default engine selection favors Parakeet where its language coverage matches the meeting, falling back to Whisper (`large-v3-turbo` or a distilled variant) otherwise. Parakeet's published real-time factor and word-error-rate are both meaningfully better than full Whisper on the languages it supports.
+Default engine selection favors Parakeet where its language coverage matches the meeting, falling back to Whisper (`medium` or a distilled variant) otherwise. Parakeet's published real-time factor and word-error-rate are both meaningfully better than full Whisper on the languages it supports.
 
 ## Model management
 

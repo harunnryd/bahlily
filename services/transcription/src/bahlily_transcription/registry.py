@@ -11,6 +11,8 @@ from collections.abc import AsyncGenerator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import huggingface_hub.constants as _hf_constants
+import structlog
 import yaml
 from huggingface_hub import hf_hub_download
 
@@ -25,6 +27,20 @@ from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo,
 _CHUNK_SIZE = 8 * 1024
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
 _VERIFIED_MARKER_NAME = ".verified.json"
+
+# huggingface_hub applies this as the per-chunk read timeout on the actual
+# file-transfer HTTP request (not just the initial metadata/etag request), so
+# a stalled single-file transfer is bounded independently of the cancellation
+# check between files. Set explicitly rather than relying on the library's
+# own default so a future huggingface_hub version can't silently change it.
+_TRANSFER_TIMEOUT_SECONDS = 30
+_hf_constants.HF_HUB_DOWNLOAD_TIMEOUT = _TRANSFER_TIMEOUT_SECONDS
+
+# How long to wait between logging a warning if the background worker thread
+# still hasn't finished during download() cleanup (e.g. after cancellation).
+_CLEANUP_WAIT_POLL_SECONDS = 30
+
+_log = structlog.get_logger()
 
 
 def _verify_file_sha(path: Path, expected_sha: str) -> bool:
@@ -166,13 +182,29 @@ class ModelRegistry:
         finally:
             while True:
                 try:
-                    await asyncio.shield(asyncio.wrap_future(concurrent_future))
+                    await asyncio.wait_for(
+                        asyncio.shield(asyncio.wrap_future(concurrent_future)),
+                        timeout=_CLEANUP_WAIT_POLL_SECONDS,
+                    )
+                except TimeoutError:
+                    _log.warning(
+                        "model_download_cleanup_still_waiting",
+                        model_name=name,
+                        engine=self._engine,
+                    )
+                    continue
                 except asyncio.CancelledError:
                     if concurrent_future.done():
                         break
                     continue
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _log.warning(
+                        "model_download_worker_failed_during_cleanup",
+                        model_name=name,
+                        engine=self._engine,
+                        error=str(exc),
+                    )
+                    break
                 break
             with self._lock:
                 self._in_flight.discard(name)
