@@ -352,6 +352,31 @@ async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> 
             pass
 
 
+@pytest.mark.asyncio
+async def test_download_setup_failure_releases_reservation(
+    registry: ModelRegistry, models_dir: Path
+) -> None:
+    """If model_dir.mkdir() (or executor setup) fails before the worker ever
+    starts, the in-flight reservation must still be released -- otherwise the
+    model is stuck as permanently "downloading" until process restart."""
+    content = b"x" * 100
+    _seed_manifest_entry(registry, "tiny", content)
+
+    # A plain file sitting where the model directory needs to be created
+    # makes model_dir.mkdir(parents=True, exist_ok=True) raise.
+    conflicting_path = models_dir / "whisper" / "tiny"
+    conflicting_path.parent.mkdir(parents=True, exist_ok=True)
+    conflicting_path.write_bytes(b"not a directory")
+
+    with pytest.raises(FileExistsError):
+        async for _ in registry.download("tiny"):
+            pass
+
+    assert "tiny" not in registry._in_flight
+    assert "tiny" not in registry._cancelled
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
 def test_scan_existing_does_not_clean_hf_cache(models_dir: Path, manifests_dir: Path) -> None:
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
@@ -623,8 +648,10 @@ async def test_cancel_while_verify_files_is_hashing_prevents_available(
     import asyncio
     import threading
 
+    from bahlily_transcription import registry as registry_module
+
     content = b"x" * 1000
-    checksum = _seed_manifest_entry(registry, "tiny", content)
+    _seed_manifest_entry(registry, "tiny", content)
 
     def fake_download(**kwargs: object) -> str:
         target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
@@ -634,11 +661,12 @@ async def test_cancel_while_verify_files_is_hashing_prevents_available(
 
     verify_started = threading.Event()
     release_verify = threading.Event()
+    real_verify = registry_module._verify_file_sha
 
     def blocking_verify(path: Path, expected_sha: str) -> bool:
         verify_started.set()
         release_verify.wait(timeout=10.0)
-        return expected_sha == checksum
+        return real_verify(path, expected_sha)
 
     monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", fake_download)
     monkeypatch.setattr("bahlily_transcription.registry._verify_file_sha", blocking_verify)
@@ -774,9 +802,12 @@ async def test_cancel_stops_subsequent_file_downloads(
     assert "tiny" not in registry._in_flight
 
 
-def test_scan_existing_skips_rehash_when_marker_matches(
+def test_scan_existing_always_rehashes_and_catches_corruption(
     registry: ModelRegistry, models_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """_scan_existing() must fully re-verify content on every call -- a prior
+    size/mtime-based bypass was removed because same-length corruption paired
+    with a restored mtime was trusted as valid without ever being hashed."""
     import os
 
     from bahlily_transcription import registry as registry_module
@@ -785,7 +816,8 @@ def test_scan_existing_skips_rehash_when_marker_matches(
     _seed_manifest_entry(registry, "tiny", content)
     model_dir = models_dir / "whisper" / "tiny"
     model_dir.mkdir(parents=True)
-    (model_dir / "model.bin").write_bytes(content)
+    target = model_dir / "model.bin"
+    target.write_bytes(content)
 
     calls: list[Path] = []
     real_verify = registry_module._verify_file_sha
@@ -800,50 +832,28 @@ def test_scan_existing_skips_rehash_when_marker_matches(
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
     assert len(calls) == 1
 
+    # Unchanged content, unchanged mtime -- still re-hashed every time.
     registry._scan_existing()
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
-    assert len(calls) == 1, "unchanged size/mtime should skip re-hashing"
+    assert len(calls) == 2, "content must be re-verified on every scan, not skipped"
 
-    target = model_dir / "model.bin"
-    stat = target.stat()
-    os.utime(target, (stat.st_atime, stat.st_mtime + 5))
-
-    registry._scan_existing()
-    assert registry.get_status("tiny") == ModelStatus.AVAILABLE
-    assert len(calls) == 2, "a stale mtime should force a re-hash"
-
-    # Marker now reflects this file's current (post-bump) size/mtime -- save
-    # those values so scenario (b) below can restore the exact recorded mtime.
-    recorded_stat = target.stat()
-
-    # (a) Different-length content is always caught: it changes the recorded
-    # size (and, incidentally, the mtime too), so the marker can't match.
+    # Different-length corruption is caught.
     target.write_bytes(content + b"extra-tail-bytes")
     registry._scan_existing()
-    assert registry.get_status("tiny") == ModelStatus.MISSING, (
-        "a size change must be caught even though a rehash was needed"
-    )
+    assert registry.get_status("tiny") == ModelStatus.MISSING
     assert len(calls) == 3
-    # Verification failed, so the marker was left untouched at its prior
-    # (still-valid) recorded values from before this corruption.
 
-    # (b) Known limitation of the size+mtime marker: content corrupted to the
-    # exact same length, with the exact recorded mtime restored, is
-    # indistinguishable from an unchanged file without re-hashing -- which is
-    # exactly the cost this optimization exists to avoid. Detecting this would
-    # require hashing the content, defeating the whole point of the marker.
-    # This is confirmed here as a documented trade-off, not silently fixed.
+    # Same-length corruption, with the original mtime restored, must also be
+    # caught -- this is exactly the case the removed marker bypass got wrong.
+    stat_before = target.stat()
     same_length_corruption = bytes(b ^ 0xFF for b in content)
-    assert len(same_length_corruption) == recorded_stat.st_size
+    assert len(same_length_corruption) == len(content)
     target.write_bytes(same_length_corruption)
-    os.utime(target, (recorded_stat.st_atime, recorded_stat.st_mtime))
+    os.utime(target, (stat_before.st_atime, stat_before.st_mtime))
 
     registry._scan_existing()
-    assert registry.get_status("tiny") == ModelStatus.AVAILABLE, (
-        "documented limitation: same-size corruption with the exact recorded "
-        "mtime restored is trusted without re-hashing"
-    )
-    assert len(calls) == 3, "marker match short-circuited verification -- no new hash call"
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+    assert len(calls) == 4
 
 
 def test_cancel_download_noop_when_not_downloading(registry: ModelRegistry) -> None:

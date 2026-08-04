@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import hashlib
-import json
 import re
 import shutil
 import threading
@@ -26,7 +25,6 @@ from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo,
 
 _CHUNK_SIZE = 8 * 1024
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
-_VERIFIED_MARKER_NAME = ".verified.json"
 
 # huggingface_hub applies this as the per-chunk read timeout on the actual
 # file-transfer HTTP request (not just the initial metadata/etag request), so
@@ -51,49 +49,17 @@ def _verify_file_sha(path: Path, expected_sha: str) -> bool:
     return sha256.hexdigest() == expected_sha
 
 
-def _load_verified_marker(model_path: Path) -> dict[str, Any]:
-    marker_path = model_path / _VERIFIED_MARKER_NAME
-    if not marker_path.exists():
-        return {}
-    try:
-        data = json.loads(marker_path.read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _write_verified_marker(model_path: Path, files: tuple[ModelFile, ...]) -> None:
-    record = {}
-    for file in files:
-        stat = (model_path / file.path).stat()
-        record[file.path] = {"size": stat.st_size, "mtime": stat.st_mtime}
-    (model_path / _VERIFIED_MARKER_NAME).write_text(json.dumps(record))
-
-
 def _verify_files(model_path: Path, files: tuple[ModelFile, ...]) -> bool:
-    """Verify every file exists and matches its checksum.
+    """Verify every file exists and matches its SHA-256 checksum.
 
-    A file whose recorded size/mtime marker still matches what's on disk is
-    trusted without re-hashing; anything else (or a missing marker) gets a
-    full SHA-256 verification. On success the marker is (re)written so later
-    scans can skip the files that were just verified.
+    Every file is fully re-hashed on every call -- a size/mtime-based bypass
+    was tried and removed because same-length content corruption paired with
+    a restored mtime would be trusted as valid without ever being hashed.
     """
-    record = _load_verified_marker(model_path)
     for file in files:
         target = model_path / file.path
-        if not target.exists():
+        if not target.exists() or not _verify_file_sha(target, file.sha256):
             return False
-        stat = target.stat()
-        recorded = record.get(file.path)
-        if (
-            isinstance(recorded, dict)
-            and recorded.get("size") == stat.st_size
-            and recorded.get("mtime") == stat.st_mtime
-        ):
-            continue
-        if not _verify_file_sha(target, file.sha256):
-            return False
-    _write_verified_marker(model_path, files)
     return True
 
 
@@ -122,8 +88,6 @@ class ModelRegistry:
     async def download(self, name: str) -> AsyncGenerator[DownloadProgress, None]:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
-        if name in self._in_flight:
-            raise TranscriptionAlreadyDownloadingError(name)
 
         info = self._get_model_info(name)
         model_dir = self._models_dir / name
@@ -131,10 +95,12 @@ class ModelRegistry:
         if free < info.size_bytes:
             raise TranscriptionInsufficientDiskError(info.size_bytes, free)
 
-        self._in_flight.add(name)
-        self._cancelled.discard(name)
-        self._status[name] = ModelStatus.DOWNLOADING
-        model_dir.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            if name in self._in_flight:
+                raise TranscriptionAlreadyDownloadingError(name)
+            self._in_flight.add(name)
+            self._cancelled.discard(name)
+            self._status[name] = ModelStatus.DOWNLOADING
 
         def _download_and_verify() -> None:
             for file in info.files:
@@ -152,8 +118,19 @@ class ModelRegistry:
             if not _verify_files(model_dir, info.files):
                 raise TranscriptionChecksumFailedError(name)
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        concurrent_future: concurrent.futures.Future[None] = executor.submit(_download_and_verify)
+        try:
+            model_dir.mkdir(parents=True, exist_ok=True)
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            concurrent_future: concurrent.futures.Future[None] = executor.submit(
+                _download_and_verify
+            )
+        except Exception:
+            with self._lock:
+                self._in_flight.discard(name)
+                self._cancelled.discard(name)
+                self._status[name] = ModelStatus.MISSING
+            raise
+
         asyncio_future = asyncio.wrap_future(concurrent_future)
         try:
             try:
