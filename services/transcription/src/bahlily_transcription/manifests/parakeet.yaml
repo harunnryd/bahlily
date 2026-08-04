@@ -2,6 +2,7 @@ engine: parakeet
 models:
   - name: nemo-parakeet-tdt-0.6b-v3
     repo_id: istupakov/parakeet-tdt-0.6b-v3-onnx
+    revision: 8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce
     files:
       - path: config.json
         sha256: 666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466

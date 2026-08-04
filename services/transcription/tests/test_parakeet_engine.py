@@ -324,21 +324,16 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     registry = ModelRegistry("parakeet", models_dir, manifests_dir)
     assert registry.get_status(model_name) == ModelStatus.MISSING
 
-    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+    def fake_download(**kwargs: object) -> str:
         local_dir = kwargs["local_dir"]
-        allow_raw = kwargs.get("allow_patterns")
-        allow_list: list[str] | None = (
-            [str(p) for p in allow_raw] if isinstance(allow_raw, (list, tuple)) else None
-        )
-        for path, contents in file_contents.items():
-            if allow_list is None or path in allow_list:
-                target = Path(str(local_dir)) / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(contents)
-        return str(local_dir)
+        filename = str(kwargs["filename"])
+        target = Path(str(local_dir)) / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(file_contents[filename])
+        return str(target)
 
     progresses: list[DownloadProgress] = []
-    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
+    with patch("bahlily_transcription.registry.hf_hub_download", side_effect=fake_download):
 
         async def _run() -> None:
             async for p in registry.download(model_name):

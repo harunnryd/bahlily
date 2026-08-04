@@ -30,6 +30,7 @@ class ModelInfo:
     repo_id: str
     files: tuple[ModelFile, ...]
     tier: str
+    revision: str | None = None
 
 
 class ModelStatus(Enum):

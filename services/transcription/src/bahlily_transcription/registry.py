@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import hashlib
+import json
 import re
 import shutil
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download
 
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
@@ -23,6 +24,7 @@ from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo,
 
 _CHUNK_SIZE = 8 * 1024
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
+_VERIFIED_MARKER_NAME = ".verified.json"
 
 
 def _verify_file_sha(path: Path, expected_sha: str) -> bool:
@@ -31,6 +33,52 @@ def _verify_file_sha(path: Path, expected_sha: str) -> bool:
         for chunk in iter(lambda: file.read(_CHUNK_SIZE), b""):
             sha256.update(chunk)
     return sha256.hexdigest() == expected_sha
+
+
+def _load_verified_marker(model_path: Path) -> dict[str, Any]:
+    marker_path = model_path / _VERIFIED_MARKER_NAME
+    if not marker_path.exists():
+        return {}
+    try:
+        data = json.loads(marker_path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_verified_marker(model_path: Path, files: tuple[ModelFile, ...]) -> None:
+    record = {}
+    for file in files:
+        stat = (model_path / file.path).stat()
+        record[file.path] = {"size": stat.st_size, "mtime": stat.st_mtime}
+    (model_path / _VERIFIED_MARKER_NAME).write_text(json.dumps(record))
+
+
+def _verify_files(model_path: Path, files: tuple[ModelFile, ...]) -> bool:
+    """Verify every file exists and matches its checksum.
+
+    A file whose recorded size/mtime marker still matches what's on disk is
+    trusted without re-hashing; anything else (or a missing marker) gets a
+    full SHA-256 verification. On success the marker is (re)written so later
+    scans can skip the files that were just verified.
+    """
+    record = _load_verified_marker(model_path)
+    for file in files:
+        target = model_path / file.path
+        if not target.exists():
+            return False
+        stat = target.stat()
+        recorded = record.get(file.path)
+        if (
+            isinstance(recorded, dict)
+            and recorded.get("size") == stat.st_size
+            and recorded.get("mtime") == stat.st_mtime
+        ):
+            continue
+        if not _verify_file_sha(target, file.sha256):
+            return False
+    _write_verified_marker(model_path, files)
+    return True
 
 
 class ModelRegistry:
@@ -73,16 +121,20 @@ class ModelRegistry:
         model_dir.mkdir(parents=True, exist_ok=True)
 
         def _download_and_verify() -> None:
-            snapshot_download(
-                repo_id=info.repo_id,
-                repo_type="model",
-                local_dir=model_dir,
-                allow_patterns=[file.path for file in info.files],
-            )
             for file in info.files:
-                target = model_dir / file.path
-                if not target.exists() or not _verify_file_sha(target, file.sha256):
-                    raise TranscriptionChecksumFailedError(name)
+                if name in self._cancelled:
+                    return
+                hf_hub_download(
+                    repo_id=info.repo_id,
+                    repo_type="model",
+                    filename=file.path,
+                    revision=info.revision,
+                    local_dir=model_dir,
+                )
+            if name in self._cancelled:
+                return
+            if not _verify_files(model_dir, info.files):
+                raise TranscriptionChecksumFailedError(name)
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         concurrent_future: concurrent.futures.Future[None] = executor.submit(_download_and_verify)
@@ -103,8 +155,8 @@ class ModelRegistry:
                     status=ModelStatus.AVAILABLE,
                 )
             except asyncio.CancelledError:
-                concurrent_future.cancel()
                 with self._lock:
+                    self._cancelled.add(name)
                     self._status[name] = ModelStatus.MISSING
                 raise
             except Exception:
@@ -131,6 +183,8 @@ class ModelRegistry:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
         with self._lock:
+            if self._status.get(name) != ModelStatus.DOWNLOADING:
+                return
             self._cancelled.add(name)
             self._status[name] = ModelStatus.MISSING
 
@@ -206,6 +260,12 @@ class ModelRegistry:
                     f"malformed manifest at {manifest_path}: entry {i} tier must be "
                     f"non-empty string, got {tier!r}"
                 )
+            revision = m.get("revision")
+            if revision is not None and (not isinstance(revision, str) or not revision):
+                raise ValueError(
+                    f"malformed manifest at {manifest_path}: entry {i} revision must be "
+                    f"a non-empty string when provided, got {revision!r}"
+                )
             raw_files = m["files"]
             if not isinstance(raw_files, list) or not raw_files:
                 raise ValueError(
@@ -232,14 +292,13 @@ class ModelRegistry:
                     or file_path.startswith("/")
                     or ".." in file_path.split("/")
                     or "\\" in file_path
-                    or ".." in file_path.split("\\")
                 ):
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
                         f"{file_path!r} must be relative without .. components"
                     )
                 normalized = PurePosixPath(file_path)
-                if not normalized.parts or str(normalized) != file_path or normalized.is_absolute():
+                if not normalized.parts or str(normalized) != file_path:
                     raise ValueError(
                         f"malformed manifest at {manifest_path}: entry {i} file {j} path "
                         f"{file_path!r} is not a canonical relative POSIX path"
@@ -273,18 +332,14 @@ class ModelRegistry:
                 repo_id=repo_id,
                 files=tuple(files),
                 tier=m["tier"],
+                revision=revision,
             )
         self._manifest = manifest
 
     def _scan_existing(self) -> None:
         for name, info in self._manifest.items():
             model_path = self._models_dir / name
-            all_valid = all(
-                (model_path / file.path).exists()
-                and _verify_file_sha(model_path / file.path, file.sha256)
-                for file in info.files
-            )
-            if all_valid:
+            if _verify_files(model_path, info.files):
                 self._status[name] = ModelStatus.AVAILABLE
             else:
                 self._status[name] = ModelStatus.MISSING
