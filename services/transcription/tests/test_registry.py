@@ -171,6 +171,42 @@ async def test_download_yields_progress_and_verifies_checksum(
 
 
 @pytest.mark.asyncio
+async def test_download_uses_local_dir_not_cache_dir(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """hf_hub_download must always be called with local_dir (never cache_dir)
+    so files land as real files directly in model_dir instead of being
+    symlinked into a shared HF cache -- otherwise remove()'s rmtree wouldn't
+    actually free the downloaded bytes, and the disk-space check against
+    model_dir's filesystem wouldn't reflect where the data actually lands."""
+    content = b"x" * 100
+    _seed_manifest_entry(registry, "tiny", content)
+
+    calls: list[dict[str, object]] = []
+
+    def fake_download(**kwargs: object) -> str:
+        calls.append(kwargs)
+        target = Path(str(kwargs["local_dir"])) / str(kwargs["filename"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return str(target)
+
+    monkeypatch.setattr("bahlily_transcription.registry.hf_hub_download", fake_download)
+
+    async for _ in registry.download("tiny"):
+        pass
+
+    assert calls
+    for call in calls:
+        assert call.get("local_dir") == registry._models_dir / "tiny"
+        assert "cache_dir" not in call
+
+    target = registry._models_dir / "tiny" / "model.bin"
+    assert target.is_file()
+    assert not target.is_symlink()
+
+
+@pytest.mark.asyncio
 async def test_download_sets_missing_when_checksum_verification_fails(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
