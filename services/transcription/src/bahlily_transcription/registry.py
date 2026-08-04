@@ -5,6 +5,7 @@ import concurrent.futures
 import hashlib
 import re
 import shutil
+import threading
 from collections.abc import AsyncGenerator
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -42,6 +43,7 @@ class ModelRegistry:
         self._status: dict[str, ModelStatus] = {}
         self._in_flight: set[str] = set()
         self._cancelled: set[str] = set()
+        self._lock = threading.Lock()
         self._load_manifest()
         self._scan_existing()
 
@@ -70,30 +72,29 @@ class ModelRegistry:
         self._status[name] = ModelStatus.DOWNLOADING
         model_dir.mkdir(parents=True, exist_ok=True)
 
+        def _download_and_verify() -> None:
+            snapshot_download(
+                repo_id=info.repo_id,
+                repo_type="model",
+                local_dir=model_dir,
+                allow_patterns=[file.path for file in info.files],
+            )
+            for file in info.files:
+                target = model_dir / file.path
+                if not target.exists() or not _verify_file_sha(target, file.sha256):
+                    raise TranscriptionChecksumFailedError(name)
+
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        concurrent_future: concurrent.futures.Future[str] = executor.submit(
-            snapshot_download,
-            repo_id=info.repo_id,
-            repo_type="model",
-            local_dir=model_dir,
-            allow_patterns=[file.path for file in info.files],
-        )
+        concurrent_future: concurrent.futures.Future[None] = executor.submit(_download_and_verify)
         asyncio_future = asyncio.wrap_future(concurrent_future)
         try:
             try:
                 await asyncio_future
-                if name in self._cancelled:
-                    self._status[name] = ModelStatus.MISSING
-                    return
-                for file in info.files:
-                    target = model_dir / file.path
-                    if not target.exists():
+                with self._lock:
+                    if name in self._cancelled:
                         self._status[name] = ModelStatus.MISSING
-                        raise TranscriptionChecksumFailedError(name)
-                    if not _verify_file_sha(target, file.sha256):
-                        self._status[name] = ModelStatus.MISSING
-                        raise TranscriptionChecksumFailedError(name)
-                self._status[name] = ModelStatus.AVAILABLE
+                        return
+                    self._status[name] = ModelStatus.AVAILABLE
                 yield DownloadProgress(
                     model_name=name,
                     engine=self._engine,
@@ -103,10 +104,12 @@ class ModelRegistry:
                 )
             except asyncio.CancelledError:
                 concurrent_future.cancel()
-                self._status[name] = ModelStatus.MISSING
+                with self._lock:
+                    self._status[name] = ModelStatus.MISSING
                 raise
             except Exception:
-                self._status[name] = ModelStatus.MISSING
+                with self._lock:
+                    self._status[name] = ModelStatus.MISSING
                 raise
         finally:
             while True:
@@ -119,15 +122,17 @@ class ModelRegistry:
                 except Exception:
                     pass
                 break
-            self._in_flight.discard(name)
-            self._cancelled.discard(name)
+            with self._lock:
+                self._in_flight.discard(name)
+                self._cancelled.discard(name)
             executor.shutdown(wait=False)
 
     def cancel_download(self, name: str) -> None:
         if name not in self._manifest:
             raise TranscriptionModelNotFoundError(name)
-        self._cancelled.add(name)
-        self._status[name] = ModelStatus.MISSING
+        with self._lock:
+            self._cancelled.add(name)
+            self._status[name] = ModelStatus.MISSING
 
     def remove(self, name: str) -> None:
         if name not in self._manifest:

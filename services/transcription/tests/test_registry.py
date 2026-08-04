@@ -502,6 +502,91 @@ async def test_cancel_download_before_worker_completes_suppresses_available(
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
 
+@pytest.mark.asyncio
+async def test_cancel_during_checksum_verification_prevents_available(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import threading
+
+    content = b"x" * 1000
+    checksum = _seed_manifest_entry(registry, "tiny", content)
+    verify_started = threading.Event()
+    release_verify = threading.Event()
+
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        local_dir = Path(str(kwargs["local_dir"]))
+        (local_dir / "model.bin").write_bytes(content)
+        return str(local_dir)
+
+    def blocking_verify(path: Path, expected_sha: str) -> bool:
+        verify_started.set()
+        release_verify.wait(timeout=10.0)
+        return expected_sha == checksum
+
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", fake_snapshot)
+    monkeypatch.setattr("bahlily_transcription.registry._verify_file_sha", blocking_verify)
+
+    events: list[DownloadProgress] = []
+
+    async def collect() -> None:
+        async for progress in registry.download("tiny"):
+            events.append(progress)
+
+    task = asyncio.create_task(collect())
+    await asyncio.to_thread(verify_started.wait, 2.0)
+    registry.cancel_download("tiny")
+    release_verify.set()
+    await task
+
+    assert events == []
+    assert registry.get_status("tiny") == ModelStatus.MISSING
+
+
+@pytest.mark.asyncio
+async def test_checksum_verification_does_not_block_event_loop(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import time
+
+    content = b"x" * 1000
+    checksum = _seed_manifest_entry(registry, "tiny", content)
+
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        local_dir = Path(str(kwargs["local_dir"]))
+        (local_dir / "model.bin").write_bytes(content)
+        return str(local_dir)
+
+    def slow_verify(path: Path, expected_sha: str) -> bool:
+        time.sleep(0.5)
+        return expected_sha == checksum
+
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", fake_snapshot)
+    monkeypatch.setattr("bahlily_transcription.registry._verify_file_sha", slow_verify)
+
+    ticker_done_at: float | None = None
+    download_done_at: float | None = None
+
+    async def ticker() -> None:
+        nonlocal ticker_done_at
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+        ticker_done_at = time.monotonic()
+
+    async def run_download() -> None:
+        nonlocal download_done_at
+        async for _ in registry.download("tiny"):
+            pass
+        download_done_at = time.monotonic()
+
+    await asyncio.gather(run_download(), ticker())
+
+    assert ticker_done_at is not None
+    assert download_done_at is not None
+    assert ticker_done_at < download_done_at
+
+
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:
     (manifests_dir / "whisper.yaml").write_text(
         "engine: whisper\n"
@@ -909,6 +994,14 @@ def test_whisper_manifest_loads_with_no_placeholder_hashes(models_dir: Path) -> 
             assert len(file.sha256) == 64
             assert all(c in "0123456789abcdef" for c in file.sha256)
     assert "REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD" not in manifest_path.read_text()
+
+
+def test_whisper_manifest_includes_faster_whisper_support_files(models_dir: Path) -> None:
+    registry = ModelRegistry("whisper", models_dir, _packaged_manifests_dir())
+    required = {"model.bin", "config.json", "tokenizer.json", "vocabulary.txt"}
+    for model in registry.list_models():
+        paths = {file.path for file in model.files}
+        assert required <= paths, f"{model.name} is missing {required - paths}"
 
 
 def test_parakeet_manifest_loads_with_no_placeholder_hashes(models_dir: Path) -> None:
