@@ -208,6 +208,44 @@ async def test_download_sets_error_when_checksum_verification_fails(
 
 
 @pytest.mark.asyncio
+async def test_download_skips_sha_verification_for_placeholder_entries(
+    registry: ModelRegistry,
+) -> None:
+    info = registry.list_models()[0]
+    content = b"placeholder-content"
+    name = info.name
+    placeholder_manifest_dir = registry._manifests_dir
+    placeholder_manifest = placeholder_manifest_dir / f"{registry._engine}.yaml"
+    placeholder_manifest.write_text(
+        f"engine: {registry._engine}\n"
+        "models:\n"
+        f"  - name: {name}\n"
+        "    repo_id: owner/placeholder\n"
+        "    files:\n"
+        "      - path: placeholder.bin\n"
+        "        sha256: REPLACE_WITH_ACTUAL_SHA256_AFTER_DOWNLOAD\n"
+        f"    size_bytes: {len(content)}\n"
+        "    tier: test\n"
+    )
+    fresh_registry = ModelRegistry(
+        registry._engine,
+        registry._models_dir.parent,
+        placeholder_manifest_dir,
+    )
+
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        local_dir = kwargs["local_dir"]
+        (Path(str(local_dir)) / "placeholder.bin").write_bytes(content)
+        return str(local_dir)
+
+    with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
+        progresses = [progress async for progress in fresh_registry.download(name)]
+
+    assert fresh_registry.get_status(name) == ModelStatus.AVAILABLE
+    assert any(progress.status == ModelStatus.AVAILABLE for progress in progresses)
+
+
+@pytest.mark.asyncio
 async def test_concurrent_download_rejected(registry: ModelRegistry) -> None:
     content = b"x" * 1000
     _seed_manifest_entry(registry, "tiny", content)

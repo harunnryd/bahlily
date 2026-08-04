@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,8 +12,9 @@ from bahlily_transcription.errors import (
     TranscriptionEngineFailedError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelFile, ModelInfo, ModelStatus
+from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
 from bahlily_transcription.parakeet_engine import ParakeetEngine
+from bahlily_transcription.registry import ModelRegistry
 
 _MODEL_NAME = "nemo-parakeet-ctc-0.6b"
 
@@ -304,21 +306,20 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
     model_name = "nemo-parakeet-tdt-0.6b-v3"
     repo_id = "onnx-community/parakeet-tdt-0.6b-v3"
     manifest_path = manifests_dir / "parakeet.yaml"
-    manifest_path.write_text(
+    manifest_yaml = (
         f"engine: parakeet\nmodels:\n  - name: {model_name}\n    repo_id: {repo_id}\n    files:\n"
     )
-    for path, _contents in file_contents.items():
+    for path in file_contents:
         sha = expected_shas[path]
-        manifest_path.write_text(
-            manifest_path.read_text() + f"      - path: {path}\n" + f"        sha256: {sha}\n"
+        manifest_yaml += (
+            f"      - path: {path}\n"
+            f"        url: https://example.com/{path}\n"
+            f"        sha256: {sha}\n"
         )
-    manifest_path.write_text(
-        manifest_path.read_text()
-        + f"    size_bytes: {sum(len(c) for c in file_contents.values())}\n"
-        + "    tier: test\n"
+    manifest_yaml += (
+        f"    size_bytes: {sum(len(c) for c in file_contents.values())}\n    tier: test\n"
     )
-
-    from bahlily_transcription.registry import ModelRegistry
+    manifest_path.write_text(manifest_yaml)
 
     registry = ModelRegistry("parakeet", models_dir, manifests_dir)
     assert registry.get_status(model_name) == ModelStatus.MISSING
@@ -335,10 +336,6 @@ def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> Non
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(contents)
         return str(local_dir)
-
-    import asyncio
-
-    from bahlily_transcription.models import DownloadProgress
 
     progresses: list[DownloadProgress] = []
     with patch("bahlily_transcription.registry.snapshot_download", side_effect=fake_snapshot):
