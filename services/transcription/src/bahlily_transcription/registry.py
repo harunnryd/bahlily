@@ -35,6 +35,12 @@ def _verify_file_sha(path: Path, expected_sha: str) -> bool:
     return sha256.hexdigest() == expected_sha
 
 
+async def _wait_for_future(future: Any) -> Any:
+    while not future.done():
+        await asyncio.sleep(0.01)
+    return future.result()
+
+
 class ModelRegistry:
     def __init__(self, engine: str, models_dir: Path, manifests_dir: Path) -> None:
         self._engine = engine
@@ -73,53 +79,61 @@ class ModelRegistry:
         model_dir = self._models_dir / name
         model_dir.mkdir(parents=True, exist_ok=True)
 
+        loop = asyncio.get_running_loop()
+        future: Any = loop.run_in_executor(
+            None,
+            lambda: snapshot_download(
+                repo_id=info.repo_id,
+                repo_type="model",
+                local_dir=str(model_dir),
+                allow_patterns=[file.path for file in info.files],
+            ),
+        )
         try:
-            if name in self._cancelled:
+            try:
+                await future
+                for file in info.files:
+                    target = model_dir / file.path
+                    if not target.exists():
+                        self._status[name] = ModelStatus.ERROR
+                        raise TranscriptionChecksumFailedError(name)
+                    if file.sha256 == _PLACEHOLDER_SHA:
+                        _log.warning(
+                            "model_placeholder_sha_skipped",
+                            model_name=name,
+                            engine=self._engine,
+                            file=file.path,
+                        )
+                        continue
+                    if not _verify_file_sha(target, file.sha256):
+                        self._status[name] = ModelStatus.ERROR
+                        raise TranscriptionChecksumFailedError(name)
+                if name in self._cancelled:
+                    self._status[name] = ModelStatus.MISSING
+                    return
+                self._status[name] = ModelStatus.AVAILABLE
+                yield DownloadProgress(
+                    model_name=name,
+                    engine=self._engine,
+                    bytes_downloaded=info.size_bytes,
+                    total_bytes=info.size_bytes,
+                    status=ModelStatus.AVAILABLE,
+                )
+            except asyncio.CancelledError:
                 self._status[name] = ModelStatus.MISSING
-                return
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None,
-                lambda: snapshot_download(
-                    repo_id=info.repo_id,
-                    repo_type="model",
-                    local_dir=str(model_dir),
-                    allow_patterns=[file.path for file in info.files],
-                ),
-            )
-            for file in info.files:
-                target = model_dir / file.path
-                if not target.exists():
+                if not future.done():
+                    future.cancel()
+                try:
+                    await asyncio.wait_for(asyncio.shield(_wait_for_future(future)), timeout=5.0)
+                except (TimeoutError, Exception):
+                    pass
+                raise
+            except Exception:
+                if name in self._cancelled:
+                    self._status[name] = ModelStatus.MISSING
+                else:
                     self._status[name] = ModelStatus.ERROR
-                    raise TranscriptionChecksumFailedError(name)
-                if file.sha256 == _PLACEHOLDER_SHA:
-                    _log.warning(
-                        "model_placeholder_sha_skipped",
-                        model_name=name,
-                        engine=self._engine,
-                        file=file.path,
-                    )
-                    continue
-                if not _verify_file_sha(target, file.sha256):
-                    self._status[name] = ModelStatus.ERROR
-                    raise TranscriptionChecksumFailedError(name)
-            if name in self._cancelled:
-                self._status[name] = ModelStatus.MISSING
-                return
-            self._status[name] = ModelStatus.AVAILABLE
-            yield DownloadProgress(
-                model_name=name,
-                engine=self._engine,
-                bytes_downloaded=info.size_bytes,
-                total_bytes=info.size_bytes,
-                status=ModelStatus.AVAILABLE,
-            )
-        except Exception:
-            if name in self._cancelled:
-                self._status[name] = ModelStatus.MISSING
-            else:
-                self._status[name] = ModelStatus.ERROR
-            raise
+                raise
         finally:
             self._in_flight.discard(name)
             self._cancelled.discard(name)

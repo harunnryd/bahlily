@@ -348,6 +348,50 @@ async def test_cancel_during_download_stops_progress(
     assert registry.get_status("tiny") is ModelStatus.MISSING
 
 
+@pytest.mark.asyncio
+async def test_cancel_during_async_generator_properly_cleans_up(
+    registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import threading
+
+    info = registry.list_models()[0]
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_snapshot(*args: object, **kwargs: object) -> str:
+        started.set()
+        try:
+            release.wait(timeout=10.0)
+            return str(kwargs.get("local_dir"))
+        except Exception:
+            raise
+
+    monkeypatch.setattr("bahlily_transcription.registry.snapshot_download", slow_snapshot)
+
+    download_gen = registry.download(info.name)
+    next_task = asyncio.create_task(download_gen.__anext__())
+    await asyncio.to_thread(started.wait, 2.0)
+    next_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await next_task
+    try:
+        while True:
+            await download_gen.__anext__()
+    except StopAsyncIteration:
+        pass
+
+    assert registry.get_status(info.name) is ModelStatus.MISSING
+    assert info.name not in registry._in_flight
+
+    second_gen = registry.download(info.name)
+    try:
+        async for _ in second_gen:
+            pass
+    except Exception:
+        pass
+
+
 def test_load_manifest_rejects_duplicate_model_names(models_dir: Path, manifests_dir: Path) -> None:
     (manifests_dir / "whisper.yaml").write_text(
         "engine: whisper\n"
