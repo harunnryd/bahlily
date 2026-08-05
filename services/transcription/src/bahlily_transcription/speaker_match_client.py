@@ -56,14 +56,19 @@ class SpeakerMatchClient:
                 )
                 resp.raise_for_status()
             response = _MatchBulkResponse.model_validate(resp.json())
-            return {
-                entry.key: {
-                    "profile_id": entry.profile.id,
-                    "profile_name": entry.profile.name,
-                }
-                for entry in response.matches
-                if entry.profile is not None
-            }
+            requested_keys = {key for key, _ in items}
+            matched_keys: set[str] = set()
+            hits: dict[str, SpeakerMatchHit] = {}
+            for entry in response.matches:
+                if entry.key not in requested_keys or entry.key in matched_keys:
+                    raise ValueError("invalid speaker-match response key")
+                matched_keys.add(entry.key)
+                if entry.profile is not None:
+                    hits[entry.key] = {
+                        "profile_id": entry.profile.id,
+                        "profile_name": entry.profile.name,
+                    }
+            return hits
         except (httpx.HTTPError, ValueError) as exc:
             _log.warning(
                 "speaker_match_bulk_failed",

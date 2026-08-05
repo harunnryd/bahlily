@@ -471,10 +471,7 @@ async def create_speaker_profile(
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
-        # SQLite's unique-violation message is "UNIQUE constraint failed:
-        # speaker_profiles.name"; the constraint NAME (uq_speaker_profiles_name)
-        # isn't included, so match the actual column path instead.
-        if "UNIQUE constraint failed: speaker_profiles.name" in str(exc.orig):
+        if await repo.get_by_name(req.name) is not None:
             raise StorageSpeakerProfileNameConflictError(req.name) from exc
         raise
     await session.refresh(profile)

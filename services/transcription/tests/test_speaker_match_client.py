@@ -85,3 +85,36 @@ async def test_match_bulk_returns_empty_dict_on_invalid_match_entry(
     )
     client = SpeakerMatchClient(storage_url="https://storage")
     assert await client.match_bulk([("S1", [0.0] * 512)]) == {}
+
+
+@pytest.mark.asyncio
+async def test_match_bulk_returns_empty_dict_on_duplicate_response_key(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post("https://storage/speaker-profiles/match-bulk").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "matches": [
+                    {"key": "S1", "profile": {"id": "p1", "name": "Alice"}},
+                    {"key": "S1", "profile": {"id": "p2", "name": "Mallory"}},
+                ]
+            },
+        )
+    )
+    client = SpeakerMatchClient(storage_url="https://storage")
+    assert await client.match_bulk([("S1", [0.0] * 512)]) == {}
+
+
+@pytest.mark.asyncio
+async def test_match_bulk_returns_empty_dict_on_unrequested_response_key(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post("https://storage/speaker-profiles/match-bulk").mock(
+        return_value=httpx.Response(
+            200,
+            json={"matches": [{"key": "UNKNOWN", "profile": {"id": "p1", "name": "Alice"}}]},
+        )
+    )
+    client = SpeakerMatchClient(storage_url="https://storage")
+    assert await client.match_bulk([("S1", [0.0] * 512)]) == {}
