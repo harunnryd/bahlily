@@ -450,19 +450,24 @@ def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
     # Apply migrations 0001..0006 only — 0007 has not run yet.
     command.upgrade(db.alembic_config(), "0006")
 
-    # Seed two profiles sharing the same name. SQLite's implicit rowid
-    # tracks insertion order, so p1 has the lower rowid and p2 the higher.
+    # Seed two profiles sharing the same name. The lex-min id ('a') is
+    # inserted SECOND so that `MIN(rowid)` (insertion order) and `MIN(id)`
+    # (lexicographic) disagree on which row survives — this is the only
+    # way the test can actually regress-protect against a reintroduction
+    # of the lexical-sort mistake the migration was originally written to
+    # avoid. With 'z' inserted first, `MIN(rowid)` keeps 'z' and `MIN(id)`
+    # would keep 'a', so the assertion below would fail under the bug.
     conn = sqlite3.connect(str(db_path))
     try:
         conn.execute(
             "INSERT INTO speaker_profiles "
             "(id, name, voice_embedding, created_at, updated_at) "
-            "VALUES ('p1', 'Alice', '[]', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+            "VALUES ('z', 'Alice', '[]', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
         )
         conn.execute(
             "INSERT INTO speaker_profiles "
             "(id, name, voice_embedding, created_at, updated_at) "
-            "VALUES ('p2', 'Alice', '[]', '2026-01-02 00:00:00', '2026-01-02 00:00:00')"
+            "VALUES ('a', 'Alice', '[]', '2026-01-02 00:00:00', '2026-01-02 00:00:00')"
         )
         conn.commit()
     finally:
@@ -471,10 +476,10 @@ def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
     # Apply 0007 — dedupe must run before the UNIQUE constraint is added.
     command.upgrade(db.alembic_config(), "head")
 
-    # Only the earliest-inserted row (p1, lowest rowid) survives.
+    # Only the earliest-inserted row ('z', lowest rowid) survives.
     conn = sqlite3.connect(str(db_path))
     try:
         rows = conn.execute("SELECT id FROM speaker_profiles").fetchall()
     finally:
         conn.close()
-    assert sorted(r[0] for r in rows) == ["p1"]
+    assert sorted(r[0] for r in rows) == ["z"]
