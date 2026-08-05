@@ -48,6 +48,14 @@ class StorageSpeakerProfileNotFoundError(BahlilyError):
         )
 
 
+class StorageSpeakerProfileNameConflictError(BahlilyError):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"speaker profile with name '{name}' already exists",
+            code="STORAGE_SPEAKER_PROFILE_NAME_CONFLICT",
+        )
+
+
 class StorageEmbeddingDimNotConfiguredError(BahlilyError):
     def __init__(self) -> None:
         super().__init__(

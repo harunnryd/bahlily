@@ -18,6 +18,7 @@ from bahlily_storage.errors import (
     StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
+    StorageSpeakerProfileNameConflictError,
     StorageSpeakerProfileNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
@@ -63,6 +64,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageSummaryNotFoundError: 404,
     StorageTemplateNotFoundError: 404,
     StorageSpeakerProfileNotFoundError: 404,
+    StorageSpeakerProfileNameConflictError: 409,
     StorageEmbeddingDimNotConfiguredError: 500,
 }
 
@@ -75,6 +77,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageSummaryNotFoundError)
 @app.exception_handler(StorageTemplateNotFoundError)
 @app.exception_handler(StorageSpeakerProfileNotFoundError)
+@app.exception_handler(StorageSpeakerProfileNameConflictError)
 @app.exception_handler(StorageEmbeddingDimNotConfiguredError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
@@ -420,6 +423,8 @@ async def create_speaker_profile(
     req: CreateSpeakerProfileRequest, session: SessionDep
 ) -> SpeakerProfileResponse:
     repo = SpeakerProfileRepo(session)
+    if await repo.get_by_name(req.name) is not None:
+        raise StorageSpeakerProfileNameConflictError(req.name)
     now = datetime.datetime.now(datetime.UTC)
     profile = SpeakerProfile(
         id=str(uuid.uuid4()),
@@ -428,8 +433,14 @@ async def create_speaker_profile(
         created_at=now,
         updated_at=now,
     )
-    await repo.create(profile)
-    await session.commit()
+    try:
+        await repo.create(profile)
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if "uq_speaker_profiles_name" in str(exc.orig):
+            raise StorageSpeakerProfileNameConflictError(req.name) from exc
+        raise
     await session.refresh(profile)
     return _speaker_profile_to_response(profile)
 

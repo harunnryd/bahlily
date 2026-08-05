@@ -126,6 +126,10 @@
   domain: storage
   severity: error
   description: The requested speaker profile ID does not exist in storage.
+- code: STORAGE_SPEAKER_PROFILE_NAME_CONFLICT
+  domain: storage
+  severity: error
+  description: A speaker profile with the given name already exists; pick a different name.
 - code: STORAGE_EMBEDDING_DIM_NOT_CONFIGURED
   domain: storage
   severity: error

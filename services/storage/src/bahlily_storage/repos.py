@@ -248,6 +248,10 @@ class SpeakerProfileRepo:
     async def get(self, profile_id: str) -> SpeakerProfile | None:
         return await self._s.get(SpeakerProfile, profile_id)
 
+    async def get_by_name(self, name: str) -> SpeakerProfile | None:
+        result = await self._s.execute(select(SpeakerProfile).where(SpeakerProfile.name == name))
+        return result.scalar_one_or_none()
+
     async def list_all(self, limit: int = 20, offset: int = 0) -> list[SpeakerProfile]:
         result = await self._s.execute(
             select(SpeakerProfile)

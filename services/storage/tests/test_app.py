@@ -490,6 +490,20 @@ def test_create_and_get_speaker_profile(client: TestClient) -> None:
     assert resp.json()["voice_embedding"] == emb
 
 
+def test_create_speaker_profile_with_duplicate_name_returns_409(client: TestClient) -> None:
+    first = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert first.status_code == 201
+    second = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [1.0] * 512},
+    )
+    assert second.status_code == 409
+    assert "Alice" in second.json()["message"]
+
+
 def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> None:
     resp = client.post(
         "/speaker-profiles",
