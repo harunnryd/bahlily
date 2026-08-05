@@ -8,6 +8,7 @@ from typing import Annotated
 import structlog
 from bahlily_logging.errors import BahlilyError
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -94,6 +95,29 @@ async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
         status_code=status,
         content={"code": exc.code, "message": str(exc)},
     )
+
+
+def _sanitize_for_json(value: object) -> object:
+    if isinstance(value, float):
+        if value != value:
+            return "NaN"
+        if value == float("inf"):
+            return "Infinity"
+        if value == float("-inf"):
+            return "-Infinity"
+        return value
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    if isinstance(value, BaseException):
+        return f"{type(value).__name__}: {value}"
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": _sanitize_for_json(exc.errors())})
 
 
 def _summary_to_response(s: Summary) -> SummaryResponse:

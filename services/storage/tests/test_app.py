@@ -639,20 +639,21 @@ def test_label_speaker_rejects_wrong_embedding_dim(
     assert "expected 512" in resp.text
 
 
-def test_validate_dim_rejects_non_finite_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The HTTP boundary never sees NaN/Inf (FastAPI's default request
-    # encoder rejects them at the JSON parse step), so the validator's
-    # finite-check is defense-in-depth tested here at the function level.
+def test_create_speaker_profile_rejects_non_finite_values(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # NaN/Infinity/-Infinity are non-standard JSON tokens that bypass
+    # json.dumps but Starlette accepts them via allow_nan=True parsing.
     monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
-    from bahlily_storage.schemas import _validate_dim
-
-    embedding = [0.0] * 512
-    with pytest.raises(ValueError, match="finite"):
-        _validate_dim([float("nan")] + embedding[1:])
-    with pytest.raises(ValueError, match="finite"):
-        _validate_dim([float("inf")] + embedding[1:])
-    with pytest.raises(ValueError, match="finite"):
-        _validate_dim([float("-inf")] + embedding[1:])
+    for token in ("NaN", "Infinity", "-Infinity"):
+        embedding = ",".join([token] + ["0.0"] * 511)
+        resp = client.post(
+            "/speaker-profiles",
+            content=(f'{{"name":"{token}","voice_embedding":[{embedding}]}}').encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 422, f"token={token}: {resp.text}"
+        assert "finite" in resp.text, f"token={token}: {resp.text}"
 
 
 def test_get_speaker_profile_not_found(client: TestClient) -> None:
