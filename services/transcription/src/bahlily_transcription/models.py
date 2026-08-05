@@ -17,13 +17,20 @@ class TranscriptResult:
 
 
 @dataclass(frozen=True)
+class ModelFile:
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
 class ModelInfo:
     name: str
     engine: str
     size_bytes: int
-    checksum_sha256: str
-    download_url: str
+    repo_id: str
+    files: tuple[ModelFile, ...]
     tier: str
+    revision: str | None = None
 
 
 class ModelStatus(Enum):

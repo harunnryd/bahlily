@@ -37,7 +37,7 @@ def test_list_models_whisper_returns_entries(client: TestClient) -> None:
     response = client.get("/models/whisper")
     assert response.status_code == 200
     names = {m["name"] for m in response.json()}
-    assert "large-v3-turbo" in names
+    assert "tiny" in names
 
 
 def test_list_models_invalid_engine_returns_404(client: TestClient) -> None:

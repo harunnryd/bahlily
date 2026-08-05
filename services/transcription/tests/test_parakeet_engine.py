@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,8 +12,9 @@ from bahlily_transcription.errors import (
     TranscriptionEngineFailedError,
     TranscriptionModelNotFoundError,
 )
-from bahlily_transcription.models import ModelInfo
+from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo, ModelStatus
 from bahlily_transcription.parakeet_engine import ParakeetEngine
+from bahlily_transcription.registry import ModelRegistry
 
 _MODEL_NAME = "nemo-parakeet-ctc-0.6b"
 
@@ -21,12 +26,18 @@ def _fake_registry(names: list[str]) -> MagicMock:
             name=n,
             engine="parakeet",
             size_bytes=1,
-            checksum_sha256="x" * 64,
-            download_url="http://example",
+            repo_id="owner/" + n,
+            files=(
+                ModelFile(
+                    path="model.onnx",
+                    sha256="x" * 64,
+                ),
+            ),
             tier="small",
         )
         for n in names
     ]
+    registry.get_status.return_value = ModelStatus.AVAILABLE
     return registry
 
 
@@ -51,7 +62,7 @@ def test_parakeet_load_model_calls_onnx_asr_and_enables_timestamps() -> None:
     base_model.with_timestamps.return_value = timestamped_model
     with patch("onnx_asr.load_model", return_value=base_model) as mock_load:
         eng.load_model(_MODEL_NAME)
-    mock_load.assert_called_once_with(_MODEL_NAME, path=Path("/tmp/models"))
+    mock_load.assert_called_once_with(_MODEL_NAME, path=Path("/tmp/models") / _MODEL_NAME)
     base_model.with_timestamps.assert_called_once_with()
     assert eng.is_model_loaded()
     assert eng.current_model() == _MODEL_NAME
@@ -64,6 +75,16 @@ def test_parakeet_load_unknown_model_raises() -> None:
     with pytest.raises(TranscriptionModelNotFoundError):
         eng.load_model("not-in-manifest")
     registry.list_models.assert_called_once()
+
+
+def test_parakeet_load_unavailable_model_raises() -> None:
+    registry = _fake_registry([_MODEL_NAME])
+    registry.get_status.return_value = ModelStatus.MISSING
+    eng = ParakeetEngine(Path("/tmp/models"), registry=registry)
+    with patch("onnx_asr.load_model") as mock_load:
+        with pytest.raises(TranscriptionEngineFailedError, match="download via /models"):
+            eng.load_model(_MODEL_NAME)
+    mock_load.assert_not_called()
 
 
 def test_parakeet_load_failure_raises_engine_error() -> None:
@@ -149,6 +170,7 @@ def _engine_registry() -> MagicMock:
     info = MagicMock()
     info.name = _MODEL_NAME
     registry.list_models.return_value = [info]
+    registry.get_status.return_value = ModelStatus.AVAILABLE
     return registry
 
 
@@ -262,6 +284,76 @@ def test_parakeet_transcribe_batch_invalid_timestamps() -> None:
     eng._loaded = "nemo-parakeet-tdt-0.6b-v3"
     with pytest.raises(TranscriptionEngineFailedError):
         eng.transcribe_batch([np.zeros(16000, dtype=np.float32)], "en")
+
+
+def test_parakeet_loads_materialized_multi_file_directory(tmp_path: Path) -> None:
+    """Offline integration test: manifest with multi-file bundle, registry materializes files,
+    parakeet engine loads via onnx-asr with the model-specific directory."""
+    manifests_dir = tmp_path / "manifests"
+    models_dir = tmp_path / "models"
+    manifests_dir.mkdir()
+    models_dir.mkdir()
+
+    file_contents = {
+        "config.json": b'{"sample_rate": 16000}',
+        "model.onnx": b"\x00" * 1024,
+        "vocab.txt": b"<pad>\n",
+    }
+    expected_shas = {
+        path: hashlib.sha256(contents).hexdigest() for path, contents in file_contents.items()
+    }
+
+    model_name = "nemo-parakeet-tdt-0.6b-v3"
+    repo_id = "onnx-community/parakeet-tdt-0.6b-v3"
+    manifest_path = manifests_dir / "parakeet.yaml"
+    manifest_yaml = (
+        f"engine: parakeet\nmodels:\n  - name: {model_name}\n    repo_id: {repo_id}\n    files:\n"
+    )
+    for path in file_contents:
+        sha = expected_shas[path]
+        manifest_yaml += (
+            f"      - path: {path}\n"
+            f"        url: https://example.com/{path}\n"
+            f"        sha256: {sha}\n"
+        )
+    manifest_yaml += (
+        f"    size_bytes: {sum(len(c) for c in file_contents.values())}\n    tier: test\n"
+    )
+    manifest_path.write_text(manifest_yaml)
+
+    registry = ModelRegistry("parakeet", models_dir, manifests_dir)
+    assert registry.get_status(model_name) == ModelStatus.MISSING
+
+    def fake_download(**kwargs: object) -> str:
+        local_dir = kwargs["local_dir"]
+        filename = str(kwargs["filename"])
+        target = Path(str(local_dir)) / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(file_contents[filename])
+        return str(target)
+
+    progresses: list[DownloadProgress] = []
+    with patch("bahlily_transcription.registry.hf_hub_download", side_effect=fake_download):
+
+        async def _run() -> None:
+            async for p in registry.download(model_name):
+                progresses.append(p)
+
+        asyncio.run(_run())
+
+    final_status = registry.get_status(model_name)
+    assert final_status == ModelStatus.AVAILABLE
+    assert len(progresses) == 1
+    assert progresses[0].status == ModelStatus.AVAILABLE
+    for path, expected in file_contents.items():
+        actual = (models_dir / "parakeet" / model_name / path).read_bytes()
+        assert actual == expected, f"file {path} contents mismatch"
+
+    eng = ParakeetEngine(models_dir / "parakeet", registry=registry)
+    fake_model = MagicMock()
+    with patch("onnx_asr.load_model", return_value=fake_model) as mock_load:
+        eng.load_model(model_name)
+    mock_load.assert_called_once_with(model_name, path=models_dir / "parakeet" / model_name)
 
 
 def test_parakeet_transcribe_batch_invalid_logprobs() -> None:
