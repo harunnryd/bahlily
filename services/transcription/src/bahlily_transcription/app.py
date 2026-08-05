@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from importlib import resources
 from pathlib import Path
+from typing import cast
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -364,9 +365,28 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
                 _diarize_executor, _diarize_engine.run, req.recording_path
             )
             labeled_segments = assign_speakers(req.segments, diarization.turns)
+            items = list(diarization.speakers.items())
+            try:
+                hits = cast(
+                    dict[str, dict[str, str]],
+                    await _match_client.match_bulk(items),
+                )
+            except Exception as exc:
+                _log.warning(
+                    "diarize_speaker_match_failed",
+                    error=str(exc),
+                    item_count=len(items),
+                    job_id=job_id,
+                )
+                hits = {}
             speakers = [
-                DiarizeSpeaker(cluster_label=label, voice_embedding=embedding)
-                for label, embedding in diarization.speakers.items()
+                DiarizeSpeaker(
+                    cluster_label=label,
+                    voice_embedding=embedding,
+                    matched_profile_id=hits.get(label, {}).get("profile_id"),
+                    matched_profile_name=hits.get(label, {}).get("profile_name"),
+                )
+                for label, embedding in items
             ]
             state.status = DiarizeJobStatus.COMPLETED
             state.result = (labeled_segments, speakers)
