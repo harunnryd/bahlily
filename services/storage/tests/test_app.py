@@ -659,6 +659,47 @@ def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestC
     assert resp.json()["profile"] is None
 
 
+def test_match_bulk_returns_matches_per_key(client: TestClient) -> None:
+    alice = [1.0] + [0.0] * 511
+    bob = [0.0, 1.0] + [0.0] * 510
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": alice})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": bob})
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                {"key": "near-alice", "voice_embedding": alice},
+                {"key": "near-bob", "voice_embedding": bob},
+                {"key": "near-nobody", "voice_embedding": [0.5] * 512},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    matches = {
+        m["key"]: (m["profile"]["name"] if m["profile"] is not None else None)
+        for m in resp.json()["matches"]
+    }
+    assert matches["near-alice"] == "Alice"
+    assert matches["near-bob"] == "Bob"
+    assert matches["near-nobody"] is None
+
+
+def test_match_bulk_rejects_empty_list(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles/match-bulk", json={"embeddings": []})
+    assert resp.status_code == 422
+
+
+def test_match_bulk_rejects_dim_mismatch(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={"embeddings": [{"key": "x", "voice_embedding": [0.1, 0.2]}]},
+    )
+    assert resp.status_code == 422
+
+
 def test_patch_meeting_accepts_recording_path_and_diarization_status(client: TestClient) -> None:
     client.post("/meetings", json={"id": "m1"})
 

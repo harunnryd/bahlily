@@ -183,3 +183,23 @@ class MatchSpeakerProfileRequest(BaseModel):
 
 class MatchSpeakerProfileResponse(BaseModel):
     profile: SpeakerProfileResponse | None
+
+
+class MatchBulkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=128)
+    voice_embedding: VoiceEmbedding
+
+
+class MatchBulkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    embeddings: list[MatchBulkItem] = Field(min_length=1, max_length=64)
+
+
+class MatchBulkEntry(BaseModel):
+    key: str
+    profile: SpeakerProfileResponse | None = None
+
+
+class MatchBulkResponse(BaseModel):
+    matches: list[MatchBulkEntry]

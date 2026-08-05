@@ -40,6 +40,9 @@ from bahlily_storage.schemas import (
     CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
+    MatchBulkEntry,
+    MatchBulkRequest,
+    MatchBulkResponse,
     MatchSpeakerProfileRequest,
     MatchSpeakerProfileResponse,
     MeetingResponse,
@@ -512,3 +515,36 @@ async def match_speaker_profile(
         # client error, so treat it the same as "no match" rather than 500ing.
         return MatchSpeakerProfileResponse(profile=None)
     return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))
+
+
+async def _match_one(
+    repo: SpeakerProfileRepo,
+    embedding: list[float],
+    candidates: list[tuple[str, list[float]]],
+) -> SpeakerProfile | None:
+    matched_id = best_match(embedding, candidates)
+    if matched_id is None:
+        return None
+    matched = await repo.get(matched_id)
+    return matched
+
+
+@app.post("/speaker-profiles/match-bulk")
+async def match_speaker_profile_bulk(
+    req: MatchBulkRequest, session: SessionDep
+) -> MatchBulkResponse:
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all_for_matching()
+    candidates = [(p.id, json.loads(p.voice_embedding)) for p in profiles]
+    matches = [
+        MatchBulkEntry(
+            key=item.key,
+            profile=(
+                _speaker_profile_to_response(matched)
+                if (matched := await _match_one(repo, item.voice_embedding, candidates))
+                else None
+            ),
+        )
+        for item in req.embeddings
+    ]
+    return MatchBulkResponse(matches=matches)
