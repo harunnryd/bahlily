@@ -74,6 +74,10 @@ def mocked_pyannote_pipeline(
         mock_class.from_pretrained = MagicMock(return_value=fake_pipeline)
 
         monkeypatch.setattr("bahlily_transcription.diarize_engine.Pipeline", mock_class)
+        monkeypatch.setattr(
+            "bahlily_transcription.diarize_engine._select_device",
+            lambda: MagicMock(),
+        )
         app_module._diarize_engine._pipeline = None
 
     return configure
