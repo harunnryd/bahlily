@@ -210,3 +210,8 @@ class LabelSpeakerRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=128)
     voice_embedding: VoiceEmbedding | None = None
+
+
+class MergeSpeakersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    other_profile_id: str = Field(min_length=1)

@@ -47,6 +47,7 @@ from bahlily_storage.schemas import (
     MatchSpeakerProfileRequest,
     MatchSpeakerProfileResponse,
     MeetingResponse,
+    MergeSpeakersRequest,
     PatchMeetingRequest,
     PatchSpeakerProfileRequest,
     PatchTemplateRequest,
@@ -601,3 +602,37 @@ async def label_speaker_in_meeting(
     )
     await session.refresh(profile)
     return _speaker_profile_to_response(profile)
+
+
+@app.post("/speaker-profiles/{profile_id}/merge")
+async def merge_speaker_profiles(
+    profile_id: str,
+    req: MergeSpeakersRequest,
+    session: SessionDep,
+) -> SpeakerProfileResponse:
+    if profile_id == req.other_profile_id:
+        raise HTTPException(status_code=422, detail="cannot merge a profile with itself")
+
+    repo = SpeakerProfileRepo(session)
+    winner = await repo.get(profile_id)
+    if winner is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    loser = await repo.get(req.other_profile_id)
+    if loser is None:
+        await session.commit()
+        return _speaker_profile_to_response(winner)
+
+    segment_repo = SegmentRepo(session)
+    moved = await segment_repo.reassign_speaker_profile(
+        from_profile_id=loser.id, to_profile_id=winner.id
+    )
+    await repo.delete(loser.id)
+    await session.commit()
+    _log.info(
+        "merge_speaker_profiles",
+        winner_id=winner.id,
+        loser_id=loser.id,
+        moved_segments=moved,
+    )
+    await session.refresh(winner)
+    return _speaker_profile_to_response(winner)

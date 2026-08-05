@@ -851,3 +851,123 @@ def test_label_speaker_with_unknown_cluster_succeeds_with_zero_segments(
         json={"name": "Alice", "voice_embedding": [0.0] * 512},
     )
     assert resp.status_code == 200
+
+
+def test_merge_speakers_moves_segments_and_deletes_loser(client: TestClient) -> None:
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1] * 512}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": [0.2] * 512}
+    ).json()
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "x",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                }
+            ]
+        },
+    )
+    client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 2,
+                    "text": "y",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 1.0,
+                    "audio_end_time": 2.0,
+                    "language": "en",
+                    "trace_id": "t2",
+                    "speaker_cluster_label": "SPEAKER_02",
+                    "speaker_profile_id": other["id"],
+                }
+            ]
+        },
+    )
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == alice["id"]
+    assert resp.json()["name"] == "Alice"
+    assert client.get(f"/speaker-profiles/{other['id']}").status_code == 404
+    segs = client.get("/meetings/m1/segments").json()
+    assert {s["speaker_profile_id"] for s in segs} == {alice["id"]}
+
+
+def test_merge_speakers_rejects_unknown_winner(client: TestClient) -> None:
+    other = client.post(
+        "/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0] * 512}
+    ).json()
+    resp = client.post(
+        "/speaker-profiles/no-such-id/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 404
+
+
+def test_merge_speakers_rejects_self_merge(client: TestClient) -> None:
+    p = client.post(
+        "/speaker-profiles", json={"name": "Solo", "voice_embedding": [0.0] * 512}
+    ).json()
+    resp = client.post(
+        f"/speaker-profiles/{p['id']}/merge",
+        json={"other_profile_id": p["id"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_merge_speakers_idempotent_when_loser_gone(client: TestClient) -> None:
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.0] * 512}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": [0.0] * 512}
+    ).json()
+    client.delete(f"/speaker-profiles/{other['id']}")
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == alice["id"]
+
+
+def test_merge_speakers_keeps_winner_embedding(client: TestClient) -> None:
+    winner_emb = [0.5] * 512
+    loser_emb = [0.9] * 512
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": winner_emb}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": loser_emb}
+    ).json()
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.json()["voice_embedding"] == winner_emb

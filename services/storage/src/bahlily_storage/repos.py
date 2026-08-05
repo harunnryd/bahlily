@@ -186,6 +186,16 @@ class SegmentRepo:
         assert isinstance(result, CursorResult)
         return result.rowcount
 
+    async def reassign_speaker_profile(self, from_profile_id: str, to_profile_id: str) -> int:
+        stmt = (
+            update(Segment)
+            .where(Segment.speaker_profile_id == from_profile_id)
+            .values(speaker_profile_id=to_profile_id)
+        )
+        result = await self._s.execute(stmt)
+        assert isinstance(result, CursorResult)
+        return result.rowcount
+
 
 class SummaryRepo:
     def __init__(self, session: AsyncSession) -> None:
