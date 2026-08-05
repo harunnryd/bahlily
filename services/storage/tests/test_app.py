@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import math
+import random
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -971,3 +973,48 @@ def test_merge_speakers_keeps_winner_embedding(client: TestClient) -> None:
         json={"other_profile_id": other["id"]},
     )
     assert resp.json()["voice_embedding"] == winner_emb
+
+
+def _random_unit_embedding(rng: random.Random, dim: int) -> list[float]:
+    v = [rng.gauss(0.0, 1.0) for _ in range(dim)]
+    norm = math.sqrt(sum(x * x for x in v))
+    return [x / norm for x in v]
+
+
+def _perturb(embedding: list[float], rng: random.Random, sigma: float) -> list[float]:
+    perturbed = [e + rng.gauss(0.0, sigma) for e in embedding]
+    norm = math.sqrt(sum(x * x for x in perturbed))
+    return [x / norm for x in perturbed]
+
+
+def test_diarize_3speaker_synthetic_fixture_picks_correct_matches(
+    client: TestClient,
+) -> None:
+    rng = random.Random(0)
+    dim = 512
+
+    alice_true = _random_unit_embedding(rng, dim)
+    bob_true = _random_unit_embedding(rng, dim)
+    carol_true = _random_unit_embedding(rng, dim)
+
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": alice_true})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": bob_true})
+
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                # Close to Alice; small noise relative to her centroid.
+                {"key": "alice-segment", "voice_embedding": _perturb(alice_true, rng, 0.027)},
+                # Close to Bob.
+                {"key": "bob-segment", "voice_embedding": _perturb(bob_true, rng, 0.027)},
+                # Close to nobody registered; orthogonal to both.
+                {"key": "carol-segment", "voice_embedding": carol_true},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    matches = {m["key"]: (m["profile"] or {}).get("name") for m in resp.json()["matches"]}
+    assert matches["alice-segment"] == "Alice"
+    assert matches["bob-segment"] == "Bob"
+    assert matches["carol-segment"] is None
