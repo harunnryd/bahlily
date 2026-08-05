@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
@@ -13,6 +15,9 @@ from bahlily_transcription.app import _augment_diarization
 from bahlily_transcription.diarize_engine import DiarizationResult
 from bahlily_transcription.models import DiarizeRequest, TranscriptSegmentSchema
 from bahlily_transcription.speaker_match_client import SpeakerMatchClient
+
+PyannoteSpeakers = dict[str, list[float]]
+PyannoteMockConfigurator = Callable[[PyannoteSpeakers], None]
 
 
 def _seg(segment_id: int, cluster: str) -> TranscriptSegmentSchema:
@@ -31,10 +36,12 @@ def _seg(segment_id: int, cluster: str) -> TranscriptSegmentSchema:
     )
 
 
-async def _wait_for_diarize(client: TestClient, job_id: str, timeout_s: float = 5.0) -> dict:
+async def _wait_for_diarize(
+    client: TestClient, job_id: str, timeout_s: float = 5.0
+) -> dict[str, Any]:
     deadline = asyncio.get_running_loop().time() + timeout_s
     while asyncio.get_running_loop().time() < deadline:
-        body = client.get(f"/diarize/{job_id}").json()
+        body: dict[str, Any] = client.get(f"/diarize/{job_id}").json()
         if body["status"] in {"completed", "failed"}:
             return body
         await asyncio.sleep(0.05)
@@ -42,13 +49,15 @@ async def _wait_for_diarize(client: TestClient, job_id: str, timeout_s: float = 
 
 
 @pytest.fixture
-def mocked_pyannote_pipeline(monkeypatch: pytest.MonkeyPatch):
+def mocked_pyannote_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> PyannoteMockConfigurator:
     """Replace the pyannote Pipeline so DiarizeEngine.run produces
     deterministic output without loading the gated ML model. Returns a
-    callable that takes a `speakers: dict[str, list[float]]` mapping and
-    configures the mock output for one test."""
+    callable that takes a speakers mapping and configures the mock
+    output for one test."""
 
-    def configure(speakers: dict[str, list[float]]) -> None:
+    def configure(speakers: PyannoteSpeakers) -> None:
         ann = MagicMock()
         ann.itertracks.return_value = []
         ann.labels.return_value = list(speakers.keys())
@@ -158,7 +167,7 @@ async def test_augment_diarization_skips_storage_call_when_no_speakers(
 
 @pytest.mark.asyncio
 async def test_diarize_endpoint_returns_matched_and_unmatched_profile_fields(
-    mocked_pyannote_pipeline,
+    mocked_pyannote_pipeline: PyannoteMockConfigurator,
     monkeypatch: pytest.MonkeyPatch,
     respx_mock: respx.MockRouter,
 ) -> None:
@@ -207,7 +216,7 @@ async def test_diarize_endpoint_returns_matched_and_unmatched_profile_fields(
 
 @pytest.mark.asyncio
 async def test_diarize_endpoint_falls_back_to_unmatched_when_storage_unreachable(
-    mocked_pyannote_pipeline,
+    mocked_pyannote_pipeline: PyannoteMockConfigurator,
     monkeypatch: pytest.MonkeyPatch,
     respx_mock: respx.MockRouter,
 ) -> None:
@@ -247,7 +256,7 @@ async def test_diarize_endpoint_falls_back_to_unmatched_when_storage_unreachable
 
 @pytest.mark.asyncio
 async def test_diarize_endpoint_completes_with_empty_speakers_list(
-    mocked_pyannote_pipeline,
+    mocked_pyannote_pipeline: PyannoteMockConfigurator,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("BAHLILY_TRANSCRIPTION_HF_TOKEN", "test")
@@ -275,7 +284,7 @@ async def test_diarize_endpoint_completes_with_empty_speakers_list(
 
 @pytest.mark.asyncio
 async def test_diarize_endpoint_makes_no_storage_request_when_diarization_empty(
-    mocked_pyannote_pipeline,
+    mocked_pyannote_pipeline: PyannoteMockConfigurator,
     monkeypatch: pytest.MonkeyPatch,
     respx_mock: respx.MockRouter,
 ) -> None:
