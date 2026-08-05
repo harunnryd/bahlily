@@ -68,6 +68,8 @@ class SpeakerMatchClient:
                         "profile_id": entry.profile.id,
                         "profile_name": entry.profile.name,
                     }
+            if matched_keys != requested_keys:
+                raise ValueError("incomplete speaker-match response")
             return hits
         except (httpx.HTTPError, ValueError) as exc:
             _log.warning(
