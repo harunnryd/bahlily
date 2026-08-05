@@ -368,7 +368,7 @@ async def _augment_diarization(
             item_count=len(items),
             job_id=job_id,
         )
-        return []
+        hits = {}
     return [
         DiarizeSpeaker(
             cluster_label=label,
