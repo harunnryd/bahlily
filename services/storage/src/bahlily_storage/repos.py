@@ -168,6 +168,24 @@ class SegmentRepo:
         )
         return list(result.scalars().all())
 
+    async def set_speaker_profile_for_cluster(
+        self,
+        meeting_id: str,
+        cluster_label: str,
+        profile_id: str,
+    ) -> int:
+        stmt = (
+            update(Segment)
+            .where(
+                Segment.meeting_id == meeting_id,
+                Segment.speaker_cluster_label == cluster_label,
+            )
+            .values(speaker_profile_id=profile_id)
+        )
+        result = await self._s.execute(stmt)
+        assert isinstance(result, CursorResult)
+        return result.rowcount
+
 
 class SummaryRepo:
     def __init__(self, session: AsyncSession) -> None:

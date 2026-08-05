@@ -7,7 +7,7 @@ from typing import Annotated
 
 import structlog
 from bahlily_logging.errors import BahlilyError
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,7 @@ from bahlily_storage.schemas import (
     CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
+    LabelSpeakerRequest,
     MatchBulkEntry,
     MatchBulkRequest,
     MatchBulkResponse,
@@ -548,3 +549,55 @@ async def match_speaker_profile_bulk(
         for item in req.embeddings
     ]
     return MatchBulkResponse(matches=matches)
+
+
+@app.post("/meetings/{meeting_id}/speakers/{cluster_label}/label")
+async def label_speaker_in_meeting(
+    meeting_id: str,
+    cluster_label: str,
+    req: LabelSpeakerRequest,
+    session: SessionDep,
+) -> SpeakerProfileResponse:
+    meeting_repo = MeetingRepo(session)
+    if await meeting_repo.get(meeting_id) is None:
+        raise StorageMeetingNotFoundError(meeting_id)
+
+    profile_repo = SpeakerProfileRepo(session)
+    profile = await profile_repo.get_by_name(req.name)
+    if profile is None:
+        if req.voice_embedding is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"name '{req.name}' is new; voice_embedding required",
+            )
+        profile = SpeakerProfile(
+            id=str(uuid.uuid4()),
+            name=req.name,
+            voice_embedding=json.dumps(req.voice_embedding),
+            created_at=datetime.datetime.now(datetime.UTC),
+            updated_at=datetime.datetime.now(datetime.UTC),
+        )
+        try:
+            await profile_repo.create(profile)
+        except IntegrityError:
+            await session.rollback()
+            existing = await profile_repo.get_by_name(req.name)
+            if existing is None:
+                raise
+            profile = existing
+    await session.flush()
+
+    segment_repo = SegmentRepo(session)
+    linked = await segment_repo.set_speaker_profile_for_cluster(
+        meeting_id, cluster_label, profile.id
+    )
+    await session.commit()
+    _log.info(
+        "label_speaker_cluster",
+        meeting_id=meeting_id,
+        cluster_label=cluster_label,
+        speaker_profile_id=profile.id,
+        linked_segments=linked,
+    )
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)

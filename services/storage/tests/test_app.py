@@ -744,3 +744,110 @@ def test_batch_segments_accepts_speaker_fields(client: TestClient) -> None:
     resp = client.get("/meetings/m1/segments")
     assert resp.json()[0]["speaker_cluster_label"] == "Speaker 1"
     assert resp.json()[0]["speaker_profile_id"] is None
+
+
+def test_label_speaker_creates_profile_and_links_segments(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hello",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+                {
+                    "segment_id": 2,
+                    "text": "world",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 1.0,
+                    "audio_end_time": 2.0,
+                    "language": "en",
+                    "trace_id": "t2",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alice"
+    segs = client.get("/meetings/m1/segments").json()
+    assert {s["speaker_profile_id"] for s in segs} == {resp.json()["id"]}
+    assert {s["speaker_cluster_label"] for s in segs} == {"SPEAKER_01"}
+
+
+def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:
+    embedding = [0.1] * 512
+    first = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": embedding})
+    profile_id = first.json()["id"]
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hi",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_02",
+                },
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_02/label",
+        json={"name": "Alice"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == profile_id
+
+
+def test_label_speaker_rejects_unknown_meeting(client: TestClient) -> None:
+    resp = client.post(
+        "/meetings/does-not-exist/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 404
+
+
+def test_label_speaker_with_unknown_cluster_succeeds_with_zero_segments(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_NOBODY/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 200

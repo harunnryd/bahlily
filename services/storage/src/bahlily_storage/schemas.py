@@ -203,3 +203,10 @@ class MatchBulkEntry(BaseModel):
 
 class MatchBulkResponse(BaseModel):
     matches: list[MatchBulkEntry]
+
+
+class LabelSpeakerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    voice_embedding: VoiceEmbedding | None = None
