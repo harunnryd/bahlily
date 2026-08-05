@@ -45,6 +45,7 @@ from bahlily_transcription.models import (
 )
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 from bahlily_transcription.registry import ModelRegistry
+from bahlily_transcription.speaker_match_client import SpeakerMatchClient
 from bahlily_transcription.whisper_engine import WhisperEngine
 from bahlily_transcription.worker import SessionWorker
 
@@ -76,6 +77,7 @@ _sessions = JobStore[SessionState](
     is_terminal=lambda s: s.status in {"failed", "completed"},
 )
 _diarize_engine = DiarizeEngine()
+_match_client = SpeakerMatchClient(storage_url=os.environ.get("BAHLILY_STORAGE_URL"))
 _diarize_jobs = JobStore[DiarizeJobState](
     ttl_seconds=float(os.environ.get("BAHLILY_TRANSCRIPTION_DIARIZE_TTL_SECONDS", "3600")),
     sweep_interval_seconds=60.0,
