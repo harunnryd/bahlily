@@ -136,6 +136,7 @@ class SummaryTemplate(Base):
 
 class SpeakerProfile(Base):
     __tablename__ = "speaker_profiles"
+    __table_args__ = (UniqueConstraint("name", name="uq_speaker_profiles_name"),)
 
     id: Mapped[str] = mapped_column(primary_key=True)
     name: Mapped[str]
