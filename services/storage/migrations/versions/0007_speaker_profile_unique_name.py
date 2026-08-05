@@ -29,6 +29,26 @@ def upgrade() -> None:
     dedupe landed and only drops the constraint.
     """
     op.execute(
+        "UPDATE segments "
+        "SET speaker_profile_id = ("
+        "  SELECT retained.id "
+        "  FROM speaker_profiles AS duplicate "
+        "  JOIN speaker_profiles AS retained "
+        "    ON retained.name = duplicate.name "
+        "  WHERE duplicate.id = segments.speaker_profile_id "
+        "    AND retained.rowid = ("
+        "      SELECT MIN(rowid) FROM speaker_profiles sp2 "
+        "      WHERE sp2.name = duplicate.name"
+        "    )"
+        ") "
+        "WHERE speaker_profile_id IN ("
+        "  SELECT id FROM speaker_profiles "
+        "  WHERE rowid NOT IN ("
+        "    SELECT MIN(rowid) FROM speaker_profiles GROUP BY name"
+        "  )"
+        ")"
+    )
+    op.execute(
         "DELETE FROM speaker_profiles "
         "WHERE rowid NOT IN (SELECT MIN(rowid) FROM speaker_profiles GROUP BY name)"
     )

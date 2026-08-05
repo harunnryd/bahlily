@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
@@ -12,6 +13,8 @@ def _validate_dim(v: list[float]) -> list[float]:
     expected = storage_config.embedding_dim()
     if len(v) != expected:
         raise ValueError(f"voice_embedding length {len(v)} != expected {expected}")
+    if any(not math.isfinite(x) for x in v):
+        raise ValueError("voice_embedding must contain only finite numbers (no NaN or inf)")
     return v
 
 

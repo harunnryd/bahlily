@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from starlette.requests import Request
 
-from bahlily_transcription.diarize_engine import DiarizeEngine
+from bahlily_transcription.diarize_engine import DiarizationResult, DiarizeEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
@@ -348,6 +348,38 @@ def get_session(recording_id: str) -> dict[str, object]:
     return {"recording_id": recording_id, "status": status}
 
 
+async def _augment_diarization(
+    diarization: DiarizationResult,
+    match_client: SpeakerMatchClient,
+    job_id: str,
+) -> list[DiarizeSpeaker]:
+    items = list(diarization.speakers.items())
+    if not items:
+        return []
+    try:
+        hits = cast(
+            dict[str, dict[str, str]],
+            await match_client.match_bulk(items),
+        )
+    except Exception as exc:
+        _log.warning(
+            "diarize_speaker_match_failed",
+            error=str(exc),
+            item_count=len(items),
+            job_id=job_id,
+        )
+        return []
+    return [
+        DiarizeSpeaker(
+            cluster_label=label,
+            voice_embedding=embedding,
+            matched_profile_id=hits.get(label, {}).get("profile_id"),
+            matched_profile_name=hits.get(label, {}).get("profile_name"),
+        )
+        for label, embedding in items
+    ]
+
+
 @app.post("/diarize", status_code=202)
 async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
     if not os.environ.get("BAHLILY_TRANSCRIPTION_HF_TOKEN"):
@@ -365,29 +397,7 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
                 _diarize_executor, _diarize_engine.run, req.recording_path
             )
             labeled_segments = assign_speakers(req.segments, diarization.turns)
-            items = list(diarization.speakers.items())
-            try:
-                hits = cast(
-                    dict[str, dict[str, str]],
-                    await _match_client.match_bulk(items),
-                )
-            except Exception as exc:
-                _log.warning(
-                    "diarize_speaker_match_failed",
-                    error=str(exc),
-                    item_count=len(items),
-                    job_id=job_id,
-                )
-                hits = {}
-            speakers = [
-                DiarizeSpeaker(
-                    cluster_label=label,
-                    voice_embedding=embedding,
-                    matched_profile_id=hits.get(label, {}).get("profile_id"),
-                    matched_profile_name=hits.get(label, {}).get("profile_name"),
-                )
-                for label, embedding in items
-            ]
+            speakers = await _augment_diarization(diarization, _match_client, job_id)
             state.status = DiarizeJobStatus.COMPLETED
             state.result = (labeled_segments, speakers)
             state.error = None

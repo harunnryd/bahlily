@@ -29,13 +29,25 @@ class _MatchBulkResponse(BaseModel):
 
 
 class SpeakerMatchClient:
+    _storage_url: str | None
+
     def __init__(self, storage_url: str | None, *, timeout: float = 2.0) -> None:
-        self._storage_url = storage_url.rstrip("/") if storage_url else None
+        if storage_url is not None:
+            if not storage_url.startswith("https://"):
+                raise ValueError(f"BAHLILY_STORAGE_URL must use https://; got '{storage_url}'")
+            self._storage_url = storage_url.rstrip("/")
+        else:
+            self._storage_url = None
         self._timeout = timeout
 
     async def match_bulk(self, items: list[tuple[str, list[float]]]) -> dict[str, SpeakerMatchHit]:
         if self._storage_url is None or not items:
             return {}
+        seen_keys: set[str] = set()
+        for key, _ in items:
+            if key in seen_keys:
+                raise ValueError(f"duplicate key '{key}' in match_bulk items")
+            seen_keys.add(key)
         body = {"embeddings": [{"key": key, "voice_embedding": emb} for key, emb in items]}
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:

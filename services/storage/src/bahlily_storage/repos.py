@@ -280,6 +280,12 @@ class SpeakerProfileRepo:
         result = await self._s.execute(select(SpeakerProfile).where(SpeakerProfile.name == name))
         return result.scalar_one_or_none()
 
+    async def get_many(self, ids: list[str]) -> dict[str, SpeakerProfile]:
+        if not ids:
+            return {}
+        result = await self._s.execute(select(SpeakerProfile).where(SpeakerProfile.id.in_(ids)))
+        return {p.id: p for p in result.scalars().all()}
+
     async def list_all(self, limit: int = 20, offset: int = 0) -> list[SpeakerProfile]:
         result = await self._s.execute(
             select(SpeakerProfile)

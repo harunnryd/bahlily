@@ -9,19 +9,27 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bahlily_storage import db as db_module
-from bahlily_storage.app import app, create_meeting, create_summary
+from bahlily_storage.app import (
+    app,
+    create_meeting,
+    create_speaker_profile,
+    create_summary,
+)
 from bahlily_storage.db import get_session
 from bahlily_storage.errors import (
     StorageMeetingAlreadyExistsError,
+    StorageSpeakerProfileNameConflictError,
     StorageSummaryAlreadyExistsError,
 )
-from bahlily_storage.models import Base, Meeting, SpeakerProfile
-from bahlily_storage.repos import SpeakerProfileRepo
-from bahlily_storage.schemas import CreateMeetingRequest, CreateSummaryRequest
+from bahlily_storage.models import Base, Meeting
+from bahlily_storage.schemas import (
+    CreateMeetingRequest,
+    CreateSpeakerProfileRequest,
+    CreateSummaryRequest,
+)
 
 
 def _emb(*values: float) -> list[float]:
@@ -344,6 +352,45 @@ async def test_create_summary_race_maps_to_conflict(tmp_path: Path) -> None:
     assert outcomes.count("conflict") == 1
 
 
+async def test_create_speaker_profile_race_maps_to_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent create_speaker_profile calls for the same name must
+    yield exactly one success and one StorageSpeakerProfileNameConflictError.
+
+    Depending on transaction timing, the loser takes either the pre-check
+    409 path (its `get_by_name` ran after the winner's commit) or the
+    IntegrityError 409 path (both `get_by_name` calls returned None and
+    SQLite's UNIQUE constraint fired on the second INSERT). Both paths
+    must produce 409; this test exercises them concurrently rather than
+    forcing one or the other.
+    """
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{tmp_path / 'speaker_profile_race.db'}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+
+        async def attempt() -> str:
+            async with factory() as session:
+                try:
+                    await create_speaker_profile(
+                        CreateSpeakerProfileRequest(name="Race", voice_embedding=[0.0] * 512),
+                        session,
+                    )
+                except StorageSpeakerProfileNameConflictError:
+                    return "conflict"
+                return "created"
+
+        outcomes = await asyncio.gather(attempt(), attempt())
+    finally:
+        await engine.dispose()
+
+    assert outcomes.count("created") == 1
+    assert outcomes.count("conflict") == 1
+
+
 def test_create_and_get_template(client: TestClient) -> None:
     body = {"name": "Custom", "system_prompt": "Summarize this."}
     r = client.post("/templates", json=body)
@@ -528,6 +575,86 @@ def test_create_speaker_profile_rejects_wrong_embedding_dim(
     assert "expected 512" in resp.text
 
 
+def test_patch_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    created = client.post(
+        "/speaker-profiles",
+        json={"name": "PatchMe", "voice_embedding": [0.0] * 512},
+    )
+    profile_id = created.json()["id"]
+    resp = client.patch(
+        f"/speaker-profiles/{profile_id}",
+        json={"voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_match_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles/match",
+        json={"voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_label_speaker_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "x",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                }
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_validate_dim_rejects_non_finite_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The HTTP boundary never sees NaN/Inf (FastAPI's default request
+    # encoder rejects them at the JSON parse step), so the validator's
+    # finite-check is defense-in-depth tested here at the function level.
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    from bahlily_storage.schemas import _validate_dim
+
+    embedding = [0.0] * 512
+    with pytest.raises(ValueError, match="finite"):
+        _validate_dim([float("nan")] + embedding[1:])
+    with pytest.raises(ValueError, match="finite"):
+        _validate_dim([float("inf")] + embedding[1:])
+    with pytest.raises(ValueError, match="finite"):
+        _validate_dim([float("-inf")] + embedding[1:])
+
+
 def test_get_speaker_profile_not_found(client: TestClient) -> None:
     resp = client.get("/speaker-profiles/missing")
     assert resp.status_code == 404
@@ -688,6 +815,20 @@ def test_match_bulk_returns_matches_per_key(client: TestClient) -> None:
     assert matches["near-nobody"] is None
 
 
+def test_match_bulk_rejects_duplicate_keys(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                {"key": "dup", "voice_embedding": [0.0] * 512},
+                {"key": "dup", "voice_embedding": [0.0] * 512},
+            ]
+        },
+    )
+    assert resp.status_code == 422
+    assert "duplicate key 'dup'" in resp.text
+
+
 def test_match_bulk_rejects_empty_list(client: TestClient) -> None:
     resp = client.post("/speaker-profiles/match-bulk", json={"embeddings": []})
     assert resp.status_code == 422
@@ -809,24 +950,6 @@ def test_label_speaker_requires_embedding_for_new_profile(client: TestClient) ->
     assert resp.status_code == 422
 
 
-def test_label_speaker_maps_vanished_conflict_to_409(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async def raise_integrity_error(
-        self: SpeakerProfileRepo, profile: SpeakerProfile
-    ) -> SpeakerProfile:
-        raise IntegrityError("INSERT", {}, RuntimeError("conflict"))
-
-    client.post("/meetings", json={"id": "m1"})
-    monkeypatch.setattr(SpeakerProfileRepo, "create", raise_integrity_error)
-    resp = client.post(
-        "/meetings/m1/speakers/SPEAKER_01/label",
-        json={"name": "NewName", "voice_embedding": [0.0] * 512},
-    )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "STORAGE_SPEAKER_PROFILE_NAME_CONFLICT"
-
-
 def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:
     embedding = [0.1] * 512
     first = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": embedding})
@@ -870,7 +993,7 @@ def test_label_speaker_rejects_unknown_meeting(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_label_speaker_with_unknown_cluster_succeeds_with_zero_segments(
+def test_label_speaker_with_unknown_cluster_returns_404(
     client: TestClient,
 ) -> None:
     client.post(
@@ -881,7 +1004,8 @@ def test_label_speaker_with_unknown_cluster_succeeds_with_zero_segments(
         "/meetings/m1/speakers/SPEAKER_NOBODY/label",
         json={"name": "Alice", "voice_embedding": [0.0] * 512},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "STORAGE_SPEAKER_CLUSTER_NOT_FOUND"
 
 
 def test_merge_speakers_moves_segments_and_deletes_loser(client: TestClient) -> None:

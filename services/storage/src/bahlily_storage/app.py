@@ -9,6 +9,7 @@ import structlog
 from bahlily_logging.errors import BahlilyError
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -18,6 +19,7 @@ from bahlily_storage.errors import (
     StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
+    StorageSpeakerClusterNotFoundError,
     StorageSpeakerProfileNameConflictError,
     StorageSpeakerProfileNotFoundError,
     StorageSummaryAlreadyExistsError,
@@ -71,6 +73,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageSpeakerProfileNotFoundError: 404,
     StorageSpeakerProfileNameConflictError: 409,
     StorageEmbeddingDimNotConfiguredError: 500,
+    StorageSpeakerClusterNotFoundError: 404,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -84,6 +87,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageSpeakerProfileNotFoundError)
 @app.exception_handler(StorageSpeakerProfileNameConflictError)
 @app.exception_handler(StorageEmbeddingDimNotConfiguredError)
+@app.exception_handler(StorageSpeakerClusterNotFoundError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
@@ -443,7 +447,10 @@ async def create_speaker_profile(
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
-        if "uq_speaker_profiles_name" in str(exc.orig):
+        # SQLite's unique-violation message is "UNIQUE constraint failed:
+        # speaker_profiles.name"; the constraint NAME (uq_speaker_profiles_name)
+        # isn't included, so match the actual column path instead.
+        if "UNIQUE constraint failed: speaker_profiles.name" in str(exc.orig):
             raise StorageSpeakerProfileNameConflictError(req.name) from exc
         raise
     await session.refresh(profile)
@@ -519,38 +526,39 @@ async def match_speaker_profile(
     return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))
 
 
-async def _match_one(
-    repo: SpeakerProfileRepo,
-    embedding: list[float],
-    candidates: list[tuple[str, list[float]]],
-) -> SpeakerProfile | None:
-    matched_id = best_match(embedding, candidates)
-    if matched_id is None:
-        return None
-    # Small personal profile counts permit N+1; scale with bulk SELECT WHERE id IN matched_ids.
-    matched = await repo.get(matched_id)
-    return matched
-
-
 @app.post("/speaker-profiles/match-bulk")
 async def match_speaker_profile_bulk(
     req: MatchBulkRequest, session: SessionDep
 ) -> MatchBulkResponse:
+    seen_keys: set[str] = set()
+    for item in req.embeddings:
+        if item.key in seen_keys:
+            raise HTTPException(
+                status_code=422,
+                detail=f"duplicate key '{item.key}' in match-bulk request",
+            )
+        seen_keys.add(item.key)
+
     repo = SpeakerProfileRepo(session)
     profiles = await repo.list_all_for_matching()
     candidates = [(p.id, json.loads(p.voice_embedding)) for p in profiles]
-    matches = [
-        MatchBulkEntry(
-            key=item.key,
-            profile=(
-                _speaker_profile_to_response(matched)
-                if (matched := await _match_one(repo, item.voice_embedding, candidates))
-                else None
-            ),
-        )
-        for item in req.embeddings
+    matched: list[tuple[str, str | None]] = [
+        (item.key, best_match(item.voice_embedding, candidates)) for item in req.embeddings
     ]
-    return MatchBulkResponse(matches=matches)
+    matched_profiles = await repo.get_many(list({mid for _, mid in matched if mid is not None}))
+    return MatchBulkResponse(
+        matches=[
+            MatchBulkEntry(
+                key=key,
+                profile=(
+                    _speaker_profile_to_response(matched_profiles[mid])
+                    if mid is not None and mid in matched_profiles
+                    else None
+                ),
+            )
+            for key, mid in matched
+        ]
+    )
 
 
 @app.post("/meetings/{meeting_id}/speakers/{cluster_label}/label")
@@ -593,6 +601,9 @@ async def label_speaker_in_meeting(
     linked = await segment_repo.set_speaker_profile_for_cluster(
         meeting_id, cluster_label, profile.id
     )
+    if linked == 0:
+        await session.rollback()
+        raise StorageSpeakerClusterNotFoundError(meeting_id, cluster_label)
     await session.commit()
     _log.info(
         "label_speaker_cluster",
@@ -618,7 +629,17 @@ async def merge_speaker_profiles(
     winner = await repo.get(profile_id)
     if winner is None:
         raise StorageSpeakerProfileNotFoundError(profile_id)
-    loser = await repo.get(req.other_profile_id)
+    # SELECT ... FOR UPDATE: row-level lock on the loser so a concurrent
+    # merge against the same loser blocks here until our transaction
+    # commits. SQLite ignores FOR UPDATE (serializes writes via its global
+    # write lock), so this is a portability hint for Postgres/MySQL.
+    loser = (
+        await session.execute(
+            select(SpeakerProfile)
+            .where(SpeakerProfile.id == req.other_profile_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if loser is None:
         await session.commit()
         return _speaker_profile_to_response(winner)

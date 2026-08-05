@@ -439,7 +439,10 @@ def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
 ) -> None:
     """Migration 0007 dedupes existing duplicate-named speaker profiles by
     SQLite rowid (insertion order, not the UUID TEXT primary key) before
-    adding the UNIQUE constraint, preserving the earliest-inserted row."""
+    adding the UNIQUE constraint, preserving the earliest-inserted row AND
+    re-linking any segments that referenced a duplicate to the retained row
+    (the segments FK has ondelete="SET NULL", so the dedupe DELETE alone
+    would lose those labels)."""
     from alembic import command
 
     from bahlily_storage import db
@@ -469,6 +472,23 @@ def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
             "(id, name, voice_embedding, created_at, updated_at) "
             "VALUES ('a', 'Alice', '[]', '2026-01-02 00:00:00', '2026-01-02 00:00:00')"
         )
+        # Seed a meeting + segment linked to the LATER-INSERTED duplicate
+        # ('a'); the dedupe UPDATE in 0007 must re-link this segment to
+        # the retained 'z' before the DELETE fires, otherwise the SET NULL
+        # cascade would silently drop the speaker label.
+        conn.execute(
+            "INSERT INTO meetings "
+            "(id, status, started_at, segments_count, diarization_status) "
+            "VALUES ('m1', 'recording', '2026-01-01 00:00:00', 1, 'not_started')"
+        )
+        conn.execute(
+            "INSERT INTO segments "
+            "(meeting_id, segment_id, text, is_partial, engine, model_name, "
+            " audio_start_time, audio_end_time, language, trace_id, "
+            " speaker_profile_id) "
+            "VALUES ('m1', 1, 'hi', 0, 'whisper', 'small', 0.0, 1.0, "
+            " 'en', 't1', 'a')"
+        )
         conn.commit()
     finally:
         conn.close()
@@ -480,6 +500,12 @@ def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
     conn = sqlite3.connect(str(db_path))
     try:
         rows = conn.execute("SELECT id FROM speaker_profiles").fetchall()
+        assert sorted(r[0] for r in rows) == ["z"]
+        # The segment that referenced the deleted duplicate must now point
+        # at the retained profile, not NULL.
+        seg_profile = conn.execute(
+            "SELECT speaker_profile_id FROM segments WHERE segment_id = 1"
+        ).fetchone()
     finally:
         conn.close()
-    assert sorted(r[0] for r in rows) == ["z"]
+    assert seg_profile[0] == "z"
