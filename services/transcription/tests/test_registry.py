@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -661,7 +662,11 @@ def test_registry_configures_bounded_transfer_timeout() -> None:
         "import huggingface_hub.constants as c;"
         "print(os.environ.get('HF_HUB_DOWNLOAD_TIMEOUT'), c.HF_HUB_DOWNLOAD_TIMEOUT)"
     )
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    child_env = dict(os.environ)
+    child_env.pop("HF_HUB_DOWNLOAD_TIMEOUT", None)
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, env=child_env
+    )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "30 30"
 
