@@ -174,11 +174,15 @@ async def test_download_yields_progress_and_verifies_checksum(
 async def test_download_uses_local_dir_not_cache_dir(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """hf_hub_download must always be called with local_dir (never cache_dir)
-    so files land as real files directly in model_dir instead of being
-    symlinked into a shared HF cache -- otherwise remove()'s rmtree wouldn't
-    actually free the downloaded bytes, and the disk-space check against
-    model_dir's filesystem wouldn't reflect where the data actually lands."""
+    """local_dir (never cache_dir/local_dir_use_symlinks) keeps files real, not cache symlinks."""
+    import huggingface_hub
+    from packaging.version import Version
+
+    assert Version(huggingface_hub.__version__) >= Version("0.24"), (
+        "huggingface-hub must stay >=0.24 -- older versions symlink large "
+        "local_dir downloads into the shared cache by default"
+    )
+
     content = b"x" * 100
     _seed_manifest_entry(registry, "tiny", content)
 
@@ -200,6 +204,7 @@ async def test_download_uses_local_dir_not_cache_dir(
     for call in calls:
         assert call.get("local_dir") == registry._models_dir / "tiny"
         assert "cache_dir" not in call
+        assert "local_dir_use_symlinks" not in call
 
     target = registry._models_dir / "tiny" / "model.bin"
     assert target.is_file()
@@ -404,9 +409,7 @@ def test_remove_rejects_in_flight_download(registry: ModelRegistry, models_dir: 
 async def test_remove_rejects_genuinely_concurrent_in_flight_download(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """remove() and download() share the same lock around the _in_flight
-    check, so a remove() that lands while a download is genuinely writing
-    files can't race past the check and delete out from under it."""
+    """remove() can't race past the in_flight check while a download is writing."""
     import asyncio
     import threading
 
@@ -468,14 +471,11 @@ async def test_download_raises_on_insufficient_disk(registry: ModelRegistry) -> 
 async def test_download_setup_failure_releases_reservation(
     registry: ModelRegistry, models_dir: Path
 ) -> None:
-    """If model_dir.mkdir() (or executor setup) fails before the worker ever
-    starts, the in-flight reservation must still be released -- otherwise the
-    model is stuck as permanently "downloading" until process restart."""
+    """A setup failure (mkdir/executor) must still release the reservation."""
     content = b"x" * 100
     _seed_manifest_entry(registry, "tiny", content)
 
-    # A plain file sitting where the model directory needs to be created
-    # makes model_dir.mkdir(parents=True, exist_ok=True) raise.
+    # A file where model_dir needs to be created makes mkdir() raise.
     conflicting_path = models_dir / "whisper" / "tiny"
     conflicting_path.parent.mkdir(parents=True, exist_ok=True)
     conflicting_path.write_bytes(b"not a directory")
@@ -506,9 +506,7 @@ def test_scan_existing_does_not_clean_hf_cache(models_dir: Path, manifests_dir: 
 def test_scan_existing_treats_directory_at_file_path_as_missing(
     models_dir: Path, manifests_dir: Path
 ) -> None:
-    """A directory sitting where a manifest file is declared must not crash
-    registry construction (opening a directory for reading raises) -- it
-    should just be treated as unavailable."""
+    """A directory at a manifest file path must not crash construction."""
     model_dir = models_dir / "whisper" / "tiny"
     (model_dir / "model.bin").mkdir(parents=True)
 
@@ -665,9 +663,7 @@ def test_registry_configures_bounded_transfer_timeout() -> None:
 async def test_cancel_during_single_file_transfer_stops_within_bounded_time(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A single-file model has no between-files boundary to check cancellation
-    at -- cancelling while its one file is still 'in flight' must still stop
-    the download promptly rather than waiting out the whole transfer."""
+    """Cancelling a single-file model's in-flight transfer must stop promptly."""
     import asyncio
     import threading
     import time
@@ -755,10 +751,7 @@ async def test_cancel_during_second_file_download_prevents_available(
     release.set()
     await task
 
-    # Both files were genuinely downloaded with content matching their real
-    # checksums -- verification would legitimately pass if not for the
-    # cancellation flag, proving cancellation wins even over a fully valid
-    # transfer that was already in flight.
+    # Both files downloaded fine -- cancellation still wins.
     assert (registry._models_dir / "tiny" / "a.bin").read_bytes() == content_a
     assert (registry._models_dir / "tiny" / "b.bin").read_bytes() == content_b
     assert events == []
@@ -769,8 +762,7 @@ async def test_cancel_during_second_file_download_prevents_available(
 async def test_cancel_while_verify_files_is_hashing_prevents_available(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both file transfers complete successfully -- cancellation lands while
-    _verify_files() is actively hashing, not during the download step."""
+    """Cancellation during hashing (not download) must still prevent AVAILABLE."""
     import asyncio
     import threading
 
@@ -809,10 +801,7 @@ async def test_cancel_while_verify_files_is_hashing_prevents_available(
     release_verify.set()
     await task
 
-    # The file downloaded successfully and its checksum genuinely matches --
-    # verification would legitimately pass and mark AVAILABLE if not for the
-    # cancellation flag being re-checked under lock right before that
-    # transition, proving cancellation still wins mid-hash.
+    # Checksum genuinely matches -- cancellation still wins.
     assert (registry._models_dir / "tiny" / "model.bin").read_bytes() == content
     assert events == []
     assert registry.get_status("tiny") == ModelStatus.MISSING
@@ -865,8 +854,7 @@ async def test_checksum_verification_does_not_block_event_loop(
     except asyncio.CancelledError:
         pass
 
-    # If verification had blocked the event loop, the ticker would never get
-    # a chance to run its sleep loop while the download was still pending.
+    # A blocked event loop would give the ticker zero chances to run.
     assert ticks_while_pending > 0
 
 
@@ -874,10 +862,7 @@ async def test_checksum_verification_does_not_block_event_loop(
 async def test_cancel_stops_subsequent_file_downloads(
     registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A stalled/slow transfer of one file must not let the loop keep
-    launching downloads for the remaining files once cancelled -- the
-    transfer actually stops within a bounded time instead of running
-    unbounded to completion."""
+    """Cancelling must stop the next file's download from starting."""
     import asyncio
     import threading
 
@@ -931,10 +916,7 @@ async def test_cancel_stops_subsequent_file_downloads(
 def test_scan_existing_always_rehashes_and_catches_corruption(
     models_dir: Path, manifests_dir: Path
 ) -> None:
-    """Startup scanning (via the public constructor/get_status API) must fully
-    re-verify content every time -- a prior size/mtime-based bypass was
-    removed because same-length corruption paired with a restored mtime was
-    trusted as valid without ever being hashed."""
+    """Startup scanning must fully re-verify content every time, no metadata bypass."""
     import os
 
     content = b"x" * 1000
@@ -958,8 +940,7 @@ def test_scan_existing_always_rehashes_and_catches_corruption(
     registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
 
-    # Unchanged content, unchanged mtime -- still re-verified on every fresh
-    # construction/scan, not skipped based on stale metadata.
+    # Unchanged content/mtime -- still re-verified, not skipped.
     registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.AVAILABLE
 
@@ -968,8 +949,7 @@ def test_scan_existing_always_rehashes_and_catches_corruption(
     registry = ModelRegistry("whisper", models_dir, manifests_dir)
     assert registry.get_status("tiny") == ModelStatus.MISSING
 
-    # Same-length corruption, with the original mtime restored, must also be
-    # caught -- this is exactly the case the removed marker bypass got wrong.
+    # Same-length corruption with the original mtime restored is also caught.
     stat_before = target.stat()
     same_length_corruption = bytes(b ^ 0xFF for b in content)
     assert len(same_length_corruption) == len(content)

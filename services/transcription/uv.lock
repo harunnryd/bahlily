@@ -329,6 +329,7 @@ diarization = [
 dev = [
     { name = "grpcio-tools" },
     { name = "mypy" },
+    { name = "packaging" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "respx" },
@@ -343,7 +344,7 @@ requires-dist = [
     { name = "faster-whisper", marker = "platform_machine != 'arm64' or sys_platform != 'darwin'", specifier = ">=1.2.1" },
     { name = "grpcio", specifier = ">=1.83.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "huggingface-hub", specifier = ">=0.20" },
+    { name = "huggingface-hub", specifier = ">=0.24" },
     { name = "mlx-whisper", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.4.3" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "onnx-asr", specifier = ">=0.12.0" },
@@ -363,6 +364,7 @@ provides-extras = ["diarization"]
 dev = [
     { name = "grpcio-tools", specifier = ">=1.83.0" },
     { name = "mypy", specifier = ">=1.13" },
+    { name = "packaging", specifier = ">=24" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "respx", specifier = ">=0.23.1" },

@@ -26,16 +26,11 @@ from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo,
 _CHUNK_SIZE = 8 * 1024
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
 
-# huggingface_hub applies this as the per-chunk read timeout on the actual
-# file-transfer HTTP request (not just the initial metadata/etag request), so
-# a stalled single-file transfer is bounded independently of the cancellation
-# check between files. Set explicitly rather than relying on the library's
-# own default so a future huggingface_hub version can't silently change it.
+# Per-chunk read timeout on file-transfer requests, so a stalled transfer is bounded.
 _TRANSFER_TIMEOUT_SECONDS = 30
 _hf_constants.HF_HUB_DOWNLOAD_TIMEOUT = _TRANSFER_TIMEOUT_SECONDS
 
-# How long to wait between logging a warning if the background worker thread
-# still hasn't finished during download() cleanup (e.g. after cancellation).
+# How often to log a warning while waiting for the worker thread during cleanup.
 _CLEANUP_WAIT_POLL_SECONDS = 30
 
 _log = structlog.get_logger()
@@ -50,12 +45,7 @@ def _verify_file_sha(path: Path, expected_sha: str) -> bool:
 
 
 def _verify_files(model_path: Path, files: tuple[ModelFile, ...]) -> bool:
-    """Verify every file exists and matches its SHA-256 checksum.
-
-    Every file is fully re-hashed on every call -- a size/mtime-based bypass
-    was tried and removed because same-length content corruption paired with
-    a restored mtime would be trusted as valid without ever being hashed.
-    """
+    """Verify every file exists and matches its SHA-256 checksum. Always re-hashes."""
     for file in files:
         target = model_path / file.path
         if not target.is_file() or not _verify_file_sha(target, file.sha256):
@@ -118,8 +108,7 @@ class ModelRegistry:
                     continue
                 if name in self._cancelled:
                     return
-                # The first download's content didn't match -- retry once,
-                # bypassing any (possibly corrupt) local cache, before giving up.
+                # Mismatch: retry once, bypassing any corrupt local cache.
                 hf_hub_download(
                     repo_id=info.repo_id,
                     repo_type="model",
