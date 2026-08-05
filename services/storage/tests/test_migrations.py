@@ -224,7 +224,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0006"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0007"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -244,16 +244,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0006"}
+    assert versions == {"0007"}
 
 
-def test_migration_0006_is_head() -> None:
+def test_migration_0007_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0006"
+    assert script.get_current_head() == "0007"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —
@@ -432,3 +432,80 @@ def test_alembic_upgrade_head_sets_speaker_profile_fk_on_delete_null(
     # PRAGMA foreign_key_list columns: (id, seq, table, from, to, on_update, on_delete, match)
     speaker_fk = next(fk for fk in fks if fk[2] == "speaker_profiles")
     assert speaker_fk[6] == "SET NULL"
+
+
+def test_alembic_upgrade_head_dedupes_duplicate_speaker_profile_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migration 0007 dedupes existing duplicate-named speaker profiles by
+    SQLite rowid (insertion order, not the UUID TEXT primary key) before
+    adding the UNIQUE constraint, preserving the earliest-inserted row AND
+    re-linking any segments that referenced a duplicate to the retained row
+    (the segments FK has ondelete="SET NULL", so the dedupe DELETE alone
+    would lose those labels)."""
+    from alembic import command
+
+    from bahlily_storage import db
+
+    db_path = tmp_path / "speaker_profiles_dedup.db"
+    monkeypatch.setenv("BAHLILY_STORAGE_DB", str(db_path))
+
+    # Apply migrations 0001..0006 only — 0007 has not run yet.
+    command.upgrade(db.alembic_config(), "0006")
+
+    # Seed two profiles sharing the same name. The lex-min id ('a') is
+    # inserted SECOND so that `MIN(rowid)` (insertion order) and `MIN(id)`
+    # (lexicographic) disagree on which row survives — this is the only
+    # way the test can actually regress-protect against a reintroduction
+    # of the lexical-sort mistake the migration was originally written to
+    # avoid. With 'z' inserted first, `MIN(rowid)` keeps 'z' and `MIN(id)`
+    # would keep 'a', so the assertion below would fail under the bug.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            "INSERT INTO speaker_profiles "
+            "(id, name, voice_embedding, created_at, updated_at) "
+            "VALUES ('z', 'Alice', '[]', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO speaker_profiles "
+            "(id, name, voice_embedding, created_at, updated_at) "
+            "VALUES ('a', 'Alice', '[]', '2026-01-02 00:00:00', '2026-01-02 00:00:00')"
+        )
+        # Seed a meeting + segment linked to the LATER-INSERTED duplicate
+        # ('a'); the dedupe UPDATE in 0007 must re-link this segment to
+        # the retained 'z' before the DELETE fires, otherwise the SET NULL
+        # cascade would silently drop the speaker label.
+        conn.execute(
+            "INSERT INTO meetings "
+            "(id, status, started_at, segments_count, diarization_status) "
+            "VALUES ('m1', 'recording', '2026-01-01 00:00:00', 1, 'not_started')"
+        )
+        conn.execute(
+            "INSERT INTO segments "
+            "(meeting_id, segment_id, text, is_partial, engine, model_name, "
+            " audio_start_time, audio_end_time, language, trace_id, "
+            " speaker_profile_id) "
+            "VALUES ('m1', 1, 'hi', 0, 'whisper', 'small', 0.0, 1.0, "
+            " 'en', 't1', 'a')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Apply 0007 — dedupe must run before the UNIQUE constraint is added.
+    command.upgrade(db.alembic_config(), "head")
+
+    # Only the earliest-inserted row ('z', lowest rowid) survives.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute("SELECT id FROM speaker_profiles").fetchall()
+        assert sorted(r[0] for r in rows) == ["z"]
+        # The segment that referenced the deleted duplicate must now point
+        # at the retained profile, not NULL.
+        seg_profile = conn.execute(
+            "SELECT speaker_profile_id FROM segments WHERE segment_id = 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert seg_profile[0] == "z"

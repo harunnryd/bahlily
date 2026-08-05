@@ -605,3 +605,20 @@ async def test_speaker_profile_delete(session: AsyncSession) -> None:
 
     assert await repo.delete("p1") is True
     assert await repo.get("p1") is None
+
+
+async def test_speaker_profile_get_by_name_returns_matching_or_none(
+    session: AsyncSession,
+) -> None:
+    repo = SpeakerProfileRepo(session)
+    p1 = SpeakerProfile(
+        id="p1",
+        name="Alice",
+        voice_embedding="[]",
+        created_at=datetime.datetime.now(datetime.UTC),
+        updated_at=datetime.datetime.now(datetime.UTC),
+    )
+    await repo.create(p1)
+    found = await repo.get_by_name("Alice")
+    assert found is not None and found.id == "p1"
+    assert await repo.get_by_name("Bob") is None

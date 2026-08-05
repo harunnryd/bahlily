@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import math
+import random
 from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 
@@ -10,14 +12,28 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bahlily_storage import db as db_module
-from bahlily_storage.app import app, create_meeting, create_summary
+from bahlily_storage.app import (
+    app,
+    create_meeting,
+    create_speaker_profile,
+    create_summary,
+)
 from bahlily_storage.db import get_session
 from bahlily_storage.errors import (
     StorageMeetingAlreadyExistsError,
+    StorageSpeakerProfileNameConflictError,
     StorageSummaryAlreadyExistsError,
 )
 from bahlily_storage.models import Base, Meeting
-from bahlily_storage.schemas import CreateMeetingRequest, CreateSummaryRequest
+from bahlily_storage.schemas import (
+    CreateMeetingRequest,
+    CreateSpeakerProfileRequest,
+    CreateSummaryRequest,
+)
+
+
+def _emb(*values: float) -> list[float]:
+    return list(values) + [0.0] * (512 - len(values))
 
 
 @pytest.fixture
@@ -336,6 +352,45 @@ async def test_create_summary_race_maps_to_conflict(tmp_path: Path) -> None:
     assert outcomes.count("conflict") == 1
 
 
+async def test_create_speaker_profile_race_maps_to_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two concurrent create_speaker_profile calls for the same name must
+    yield exactly one success and one StorageSpeakerProfileNameConflictError.
+
+    Depending on transaction timing, the loser takes either the pre-check
+    409 path (its `get_by_name` ran after the winner's commit) or the
+    IntegrityError 409 path (both `get_by_name` calls returned None and
+    SQLite's UNIQUE constraint fired on the second INSERT). Both paths
+    must produce 409; this test exercises them concurrently rather than
+    forcing one or the other.
+    """
+    engine = db_module._make_engine(f"sqlite+aiosqlite:///{tmp_path / 'speaker_profile_race.db'}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+
+        async def attempt() -> str:
+            async with factory() as session:
+                try:
+                    await create_speaker_profile(
+                        CreateSpeakerProfileRequest(name="Race", voice_embedding=[0.0] * 512),
+                        session,
+                    )
+                except StorageSpeakerProfileNameConflictError:
+                    return "conflict"
+                return "created"
+
+        outcomes = await asyncio.gather(attempt(), attempt())
+    finally:
+        await engine.dispose()
+
+    assert outcomes.count("created") == 1
+    assert outcomes.count("conflict") == 1
+
+
 def test_create_and_get_template(client: TestClient) -> None:
     body = {"name": "Custom", "system_prompt": "Summarize this."}
     r = client.post("/templates", json=body)
@@ -475,16 +530,29 @@ def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient
 
 
 def test_create_and_get_speaker_profile(client: TestClient) -> None:
-    resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1, 0.2, 0.3]}
-    )
+    emb = _emb(0.1, 0.2, 0.3)
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": emb})
     assert resp.status_code == 201
     profile_id = resp.json()["id"]
 
     resp = client.get(f"/speaker-profiles/{profile_id}")
     assert resp.status_code == 200
     assert resp.json()["name"] == "Alice"
-    assert resp.json()["voice_embedding"] == [0.1, 0.2, 0.3]
+    assert resp.json()["voice_embedding"] == emb
+
+
+def test_create_speaker_profile_with_duplicate_name_returns_409(client: TestClient) -> None:
+    first = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert first.status_code == 201
+    second = client.post(
+        "/speaker-profiles",
+        json={"name": "Alice", "voice_embedding": [1.0] * 512},
+    )
+    assert second.status_code == 409
+    assert "Alice" in second.json()["message"]
 
 
 def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> None:
@@ -495,6 +563,99 @@ def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> Non
     assert resp.status_code == 422
 
 
+def test_create_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles",
+        json={"name": "Wrong Dim", "voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_patch_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    created = client.post(
+        "/speaker-profiles",
+        json={"name": "PatchMe", "voice_embedding": [0.0] * 512},
+    )
+    profile_id = created.json()["id"]
+    resp = client.patch(
+        f"/speaker-profiles/{profile_id}",
+        json={"voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_match_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles/match",
+        json={"voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_label_speaker_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "x",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                }
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
+def test_create_speaker_profile_rejects_non_finite_values(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # NaN/Infinity/-Infinity are non-standard JSON tokens that bypass
+    # json.dumps but Starlette accepts them via allow_nan=True parsing.
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    for token in ("NaN", "Infinity", "-Infinity"):
+        embedding = ",".join([token] + ["0.0"] * 511)
+        resp = client.post(
+            "/speaker-profiles",
+            content=(f'{{"name":"{token}","voice_embedding":[{embedding}]}}').encode(),
+            headers={"content-type": "application/json"},
+        )
+        assert resp.status_code == 422, f"token={token}: {resp.text}"
+        assert "finite" in resp.text, f"token={token}: {resp.text}"
+
+
 def test_get_speaker_profile_not_found(client: TestClient) -> None:
     resp = client.get("/speaker-profiles/missing")
     assert resp.status_code == 404
@@ -502,8 +663,8 @@ def test_get_speaker_profile_not_found(client: TestClient) -> None:
 
 
 def test_list_speaker_profiles(client: TestClient) -> None:
-    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
-    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.2]})
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": _emb(0.2)})
 
     resp = client.get("/speaker-profiles")
     assert resp.status_code == 200
@@ -511,7 +672,7 @@ def test_list_speaker_profiles(client: TestClient) -> None:
 
 
 def test_patch_speaker_profile(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
     profile_id = resp.json()["id"]
 
     resp = client.patch(f"/speaker-profiles/{profile_id}", json={"name": "Alicia"})
@@ -520,7 +681,7 @@ def test_patch_speaker_profile(client: TestClient) -> None:
 
 
 def test_delete_speaker_profile(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
     profile_id = resp.json()["id"]
 
     resp = client.delete(f"/speaker-profiles/{profile_id}")
@@ -560,7 +721,7 @@ def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
 ) -> None:
     client.post("/meetings", json={"id": "m1"})
     profile_resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)}
     )
     profile_id = profile_resp.json()["id"]
 
@@ -590,7 +751,7 @@ def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
 
 def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
     profile_resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)}
     )
     profile_id = profile_resp.json()["id"]
 
@@ -616,18 +777,73 @@ def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: Tes
 
 
 def test_match_speaker_profile_finds_the_closest_match(client: TestClient) -> None:
-    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [1.0, 0.0]})
-    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0, 1.0]})
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(1.0, 0.0)})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": _emb(0.0, 1.0)})
 
-    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [0.99, 0.01]})
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": _emb(0.99, 0.01)})
     assert resp.status_code == 200
     assert resp.json()["profile"]["name"] == "Alice"
 
 
 def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [1.0, 0.0]})
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": _emb(1.0, 0.0)})
     assert resp.status_code == 200
     assert resp.json()["profile"] is None
+
+
+def test_match_bulk_returns_matches_per_key(client: TestClient) -> None:
+    alice = [1.0] + [0.0] * 511
+    bob = [0.0, 1.0] + [0.0] * 510
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": alice})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": bob})
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                {"key": "near-alice", "voice_embedding": alice},
+                {"key": "near-bob", "voice_embedding": bob},
+                {"key": "near-nobody", "voice_embedding": [0.5] * 512},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    matches = {
+        m["key"]: (m["profile"]["name"] if m["profile"] is not None else None)
+        for m in resp.json()["matches"]
+    }
+    assert matches["near-alice"] == "Alice"
+    assert matches["near-bob"] == "Bob"
+    assert matches["near-nobody"] is None
+
+
+def test_match_bulk_rejects_duplicate_keys(client: TestClient) -> None:
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                {"key": "dup", "voice_embedding": [0.0] * 512},
+                {"key": "dup", "voice_embedding": [0.0] * 512},
+            ]
+        },
+    )
+    assert resp.status_code == 422
+    assert "duplicate key 'dup'" in resp.text
+
+
+def test_match_bulk_rejects_empty_list(client: TestClient) -> None:
+    resp = client.post("/speaker-profiles/match-bulk", json={"embeddings": []})
+    assert resp.status_code == 422
+
+
+def test_match_bulk_rejects_dim_mismatch(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={"embeddings": [{"key": "x", "voice_embedding": [0.1, 0.2]}]},
+    )
+    assert resp.status_code == 422
 
 
 def test_patch_meeting_accepts_recording_path_and_diarization_status(client: TestClient) -> None:
@@ -674,3 +890,285 @@ def test_batch_segments_accepts_speaker_fields(client: TestClient) -> None:
     resp = client.get("/meetings/m1/segments")
     assert resp.json()[0]["speaker_cluster_label"] == "Speaker 1"
     assert resp.json()[0]["speaker_profile_id"] is None
+
+
+def test_label_speaker_creates_profile_and_links_segments(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hello",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+                {
+                    "segment_id": 2,
+                    "text": "world",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 1.0,
+                    "audio_end_time": 2.0,
+                    "language": "en",
+                    "trace_id": "t2",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Alice"
+    segs = client.get("/meetings/m1/segments").json()
+    assert {s["speaker_profile_id"] for s in segs} == {resp.json()["id"]}
+    assert {s["speaker_cluster_label"] for s in segs} == {"SPEAKER_01"}
+
+
+def test_label_speaker_requires_embedding_for_new_profile(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "NewName"},
+    )
+    assert resp.status_code == 422
+
+
+def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:
+    embedding = [0.1] * 512
+    first = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": embedding})
+    profile_id = first.json()["id"]
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hi",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_02",
+                },
+            ]
+        },
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_02/label",
+        json={"name": "Alice"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == profile_id
+
+
+def test_label_speaker_rejects_unknown_meeting(client: TestClient) -> None:
+    resp = client.post(
+        "/meetings/does-not-exist/speakers/SPEAKER_01/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 404
+
+
+def test_label_speaker_with_unknown_cluster_returns_404(
+    client: TestClient,
+) -> None:
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_NOBODY/label",
+        json={"name": "Alice", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["code"] == "STORAGE_SPEAKER_CLUSTER_NOT_FOUND"
+
+
+def test_merge_speakers_moves_segments_and_deletes_loser(client: TestClient) -> None:
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1] * 512}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": [0.2] * 512}
+    ).json()
+    client.post(
+        "/meetings",
+        json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "x",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "language": "en",
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                }
+            ]
+        },
+    )
+    client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Alice"},
+    )
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 2,
+                    "text": "y",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 1.0,
+                    "audio_end_time": 2.0,
+                    "language": "en",
+                    "trace_id": "t2",
+                    "speaker_cluster_label": "SPEAKER_02",
+                    "speaker_profile_id": other["id"],
+                }
+            ]
+        },
+    )
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == alice["id"]
+    assert resp.json()["name"] == "Alice"
+    assert client.get(f"/speaker-profiles/{other['id']}").status_code == 404
+    segs = client.get("/meetings/m1/segments").json()
+    assert {s["speaker_profile_id"] for s in segs} == {alice["id"]}
+
+
+def test_merge_speakers_rejects_unknown_winner(client: TestClient) -> None:
+    other = client.post(
+        "/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0] * 512}
+    ).json()
+    resp = client.post(
+        "/speaker-profiles/no-such-id/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 404
+
+
+def test_merge_speakers_rejects_self_merge(client: TestClient) -> None:
+    p = client.post(
+        "/speaker-profiles", json={"name": "Solo", "voice_embedding": [0.0] * 512}
+    ).json()
+    resp = client.post(
+        f"/speaker-profiles/{p['id']}/merge",
+        json={"other_profile_id": p["id"]},
+    )
+    assert resp.status_code == 422
+
+
+def test_merge_speakers_idempotent_when_loser_gone(client: TestClient) -> None:
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.0] * 512}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": [0.0] * 512}
+    ).json()
+    client.delete(f"/speaker-profiles/{other['id']}")
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == alice["id"]
+
+
+def test_merge_speakers_keeps_winner_embedding(client: TestClient) -> None:
+    winner_emb = [0.5] * 512
+    loser_emb = [0.9] * 512
+    alice = client.post(
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": winner_emb}
+    ).json()
+    other = client.post(
+        "/speaker-profiles", json={"name": "Other", "voice_embedding": loser_emb}
+    ).json()
+    resp = client.post(
+        f"/speaker-profiles/{alice['id']}/merge",
+        json={"other_profile_id": other["id"]},
+    )
+    assert resp.json()["voice_embedding"] == winner_emb
+
+
+def _random_unit_embedding(rng: random.Random, dim: int) -> list[float]:
+    v = [rng.gauss(0.0, 1.0) for _ in range(dim)]
+    norm = math.sqrt(sum(x * x for x in v))
+    return [x / norm for x in v]
+
+
+def _perturb(embedding: list[float], rng: random.Random, sigma: float) -> list[float]:
+    perturbed = [e + rng.gauss(0.0, sigma) for e in embedding]
+    norm = math.sqrt(sum(x * x for x in perturbed))
+    return [x / norm for x in perturbed]
+
+
+def test_diarize_3speaker_synthetic_fixture_picks_correct_matches(
+    client: TestClient,
+) -> None:
+    rng = random.Random(0)
+    dim = 512
+
+    alice_true = _random_unit_embedding(rng, dim)
+    bob_true = _random_unit_embedding(rng, dim)
+    carol_true = _random_unit_embedding(rng, dim)
+
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": alice_true})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": bob_true})
+
+    resp = client.post(
+        "/speaker-profiles/match-bulk",
+        json={
+            "embeddings": [
+                # Close to Alice; small noise relative to her centroid.
+                {"key": "alice-segment", "voice_embedding": _perturb(alice_true, rng, 0.027)},
+                # Close to Bob.
+                {"key": "bob-segment", "voice_embedding": _perturb(bob_true, rng, 0.027)},
+                # Close to nobody registered; orthogonal to both.
+                {"key": "carol-segment", "voice_embedding": carol_true},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    matches = {m["key"]: (m["profile"] or {}).get("name") for m in resp.json()["matches"]}
+    assert matches["alice-segment"] == "Alice"
+    assert matches["bob-segment"] == "Bob"
+    assert matches["carol-segment"] is None

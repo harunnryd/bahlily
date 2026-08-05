@@ -92,6 +92,8 @@ class DiarizeRequest(BaseModel):
 class DiarizeSpeaker(BaseModel):
     cluster_label: str
     voice_embedding: list[float]
+    matched_profile_id: str | None = None
+    matched_profile_name: str | None = None
 
 
 class DiarizeJobStatus(str, Enum):  # noqa: UP042

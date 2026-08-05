@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from bahlily_storage.errors import (
+    StorageEmbeddingDimInvalidError,
+    StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
+    StorageSpeakerClusterNotFoundError,
+    StorageSpeakerProfileNameConflictError,
+    StorageSpeakerProfileNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
     StorageTemplateNotFoundError,
@@ -29,6 +34,32 @@ def test_template_not_found_code() -> None:
     assert StorageTemplateNotFoundError("abc").code == "STORAGE_TEMPLATE_NOT_FOUND"
 
 
+def test_speaker_profile_not_found_code() -> None:
+    assert StorageSpeakerProfileNotFoundError("abc").code == "STORAGE_SPEAKER_PROFILE_NOT_FOUND"
+
+
+def test_speaker_profile_name_conflict_code() -> None:
+    assert (
+        StorageSpeakerProfileNameConflictError("abc").code
+        == "STORAGE_SPEAKER_PROFILE_NAME_CONFLICT"
+    )
+
+
+def test_speaker_cluster_not_found_code() -> None:
+    assert (
+        StorageSpeakerClusterNotFoundError("m1", "SPEAKER_01").code
+        == "STORAGE_SPEAKER_CLUSTER_NOT_FOUND"
+    )
+
+
+def test_embedding_dim_not_configured_code() -> None:
+    assert StorageEmbeddingDimNotConfiguredError().code == "STORAGE_EMBEDDING_DIM_NOT_CONFIGURED"
+
+
+def test_embedding_dim_invalid_code() -> None:
+    assert StorageEmbeddingDimInvalidError("abc").code == "STORAGE_EMBEDDING_DIM_INVALID"
+
+
 def test_storage_codes_are_in_error_catalog() -> None:
     import re
     from pathlib import Path
@@ -48,5 +79,10 @@ def test_storage_codes_are_in_error_catalog() -> None:
         StorageSummaryAlreadyExistsError,
         StorageSummaryNotFoundError,
         StorageTemplateNotFoundError,
+        StorageSpeakerProfileNotFoundError,
+        StorageSpeakerProfileNameConflictError,
+        StorageEmbeddingDimInvalidError,
     ):
         assert exc("x").code in registered
+    assert StorageEmbeddingDimNotConfiguredError().code in registered
+    assert StorageSpeakerClusterNotFoundError("m1", "SPEAKER_01").code in registered

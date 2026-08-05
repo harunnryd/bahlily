@@ -168,6 +168,34 @@ class SegmentRepo:
         )
         return list(result.scalars().all())
 
+    async def set_speaker_profile_for_cluster(
+        self,
+        meeting_id: str,
+        cluster_label: str,
+        profile_id: str,
+    ) -> int:
+        stmt = (
+            update(Segment)
+            .where(
+                Segment.meeting_id == meeting_id,
+                Segment.speaker_cluster_label == cluster_label,
+            )
+            .values(speaker_profile_id=profile_id)
+        )
+        result = await self._s.execute(stmt)
+        assert isinstance(result, CursorResult)
+        return result.rowcount
+
+    async def reassign_speaker_profile(self, from_profile_id: str, to_profile_id: str) -> int:
+        stmt = (
+            update(Segment)
+            .where(Segment.speaker_profile_id == from_profile_id)
+            .values(speaker_profile_id=to_profile_id)
+        )
+        result = await self._s.execute(stmt)
+        assert isinstance(result, CursorResult)
+        return result.rowcount
+
 
 class SummaryRepo:
     def __init__(self, session: AsyncSession) -> None:
@@ -247,6 +275,16 @@ class SpeakerProfileRepo:
 
     async def get(self, profile_id: str) -> SpeakerProfile | None:
         return await self._s.get(SpeakerProfile, profile_id)
+
+    async def get_by_name(self, name: str) -> SpeakerProfile | None:
+        result = await self._s.execute(select(SpeakerProfile).where(SpeakerProfile.name == name))
+        return result.scalar_one_or_none()
+
+    async def get_many(self, ids: list[str]) -> dict[str, SpeakerProfile]:
+        if not ids:
+            return {}
+        result = await self._s.execute(select(SpeakerProfile).where(SpeakerProfile.id.in_(ids)))
+        return {p.id: p for p in result.scalars().all()}
 
     async def list_all(self, limit: int = 20, offset: int = 0) -> list[SpeakerProfile]:
         result = await self._s.execute(

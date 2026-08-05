@@ -126,6 +126,22 @@
   domain: storage
   severity: error
   description: The requested speaker profile ID does not exist in storage.
+- code: STORAGE_SPEAKER_PROFILE_NAME_CONFLICT
+  domain: storage
+  severity: error
+  description: A speaker profile with the given name already exists; pick a different name.
+- code: STORAGE_EMBEDDING_DIM_NOT_CONFIGURED
+  domain: storage
+  severity: error
+  description: BAHLILY_STORAGE_EMBEDDING_DIM env var is required at boot.
+- code: STORAGE_EMBEDDING_DIM_INVALID
+  domain: storage
+  severity: error
+  description: BAHLILY_STORAGE_EMBEDDING_DIM must parse as a positive integer.
+- code: STORAGE_SPEAKER_CLUSTER_NOT_FOUND
+  domain: storage
+  severity: error
+  description: No segments in the meeting have the given speaker_cluster_label.
 - code: TRANSCRIPTION_DIARIZATION_UNAVAILABLE
   domain: transcription
   severity: error

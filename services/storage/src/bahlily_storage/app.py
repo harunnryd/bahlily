@@ -7,16 +7,21 @@ from typing import Annotated
 
 import structlog
 from bahlily_logging.errors import BahlilyError
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from bahlily_storage.db import get_session
 from bahlily_storage.errors import (
+    StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
+    StorageSpeakerClusterNotFoundError,
+    StorageSpeakerProfileNameConflictError,
     StorageSpeakerProfileNotFoundError,
     StorageSummaryAlreadyExistsError,
     StorageSummaryNotFoundError,
@@ -38,9 +43,14 @@ from bahlily_storage.schemas import (
     CreateSpeakerProfileRequest,
     CreateSummaryRequest,
     CreateTemplateRequest,
+    LabelSpeakerRequest,
+    MatchBulkEntry,
+    MatchBulkRequest,
+    MatchBulkResponse,
     MatchSpeakerProfileRequest,
     MatchSpeakerProfileResponse,
     MeetingResponse,
+    MergeSpeakersRequest,
     PatchMeetingRequest,
     PatchSpeakerProfileRequest,
     PatchTemplateRequest,
@@ -62,6 +72,9 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageSummaryNotFoundError: 404,
     StorageTemplateNotFoundError: 404,
     StorageSpeakerProfileNotFoundError: 404,
+    StorageSpeakerProfileNameConflictError: 409,
+    StorageEmbeddingDimNotConfiguredError: 500,
+    StorageSpeakerClusterNotFoundError: 404,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -73,12 +86,38 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageSummaryNotFoundError)
 @app.exception_handler(StorageTemplateNotFoundError)
 @app.exception_handler(StorageSpeakerProfileNotFoundError)
+@app.exception_handler(StorageSpeakerProfileNameConflictError)
+@app.exception_handler(StorageEmbeddingDimNotConfiguredError)
+@app.exception_handler(StorageSpeakerClusterNotFoundError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(
         status_code=status,
         content={"code": exc.code, "message": str(exc)},
     )
+
+
+def _sanitize_for_json(value: object) -> object:
+    if isinstance(value, float):
+        if value != value:
+            return "NaN"
+        if value == float("inf"):
+            return "Infinity"
+        if value == float("-inf"):
+            return "-Infinity"
+        return value
+    if isinstance(value, dict):
+        return {k: _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(v) for v in value]
+    if isinstance(value, BaseException):
+        return f"{type(value).__name__}: {value}"
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": _sanitize_for_json(exc.errors())})
 
 
 def _summary_to_response(s: Summary) -> SummaryResponse:
@@ -417,6 +456,8 @@ async def create_speaker_profile(
     req: CreateSpeakerProfileRequest, session: SessionDep
 ) -> SpeakerProfileResponse:
     repo = SpeakerProfileRepo(session)
+    if await repo.get_by_name(req.name) is not None:
+        raise StorageSpeakerProfileNameConflictError(req.name)
     now = datetime.datetime.now(datetime.UTC)
     profile = SpeakerProfile(
         id=str(uuid.uuid4()),
@@ -425,8 +466,14 @@ async def create_speaker_profile(
         created_at=now,
         updated_at=now,
     )
-    await repo.create(profile)
-    await session.commit()
+    try:
+        await repo.create(profile)
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if await repo.get_by_name(req.name) is not None:
+            raise StorageSpeakerProfileNameConflictError(req.name) from exc
+        raise
     await session.refresh(profile)
     return _speaker_profile_to_response(profile)
 
@@ -498,3 +545,137 @@ async def match_speaker_profile(
         # client error, so treat it the same as "no match" rather than 500ing.
         return MatchSpeakerProfileResponse(profile=None)
     return MatchSpeakerProfileResponse(profile=_speaker_profile_to_response(matched))
+
+
+@app.post("/speaker-profiles/match-bulk")
+async def match_speaker_profile_bulk(
+    req: MatchBulkRequest, session: SessionDep
+) -> MatchBulkResponse:
+    seen_keys: set[str] = set()
+    for item in req.embeddings:
+        if item.key in seen_keys:
+            raise HTTPException(
+                status_code=422,
+                detail=f"duplicate key '{item.key}' in match-bulk request",
+            )
+        seen_keys.add(item.key)
+
+    repo = SpeakerProfileRepo(session)
+    profiles = await repo.list_all_for_matching()
+    candidates = [(p.id, json.loads(p.voice_embedding)) for p in profiles]
+    matched: list[tuple[str, str | None]] = [
+        (item.key, best_match(item.voice_embedding, candidates)) for item in req.embeddings
+    ]
+    matched_profiles = await repo.get_many(list({mid for _, mid in matched if mid is not None}))
+    return MatchBulkResponse(
+        matches=[
+            MatchBulkEntry(
+                key=key,
+                profile=(
+                    _speaker_profile_to_response(matched_profiles[mid])
+                    if mid is not None and mid in matched_profiles
+                    else None
+                ),
+            )
+            for key, mid in matched
+        ]
+    )
+
+
+@app.post("/meetings/{meeting_id}/speakers/{cluster_label}/label")
+async def label_speaker_in_meeting(
+    meeting_id: str,
+    cluster_label: str,
+    req: LabelSpeakerRequest,
+    session: SessionDep,
+) -> SpeakerProfileResponse:
+    meeting_repo = MeetingRepo(session)
+    if await meeting_repo.get(meeting_id) is None:
+        raise StorageMeetingNotFoundError(meeting_id)
+
+    profile_repo = SpeakerProfileRepo(session)
+    profile = await profile_repo.get_by_name(req.name)
+    if profile is None:
+        if req.voice_embedding is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"name '{req.name}' is new; voice_embedding required",
+            )
+        profile = SpeakerProfile(
+            id=str(uuid.uuid4()),
+            name=req.name,
+            voice_embedding=json.dumps(req.voice_embedding),
+            created_at=datetime.datetime.now(datetime.UTC),
+            updated_at=datetime.datetime.now(datetime.UTC),
+        )
+        try:
+            await profile_repo.create(profile)
+        except IntegrityError as exc:
+            await session.rollback()
+            existing = await profile_repo.get_by_name(req.name)
+            if existing is None:
+                raise StorageSpeakerProfileNameConflictError(req.name) from exc
+            profile = existing
+    await session.flush()
+
+    segment_repo = SegmentRepo(session)
+    linked = await segment_repo.set_speaker_profile_for_cluster(
+        meeting_id, cluster_label, profile.id
+    )
+    if linked == 0:
+        await session.rollback()
+        raise StorageSpeakerClusterNotFoundError(meeting_id, cluster_label)
+    await session.commit()
+    _log.info(
+        "label_speaker_cluster",
+        meeting_id=meeting_id,
+        cluster_label=cluster_label,
+        speaker_profile_id=profile.id,
+        linked_segments=linked,
+    )
+    await session.refresh(profile)
+    return _speaker_profile_to_response(profile)
+
+
+@app.post("/speaker-profiles/{profile_id}/merge")
+async def merge_speaker_profiles(
+    profile_id: str,
+    req: MergeSpeakersRequest,
+    session: SessionDep,
+) -> SpeakerProfileResponse:
+    if profile_id == req.other_profile_id:
+        raise HTTPException(status_code=422, detail="cannot merge a profile with itself")
+
+    repo = SpeakerProfileRepo(session)
+    winner = await repo.get(profile_id)
+    if winner is None:
+        raise StorageSpeakerProfileNotFoundError(profile_id)
+    # SELECT ... FOR UPDATE: row-level lock on the loser so a concurrent
+    # merge against the same loser blocks here until our transaction
+    # commits. SQLite ignores FOR UPDATE (serializes writes via its global
+    # write lock), so this is a portability hint for Postgres/MySQL.
+    loser = (
+        await session.execute(
+            select(SpeakerProfile)
+            .where(SpeakerProfile.id == req.other_profile_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if loser is None:
+        await session.commit()
+        return _speaker_profile_to_response(winner)
+
+    segment_repo = SegmentRepo(session)
+    moved = await segment_repo.reassign_speaker_profile(
+        from_profile_id=loser.id, to_profile_id=winner.id
+    )
+    await repo.delete(loser.id)
+    await session.commit()
+    _log.info(
+        "merge_speaker_profiles",
+        winner_id=winner.id,
+        loser_id=loser.id,
+        moved_segments=moved,
+    )
+    await session.refresh(winner)
+    return _speaker_profile_to_response(winner)

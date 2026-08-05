@@ -1,9 +1,24 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any
+import math
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+
+from bahlily_storage import config as storage_config
+
+
+def _validate_dim(v: list[float]) -> list[float]:
+    expected = storage_config.embedding_dim()
+    if len(v) != expected:
+        raise ValueError(f"voice_embedding length {len(v)} != expected {expected}")
+    if any(not math.isfinite(x) for x in v):
+        raise ValueError("voice_embedding must contain only finite numbers (no NaN or inf)")
+    return v
+
+
+VoiceEmbedding = Annotated[list[float], AfterValidator(_validate_dim)]
 
 
 class CreateMeetingRequest(BaseModel):
@@ -145,14 +160,14 @@ class CreateSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
-    voice_embedding: list[float] = Field(min_length=1)
+    voice_embedding: VoiceEmbedding = Field(min_length=1)
 
 
 class PatchSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
-    voice_embedding: list[float] | None = Field(default=None, min_length=1)
+    voice_embedding: VoiceEmbedding | None = Field(default=None, min_length=1)
 
 
 class SpeakerProfileResponse(BaseModel):
@@ -166,8 +181,40 @@ class SpeakerProfileResponse(BaseModel):
 class MatchSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    voice_embedding: list[float] = Field(min_length=1)
+    voice_embedding: VoiceEmbedding = Field(min_length=1)
 
 
 class MatchSpeakerProfileResponse(BaseModel):
     profile: SpeakerProfileResponse | None
+
+
+class MatchBulkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str = Field(min_length=1, max_length=128)
+    voice_embedding: VoiceEmbedding
+
+
+class MatchBulkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    embeddings: list[MatchBulkItem] = Field(min_length=1, max_length=64)
+
+
+class MatchBulkEntry(BaseModel):
+    key: str
+    profile: SpeakerProfileResponse | None = None
+
+
+class MatchBulkResponse(BaseModel):
+    matches: list[MatchBulkEntry]
+
+
+class LabelSpeakerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    voice_embedding: VoiceEmbedding | None = None
+
+
+class MergeSpeakersRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    other_profile_id: str = Field(min_length=1)

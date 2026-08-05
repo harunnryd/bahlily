@@ -46,3 +46,35 @@ class StorageSpeakerProfileNotFoundError(BahlilyError):
             f"speaker profile '{speaker_profile_id}' not found",
             code="STORAGE_SPEAKER_PROFILE_NOT_FOUND",
         )
+
+
+class StorageSpeakerProfileNameConflictError(BahlilyError):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"speaker profile with name '{name}' already exists",
+            code="STORAGE_SPEAKER_PROFILE_NAME_CONFLICT",
+        )
+
+
+class StorageEmbeddingDimNotConfiguredError(BahlilyError):
+    def __init__(self) -> None:
+        super().__init__(
+            "BAHLILY_STORAGE_EMBEDDING_DIM env var is required",
+            code="STORAGE_EMBEDDING_DIM_NOT_CONFIGURED",
+        )
+
+
+class StorageEmbeddingDimInvalidError(BahlilyError):
+    def __init__(self, raw: str) -> None:
+        super().__init__(
+            f"BAHLILY_STORAGE_EMBEDDING_DIM must be a positive integer; got '{raw}'",
+            code="STORAGE_EMBEDDING_DIM_INVALID",
+        )
+
+
+class StorageSpeakerClusterNotFoundError(BahlilyError):
+    def __init__(self, meeting_id: str, cluster_label: str) -> None:
+        super().__init__(
+            f"no segments in meeting '{meeting_id}' have speaker_cluster_label '{cluster_label}'",
+            code="STORAGE_SPEAKER_CLUSTER_NOT_FOUND",
+        )

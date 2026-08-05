@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from importlib import resources
 from pathlib import Path
+from typing import cast
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from starlette.requests import Request
 
-from bahlily_transcription.diarize_engine import DiarizeEngine
+from bahlily_transcription.diarize_engine import DiarizationResult, DiarizeEngine
 from bahlily_transcription.errors import (
     TranscriptionAlreadyDownloadingError,
     TranscriptionChecksumFailedError,
@@ -45,6 +46,7 @@ from bahlily_transcription.models import (
 )
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 from bahlily_transcription.registry import ModelRegistry
+from bahlily_transcription.speaker_match_client import SpeakerMatchClient
 from bahlily_transcription.whisper_engine import WhisperEngine
 from bahlily_transcription.worker import SessionWorker
 
@@ -76,6 +78,7 @@ _sessions = JobStore[SessionState](
     is_terminal=lambda s: s.status in {"failed", "completed"},
 )
 _diarize_engine = DiarizeEngine()
+_match_client = SpeakerMatchClient(storage_url=os.environ.get("BAHLILY_STORAGE_URL"))
 _diarize_jobs = JobStore[DiarizeJobState](
     ttl_seconds=float(os.environ.get("BAHLILY_TRANSCRIPTION_DIARIZE_TTL_SECONDS", "3600")),
     sweep_interval_seconds=60.0,
@@ -345,6 +348,38 @@ def get_session(recording_id: str) -> dict[str, object]:
     return {"recording_id": recording_id, "status": status}
 
 
+async def _augment_diarization(
+    diarization: DiarizationResult,
+    match_client: SpeakerMatchClient,
+    job_id: str,
+) -> list[DiarizeSpeaker]:
+    items = list(diarization.speakers.items())
+    if not items:
+        return []
+    try:
+        hits = cast(
+            dict[str, dict[str, str]],
+            await match_client.match_bulk(items),
+        )
+    except Exception as exc:
+        _log.warning(
+            "diarize_speaker_match_failed",
+            error=str(exc),
+            item_count=len(items),
+            job_id=job_id,
+        )
+        hits = {}
+    return [
+        DiarizeSpeaker(
+            cluster_label=label,
+            voice_embedding=embedding,
+            matched_profile_id=hits.get(label, {}).get("profile_id"),
+            matched_profile_name=hits.get(label, {}).get("profile_name"),
+        )
+        for label, embedding in items
+    ]
+
+
 @app.post("/diarize", status_code=202)
 async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
     if not os.environ.get("BAHLILY_TRANSCRIPTION_HF_TOKEN"):
@@ -362,10 +397,7 @@ async def start_diarize(req: DiarizeRequest) -> dict[str, str]:
                 _diarize_executor, _diarize_engine.run, req.recording_path
             )
             labeled_segments = assign_speakers(req.segments, diarization.turns)
-            speakers = [
-                DiarizeSpeaker(cluster_label=label, voice_embedding=embedding)
-                for label, embedding in diarization.speakers.items()
-            ]
+            speakers = await _augment_diarization(diarization, _match_client, job_id)
             state.status = DiarizeJobStatus.COMPLETED
             state.result = (labeled_segments, speakers)
             state.error = None
