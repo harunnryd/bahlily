@@ -527,6 +527,7 @@ async def _match_one(
     matched_id = best_match(embedding, candidates)
     if matched_id is None:
         return None
+    # Small personal profile counts permit N+1; scale with bulk SELECT WHERE id IN matched_ids.
     matched = await repo.get(matched_id)
     return matched
 
@@ -580,11 +581,11 @@ async def label_speaker_in_meeting(
         )
         try:
             await profile_repo.create(profile)
-        except IntegrityError:
+        except IntegrityError as exc:
             await session.rollback()
             existing = await profile_repo.get_by_name(req.name)
             if existing is None:
-                raise
+                raise StorageSpeakerProfileNameConflictError(req.name) from exc
             profile = existing
     await session.flush()
 

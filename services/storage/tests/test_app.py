@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bahlily_storage import db as db_module
@@ -18,7 +19,8 @@ from bahlily_storage.errors import (
     StorageMeetingAlreadyExistsError,
     StorageSummaryAlreadyExistsError,
 )
-from bahlily_storage.models import Base, Meeting
+from bahlily_storage.models import Base, Meeting, SpeakerProfile
+from bahlily_storage.repos import SpeakerProfileRepo
 from bahlily_storage.schemas import CreateMeetingRequest, CreateSummaryRequest
 
 
@@ -796,6 +798,33 @@ def test_label_speaker_creates_profile_and_links_segments(
     segs = client.get("/meetings/m1/segments").json()
     assert {s["speaker_profile_id"] for s in segs} == {resp.json()["id"]}
     assert {s["speaker_cluster_label"] for s in segs} == {"SPEAKER_01"}
+
+
+def test_label_speaker_requires_embedding_for_new_profile(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1"})
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "NewName"},
+    )
+    assert resp.status_code == 422
+
+
+def test_label_speaker_maps_vanished_conflict_to_409(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def raise_integrity_error(
+        self: SpeakerProfileRepo, profile: SpeakerProfile
+    ) -> SpeakerProfile:
+        raise IntegrityError("INSERT", {}, RuntimeError("conflict"))
+
+    client.post("/meetings", json={"id": "m1"})
+    monkeypatch.setattr(SpeakerProfileRepo, "create", raise_integrity_error)
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "NewName", "voice_embedding": [0.0] * 512},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "STORAGE_SPEAKER_PROFILE_NAME_CONFLICT"
 
 
 def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:
