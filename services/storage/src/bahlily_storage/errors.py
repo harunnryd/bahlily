@@ -46,3 +46,11 @@ class StorageSpeakerProfileNotFoundError(BahlilyError):
             f"speaker profile '{speaker_profile_id}' not found",
             code="STORAGE_SPEAKER_PROFILE_NOT_FOUND",
         )
+
+
+class StorageEmbeddingDimNotConfiguredError(BahlilyError):
+    def __init__(self) -> None:
+        super().__init__(
+            "BAHLILY_STORAGE_EMBEDDING_DIM env var is required",
+            code="STORAGE_EMBEDDING_DIM_NOT_CONFIGURED",
+        )

@@ -126,6 +126,10 @@
   domain: storage
   severity: error
   description: The requested speaker profile ID does not exist in storage.
+- code: STORAGE_EMBEDDING_DIM_NOT_CONFIGURED
+  domain: storage
+  severity: error
+  description: BAHLILY_STORAGE_EMBEDDING_DIM env var is required to validate voice embedding dimensions on speaker-profile endpoints.
 - code: TRANSCRIPTION_DIARIZATION_UNAVAILABLE
   domain: transcription
   severity: error

@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+
+from bahlily_storage import config as storage_config
+
+
+def _validate_dim(v: list[float]) -> list[float]:
+    expected = storage_config.embedding_dim()
+    if len(v) != expected:
+        raise ValueError(f"voice_embedding length {len(v)} != expected {expected}")
+    return v
+
+
+VoiceEmbedding = Annotated[list[float], AfterValidator(_validate_dim)]
 
 
 class CreateMeetingRequest(BaseModel):
@@ -145,14 +157,14 @@ class CreateSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
-    voice_embedding: list[float] = Field(min_length=1)
+    voice_embedding: VoiceEmbedding = Field(min_length=1)
 
 
 class PatchSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1)
-    voice_embedding: list[float] | None = Field(default=None, min_length=1)
+    voice_embedding: VoiceEmbedding | None = Field(default=None, min_length=1)
 
 
 class SpeakerProfileResponse(BaseModel):
@@ -166,7 +178,7 @@ class SpeakerProfileResponse(BaseModel):
 class MatchSpeakerProfileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    voice_embedding: list[float] = Field(min_length=1)
+    voice_embedding: VoiceEmbedding = Field(min_length=1)
 
 
 class MatchSpeakerProfileResponse(BaseModel):

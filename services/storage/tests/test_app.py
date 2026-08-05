@@ -20,6 +20,10 @@ from bahlily_storage.models import Base, Meeting
 from bahlily_storage.schemas import CreateMeetingRequest, CreateSummaryRequest
 
 
+def _emb(*values: float) -> list[float]:
+    return list(values) + [0.0] * (512 - len(values))
+
+
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     db_path = tmp_path / "test.db"
@@ -475,16 +479,15 @@ def test_patch_template_empty_body_does_not_change_updated_at(client: TestClient
 
 
 def test_create_and_get_speaker_profile(client: TestClient) -> None:
-    resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1, 0.2, 0.3]}
-    )
+    emb = _emb(0.1, 0.2, 0.3)
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": emb})
     assert resp.status_code == 201
     profile_id = resp.json()["id"]
 
     resp = client.get(f"/speaker-profiles/{profile_id}")
     assert resp.status_code == 200
     assert resp.json()["name"] == "Alice"
-    assert resp.json()["voice_embedding"] == [0.1, 0.2, 0.3]
+    assert resp.json()["voice_embedding"] == emb
 
 
 def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> None:
@@ -495,6 +498,18 @@ def test_create_speaker_profile_rejects_unknown_field(client: TestClient) -> Non
     assert resp.status_code == 422
 
 
+def test_create_speaker_profile_rejects_wrong_embedding_dim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    resp = client.post(
+        "/speaker-profiles",
+        json={"name": "Wrong Dim", "voice_embedding": [0.1, 0.2]},
+    )
+    assert resp.status_code == 422
+    assert "expected 512" in resp.text
+
+
 def test_get_speaker_profile_not_found(client: TestClient) -> None:
     resp = client.get("/speaker-profiles/missing")
     assert resp.status_code == 404
@@ -502,8 +517,8 @@ def test_get_speaker_profile_not_found(client: TestClient) -> None:
 
 
 def test_list_speaker_profiles(client: TestClient) -> None:
-    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
-    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.2]})
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": _emb(0.2)})
 
     resp = client.get("/speaker-profiles")
     assert resp.status_code == 200
@@ -511,7 +526,7 @@ def test_list_speaker_profiles(client: TestClient) -> None:
 
 
 def test_patch_speaker_profile(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
     profile_id = resp.json()["id"]
 
     resp = client.patch(f"/speaker-profiles/{profile_id}", json={"name": "Alicia"})
@@ -520,7 +535,7 @@ def test_patch_speaker_profile(client: TestClient) -> None:
 
 
 def test_delete_speaker_profile(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]})
+    resp = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)})
     profile_id = resp.json()["id"]
 
     resp = client.delete(f"/speaker-profiles/{profile_id}")
@@ -560,7 +575,7 @@ def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
 ) -> None:
     client.post("/meetings", json={"id": "m1"})
     profile_resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)}
     )
     profile_id = profile_resp.json()["id"]
 
@@ -590,7 +605,7 @@ def test_batch_upsert_setting_only_profile_id_preserves_existing_cluster_label(
 
 def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: TestClient) -> None:
     profile_resp = client.post(
-        "/speaker-profiles", json={"name": "Alice", "voice_embedding": [0.1]}
+        "/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(0.1)}
     )
     profile_id = profile_resp.json()["id"]
 
@@ -616,16 +631,16 @@ def test_delete_speaker_profile_referenced_by_a_segment_sets_it_null(client: Tes
 
 
 def test_match_speaker_profile_finds_the_closest_match(client: TestClient) -> None:
-    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": [1.0, 0.0]})
-    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": [0.0, 1.0]})
+    client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": _emb(1.0, 0.0)})
+    client.post("/speaker-profiles", json={"name": "Bob", "voice_embedding": _emb(0.0, 1.0)})
 
-    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [0.99, 0.01]})
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": _emb(0.99, 0.01)})
     assert resp.status_code == 200
     assert resp.json()["profile"]["name"] == "Alice"
 
 
 def test_match_speaker_profile_returns_null_when_no_profiles_exist(client: TestClient) -> None:
-    resp = client.post("/speaker-profiles/match", json={"voice_embedding": [1.0, 0.0]})
+    resp = client.post("/speaker-profiles/match", json={"voice_embedding": _emb(1.0, 0.0)})
     assert resp.status_code == 200
     assert resp.json()["profile"] is None
 

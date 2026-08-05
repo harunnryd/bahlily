@@ -15,6 +15,7 @@ from starlette.requests import Request
 
 from bahlily_storage.db import get_session
 from bahlily_storage.errors import (
+    StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
     StorageSpeakerProfileNotFoundError,
@@ -62,6 +63,7 @@ _ERROR_STATUS: dict[type[Exception], int] = {
     StorageSummaryNotFoundError: 404,
     StorageTemplateNotFoundError: 404,
     StorageSpeakerProfileNotFoundError: 404,
+    StorageEmbeddingDimNotConfiguredError: 500,
 }
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -73,6 +75,7 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 @app.exception_handler(StorageSummaryNotFoundError)
 @app.exception_handler(StorageTemplateNotFoundError)
 @app.exception_handler(StorageSpeakerProfileNotFoundError)
+@app.exception_handler(StorageEmbeddingDimNotConfiguredError)
 async def _error_handler(request: Request, exc: BahlilyError) -> JSONResponse:
     status = _ERROR_STATUS[type(exc)]
     return JSONResponse(

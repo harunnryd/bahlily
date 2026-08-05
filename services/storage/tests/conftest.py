@@ -31,6 +31,11 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture(autouse=True)
+def _set_embedding_dim(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+
+
+@pytest.fixture(autouse=True)
 async def _restore_db_module_config() -> AsyncGenerator[None, None]:
     """`db.upgrade_to_head()` calls `db._configure()`, which rebinds the
     module-level `db._DB_URL`/`db.engine`/`db.async_session_factory` to

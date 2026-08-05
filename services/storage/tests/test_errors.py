@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bahlily_storage.errors import (
+    StorageEmbeddingDimNotConfiguredError,
     StorageMeetingAlreadyExistsError,
     StorageMeetingNotFoundError,
     StorageSummaryAlreadyExistsError,
@@ -29,6 +30,10 @@ def test_template_not_found_code() -> None:
     assert StorageTemplateNotFoundError("abc").code == "STORAGE_TEMPLATE_NOT_FOUND"
 
 
+def test_embedding_dim_not_configured_code() -> None:
+    assert StorageEmbeddingDimNotConfiguredError().code == "STORAGE_EMBEDDING_DIM_NOT_CONFIGURED"
+
+
 def test_storage_codes_are_in_error_catalog() -> None:
     import re
     from pathlib import Path
@@ -50,3 +55,4 @@ def test_storage_codes_are_in_error_catalog() -> None:
         StorageTemplateNotFoundError,
     ):
         assert exc("x").code in registered
+    assert StorageEmbeddingDimNotConfiguredError().code in registered
