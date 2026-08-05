@@ -8,6 +8,7 @@ from typing import Annotated
 
 from bahlily_logging.errors import BahlilyError
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from langchain_core.embeddings import Embeddings
 from starlette.requests import Request
@@ -24,6 +25,13 @@ from bahlily_chat.errors import (
 from bahlily_chat.models import ChatRequest, ChatResponse, IngestRequest, IngestResponse
 
 app = FastAPI(title="bahlily-chat")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DEFAULT_DB = str(Path.home() / ".bahlily" / "chat.db")
 

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from bahlily_export.docx_renderer import render_docx
@@ -13,6 +14,13 @@ from bahlily_export.models import ExportRequest
 from bahlily_export.pdf_renderer import render_pdf
 
 app = FastAPI(title="bahlily-export")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 ExportFormat = Literal["markdown", "docx", "pdf"]
 

@@ -30,6 +30,11 @@ def test_health_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_simple_request_allows_webview_origin() -> None:
+    response = client.get("/health", headers={"Origin": "tauri://localhost"})
+    assert response.headers["access-control-allow-origin"] == "tauri://localhost"
+
+
 def test_export_markdown() -> None:
     response = client.post("/export?format=markdown", json=_body())
     assert response.status_code == 200

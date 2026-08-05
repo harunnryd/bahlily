@@ -60,6 +60,11 @@ def test_health_returns_ok(client: TestClient) -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_simple_request_allows_webview_origin(client: TestClient) -> None:
+    response = client.get("/health", headers={"Origin": "tauri://localhost"})
+    assert response.headers["access-control-allow-origin"] == "tauri://localhost"
+
+
 def test_ingest_meeting(client: TestClient) -> None:
     response = client.post("/meetings/m1/ingest", json=_ingest_body())
     assert response.status_code == 201

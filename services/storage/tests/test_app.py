@@ -70,6 +70,18 @@ def test_health_returns_ok(client: TestClient) -> None:
     assert "transcription_subscriber" in response.json()
 
 
+def test_cors_preflight_allows_webview_origin(client: TestClient) -> None:
+    resp = client.options(
+        "/meetings",
+        headers={
+            "Origin": "tauri://localhost",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "tauri://localhost"
+
+
 def test_create_and_get_meeting(client: TestClient) -> None:
     r = client.post("/meetings", json={"id": "m1", "title": "Test"})
     assert r.status_code == 201
