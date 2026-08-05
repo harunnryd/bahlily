@@ -10,7 +10,6 @@ from collections.abc import AsyncGenerator
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import huggingface_hub.constants as _hf_constants
 import structlog
 import yaml
 from huggingface_hub import hf_hub_download
@@ -25,10 +24,6 @@ from bahlily_transcription.models import DownloadProgress, ModelFile, ModelInfo,
 
 _CHUNK_SIZE = 8 * 1024
 _GLOB_CHARS_PATTERN = re.compile(r"[*?\[\]]")
-
-# Per-chunk read timeout on file-transfer requests, so a stalled transfer is bounded.
-_TRANSFER_TIMEOUT_SECONDS = 30
-_hf_constants.HF_HUB_DOWNLOAD_TIMEOUT = _TRANSFER_TIMEOUT_SECONDS
 
 # How often to log a warning while waiting for the worker thread during cleanup.
 _CLEANUP_WAIT_POLL_SECONDS = 30

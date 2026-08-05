@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 import os
 
-import uvicorn
+# Must be set before huggingface_hub is first imported anywhere in the
+# process (its constants module reads this once, at import time).
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
+
+import uvicorn  # noqa: E402
 
 
 async def _run_until_first_exits(tasks: set[asyncio.Task[None]]) -> None:

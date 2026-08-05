@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -651,12 +653,17 @@ async def test_cancel_download_before_worker_completes_suppresses_available(
 
 
 def test_registry_configures_bounded_transfer_timeout() -> None:
-    import huggingface_hub.constants as hf_constants
-
-    from bahlily_transcription import registry as registry_module
-
-    assert hf_constants.HF_HUB_DOWNLOAD_TIMEOUT == registry_module._TRANSFER_TIMEOUT_SECONDS
-    assert hf_constants.HF_HUB_DOWNLOAD_TIMEOUT == 30
+    """The env var must be set before huggingface_hub is ever imported, since
+    it reads HF_HUB_DOWNLOAD_TIMEOUT once at its own import time -- this only
+    a clean subprocess can verify, not an already-imported test process."""
+    script = (
+        "import os, bahlily_transcription.registry;"
+        "import huggingface_hub.constants as c;"
+        "print(os.environ.get('HF_HUB_DOWNLOAD_TIMEOUT'), c.HF_HUB_DOWNLOAD_TIMEOUT)"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "30 30"
 
 
 @pytest.mark.asyncio
