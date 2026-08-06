@@ -159,7 +159,7 @@ describe("Meetings dashboard", () => {
     const row = screen.getByRole("row", { name: /Meeting 1/ });
     await user.click(within(row).getByRole("button", { name: "Open" }));
 
-    expect(pushMock).toHaveBeenCalledWith("/meetings/m1");
+    expect(pushMock).toHaveBeenCalledWith("/meetings?id=m1");
   });
 
   it("shows an unreachable banner when the storage service is offline", async () => {
