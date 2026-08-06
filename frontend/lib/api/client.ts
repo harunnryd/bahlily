@@ -28,7 +28,11 @@ function buildHeaders(init?: RequestInit): Headers {
   return headers;
 }
 
-export async function request<T>(url: string, init?: RequestInit): Promise<T> {
+export async function request<T>(
+  url: string,
+  init?: RequestInit,
+  decode?: (value: unknown) => T,
+): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(url, { ...init, headers: buildHeaders(init) });
@@ -62,5 +66,5 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new ApiError(resp.status, code, message);
   }
 
-  return body as T;
+  return decode ? decode(body) : (body as T);
 }

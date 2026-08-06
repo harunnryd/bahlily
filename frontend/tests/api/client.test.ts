@@ -19,6 +19,22 @@ describe("request", () => {
     });
   });
 
+  it("rejects a successful response when its decoder rejects the payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ hello: "world" }), { status: 200 })),
+    );
+    const decode = (value: unknown) => {
+      if (typeof value !== "string") throw new ApiError(0, "INVALID_PAYLOAD", "expected string");
+      return value;
+    };
+
+    await expect(request("http://storage/meetings", undefined, decode)).rejects.toMatchObject({
+      code: "INVALID_PAYLOAD",
+      offline: false,
+    });
+  });
+
   it("throws ApiError with code and message from a BahlilyError body", async () => {
     vi.stubGlobal(
       "fetch",

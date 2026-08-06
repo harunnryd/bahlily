@@ -6,7 +6,7 @@ import type { Segment, SummarizeResponse, TemplateSpec } from "./types";
 const base = SERVICES.orchestration;
 
 export function listTemplates(): Promise<TemplateSpec[]> {
-  return request<unknown>(`${base}/templates`).then(parseTemplates);
+  return request<TemplateSpec[]>(`${base}/templates`, undefined, parseTemplates);
 }
 
 export function summarize(
@@ -28,8 +28,12 @@ export function summarize(
     provider,
     model,
   };
-  return request<unknown>(`${base}/summarize`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  }).then(parseSummarizeResponse);
+  return request<SummarizeResponse>(
+    `${base}/summarize`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    parseSummarizeResponse,
+  );
 }

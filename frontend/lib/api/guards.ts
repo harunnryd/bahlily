@@ -221,8 +221,20 @@ function parseChatAnswer(value: unknown, context = "chatAnswer"): ChatAnswer {
   };
 }
 
+function parseIngestResponse(
+  value: unknown,
+  context = "ingestResponse",
+): { meeting_id: string; segments_indexed: number } {
+  if (!isObject(value)) fail(`${context}: expected object`);
+  return {
+    meeting_id: requireField(value, "meeting_id", isString, context),
+    segments_indexed: requireField(value, "segments_indexed", isNumber, context),
+  };
+}
+
 export {
   parseChatAnswer,
+  parseIngestResponse,
   parseMeeting,
   parseMeetings,
   parseSegment,

@@ -1,6 +1,6 @@
 import { request } from "./client";
 import { SERVICES } from "./config";
-import { parseChatAnswer } from "./guards";
+import { parseChatAnswer, parseIngestResponse } from "./guards";
 import type { ChatAnswer, Segment } from "./types";
 
 const base = SERVICES.chat;
@@ -26,6 +26,7 @@ export function ingestMeeting(
   return request<{ meeting_id: string; segments_indexed: number }>(
     `${base}/meetings/${meetingId}/ingest`,
     { method: "POST", body: JSON.stringify(payload) },
+    parseIngestResponse,
   );
 }
 
@@ -36,14 +37,18 @@ export function askChat(
   provider: string,
   model: string,
 ): Promise<ChatAnswer> {
-  return request<unknown>(`${base}/chat`, {
-    method: "POST",
-    body: JSON.stringify({
-      question,
-      meeting_id: meetingId,
-      history,
-      provider,
-      model,
-    }),
-  }).then(parseChatAnswer);
+  return request<ChatAnswer>(
+    `${base}/chat`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        question,
+        meeting_id: meetingId,
+        history,
+        provider,
+        model,
+      }),
+    },
+    parseChatAnswer,
+  );
 }

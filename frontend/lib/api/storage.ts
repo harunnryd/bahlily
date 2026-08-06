@@ -13,11 +13,15 @@ import type { Meeting, Segment, SpeakerProfile, Summary } from "./types";
 const base = SERVICES.storage;
 
 export function listMeetings(limit = 20, offset = 0): Promise<Meeting[]> {
-  return request<unknown>(`${base}/meetings?limit=${limit}&offset=${offset}`).then(parseMeetings);
+  return request<Meeting[]>(
+    `${base}/meetings?limit=${limit}&offset=${offset}`,
+    undefined,
+    parseMeetings,
+  );
 }
 
 export function getMeeting(meetingId: string): Promise<Meeting> {
-  return request<unknown>(`${base}/meetings/${meetingId}`).then(parseMeeting);
+  return request<Meeting>(`${base}/meetings/${meetingId}`, undefined, parseMeeting);
 }
 
 export function deleteMeeting(meetingId: string): Promise<void> {
@@ -25,15 +29,15 @@ export function deleteMeeting(meetingId: string): Promise<void> {
 }
 
 export function listSegments(meetingId: string): Promise<Segment[]> {
-  return request<unknown>(`${base}/meetings/${meetingId}/segments`).then(parseSegments);
+  return request<Segment[]>(`${base}/meetings/${meetingId}/segments`, undefined, parseSegments);
 }
 
 export function getSummary(meetingId: string): Promise<Summary> {
-  return request<unknown>(`${base}/meetings/${meetingId}/summary`).then(parseSummary);
+  return request<Summary>(`${base}/meetings/${meetingId}/summary`, undefined, parseSummary);
 }
 
 export function listSpeakerProfiles(): Promise<SpeakerProfile[]> {
-  return request<unknown>(`${base}/speaker-profiles`).then(parseSpeakerProfiles);
+  return request<SpeakerProfile[]>(`${base}/speaker-profiles`, undefined, parseSpeakerProfiles);
 }
 
 export function labelSpeaker(
@@ -41,10 +45,14 @@ export function labelSpeaker(
   clusterLabel: string,
   name: string,
 ): Promise<SpeakerProfile> {
-  return request<unknown>(`${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`, {
-    method: "POST",
-    body: JSON.stringify({ name }),
-  }).then((value) => parseSpeakerProfile(value, "labelSpeaker"));
+  return request<SpeakerProfile>(
+    `${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`,
+    {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    },
+    (value) => parseSpeakerProfile(value, "labelSpeaker"),
+  );
 }
 
 export function saveSummary(
@@ -59,8 +67,12 @@ export function saveSummary(
     model: string;
   },
 ): Promise<Summary> {
-  return request<unknown>(`${base}/meetings/${meetingId}/summary`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  }).then(parseSummary);
+  return request<Summary>(
+    `${base}/meetings/${meetingId}/summary`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    parseSummary,
+  );
 }
