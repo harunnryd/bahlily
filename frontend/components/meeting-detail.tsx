@@ -18,10 +18,12 @@ const FALLBACK_STATUS_CLASSES = "border-zinc-500/30 bg-zinc-500/10 text-zinc-300
 export function MeetingDetail({
   meeting,
   segments,
+  segmentsPending,
   summary,
 }: {
   meeting: Meeting;
   segments: Segment[];
+  segmentsPending: boolean;
   summary: Summary | null;
 }) {
   return (
@@ -53,10 +55,21 @@ export function MeetingDetail({
             <TranscriptTab meeting={meeting} segments={segments} />
           </TabsContent>
           <TabsContent value="summary">
-            <SummaryTab meeting={meeting} summary={summary} />
+            <SummaryTab
+              meeting={meeting}
+              segments={segments}
+              segmentsPending={segmentsPending}
+              summary={summary}
+            />
           </TabsContent>
           <TabsContent value="chat" forceMount>
-            <ChatTab meeting={meeting} ingested={false} />
+            <ChatTab
+              key={meeting.id}
+              meeting={meeting}
+              segments={segments}
+              segmentsPending={segmentsPending}
+              ingested={false}
+            />
           </TabsContent>
           <TabsContent value="export">
             <ExportTab disabled={summary === null} summary={summary} />

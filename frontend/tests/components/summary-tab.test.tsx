@@ -105,7 +105,14 @@ function SummaryHarness({ id }: { id: string }) {
         e instanceof ApiError && e.status === 404 ? null : Promise.reject(e),
       ),
   });
-  return <SummaryTab meeting={{ ...meeting, id }} summary={data ?? null} />;
+  return (
+    <SummaryTab
+      meeting={{ ...meeting, id }}
+      segments={segments}
+      segmentsPending={false}
+      summary={data ?? null}
+    />
+  );
 }
 
 afterEach(() => {
@@ -115,16 +122,45 @@ afterEach(() => {
 
 describe("SummaryTab", () => {
   it("renders an existing summary", () => {
-    renderTab(<SummaryTab meeting={meeting} summary={summary} />);
+    renderTab(
+      <SummaryTab
+        meeting={meeting}
+        segments={segments}
+        segmentsPending={false}
+        summary={summary}
+      />,
+    );
     expect(screen.getByText("Sprint planning")).toBeInTheDocument();
     expect(screen.getByText("Shipped the API")).toBeInTheDocument();
   });
 
   it("shows the generate flow when no summary exists", async () => {
     stubTemplates();
-    renderTab(<SummaryTab meeting={{ ...meeting, has_summary: false }} summary={null} />);
+    renderTab(
+      <SummaryTab
+        meeting={{ ...meeting, has_summary: false }}
+        segments={segments}
+        segmentsPending={false}
+        summary={null}
+      />,
+    );
     expect(screen.getByRole("button", { name: /generate/i })).toBeInTheDocument();
     expect(await screen.findByText("brief")).toBeInTheDocument();
+  });
+
+  it("disables generation when no transcript is available", async () => {
+    stubTemplates();
+    renderTab(
+      <SummaryTab
+        meeting={{ ...meeting, has_summary: false }}
+        segments={[]}
+        segmentsPending={false}
+        summary={null}
+      />,
+    );
+
+    expect(await screen.findByText("No transcript available to summarize yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /generate/i })).toBeDisabled();
   });
 
   it("generates, persists, and flips to the rendered summary", async () => {
@@ -195,7 +231,14 @@ describe("SummaryTab", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    renderTab(<SummaryTab meeting={{ ...meeting, has_summary: false }} summary={null} />);
+    renderTab(
+      <SummaryTab
+        meeting={{ ...meeting, has_summary: false }}
+        segments={segments}
+        segmentsPending={false}
+        summary={null}
+      />,
+    );
 
     await screen.findByRole("button", { name: /generate/i });
     await waitFor(() => expect(screen.getByRole("button", { name: /generate/i })).toBeEnabled());

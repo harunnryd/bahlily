@@ -14,11 +14,13 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listTemplates, summarize } from "@/lib/api/orchestration";
-import { listSegments, saveSummary } from "@/lib/api/storage";
-import type { Meeting, Summary, TemplateSpec } from "@/lib/api/types";
+import { saveSummary } from "@/lib/api/storage";
+import type { Meeting, Segment, Summary, TemplateSpec } from "@/lib/api/types";
 
 interface SummaryTabProps {
   meeting: Meeting;
+  segments: Segment[];
+  segmentsPending: boolean;
   summary: Summary | null;
 }
 
@@ -26,7 +28,7 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-export function SummaryTab({ meeting, summary }: SummaryTabProps) {
+export function SummaryTab({ meeting, segments, segmentsPending, summary }: SummaryTabProps) {
   const queryClient = useQueryClient();
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [provider, setProvider] = useState("ollama");
@@ -47,7 +49,6 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
 
   const generate = useMutation({
     mutationFn: async (template: TemplateSpec) => {
-      const segments = await listSegments(meeting.id);
       const response = await summarize(segments, template, provider, model);
       await saveSummary(meeting.id, {
         title: response.summary.title,
@@ -164,14 +165,22 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         </label>
         <Input id="model" value={model} onChange={(event) => setModel(event.target.value)} />
       </div>
+      {segmentsPending === false && segments.length === 0 && (
+        <p className="text-muted-foreground text-sm">No transcript available to summarize yet</p>
+      )}
       {generate.isError && <p className="text-sm text-red-300">Failed to generate summary</p>}
       <Button
         onClick={() => {
-          if (selectedTemplate !== null) {
+          if (selectedTemplate !== null && segments.length > 0) {
             generate.mutate(selectedTemplate);
           }
         }}
-        disabled={generate.isPending || selectedTemplate === null}
+        disabled={
+          generate.isPending ||
+          selectedTemplate === null ||
+          segmentsPending ||
+          segments.length === 0
+        }
       >
         {generate.isPending ? "Generating…" : "Generate"}
       </Button>

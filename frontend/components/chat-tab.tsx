@@ -3,14 +3,15 @@
 import { useState } from "react";
 
 import { askChat, ingestMeeting, type ChatTurn } from "@/lib/api/chat";
-import { listSegments } from "@/lib/api/storage";
-import type { ChatAnswer, Meeting } from "@/lib/api/types";
+import type { ChatAnswer, Meeting, Segment } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ChatTabProps {
   meeting: Meeting;
+  segments: Segment[];
+  segmentsPending: boolean;
   ingested: boolean;
 }
 
@@ -20,7 +21,17 @@ interface RenderedTurn {
   citations: ChatAnswer["citations"];
 }
 
-function IngestGate({ meeting, onIngested }: { meeting: Meeting; onIngested: () => void }) {
+function IngestGate({
+  meeting,
+  segments,
+  segmentsPending,
+  onIngested,
+}: {
+  meeting: Meeting;
+  segments: Segment[];
+  segmentsPending: boolean;
+  onIngested: () => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +42,12 @@ function IngestGate({ meeting, onIngested }: { meeting: Meeting; onIngested: () 
         Index the transcript so the chat service can answer questions about it.
       </p>
       <Button
-        disabled={pending}
+        disabled={pending || segmentsPending || segments.length === 0}
         onClick={async () => {
+          if (segments.length === 0) return;
           setPending(true);
           setError(null);
           try {
-            const segments = await listSegments(meeting.id);
             await ingestMeeting(meeting.id, segments);
             onIngested();
           } catch (e) {
@@ -48,6 +59,9 @@ function IngestGate({ meeting, onIngested }: { meeting: Meeting; onIngested: () 
       >
         {pending ? "Ingesting\u2026" : "Ingest transcript"}
       </Button>
+      {segmentsPending === false && segments.length === 0 && (
+        <p className="text-muted-foreground text-sm">No transcript available to summarize yet</p>
+      )}
       {error !== null && <p className="text-sm text-red-300">{error}</p>}
     </div>
   );
@@ -160,11 +174,23 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
   );
 }
 
-export function ChatTab({ meeting, ingested: initialIngested }: ChatTabProps) {
+export function ChatTab({
+  meeting,
+  segments,
+  segmentsPending,
+  ingested: initialIngested,
+}: ChatTabProps) {
   const [ingested, setIngested] = useState(initialIngested);
 
   if (!ingested) {
-    return <IngestGate meeting={meeting} onIngested={() => setIngested(true)} />;
+    return (
+      <IngestGate
+        meeting={meeting}
+        segments={segments}
+        segmentsPending={segmentsPending}
+        onIngested={() => setIngested(true)}
+      />
+    );
   }
   return <ChatPanel meeting={meeting} />;
 }

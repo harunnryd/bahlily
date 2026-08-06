@@ -59,12 +59,28 @@ afterEach(() => {
 
 describe("ChatTab", () => {
   it("shows the ingest gate when not ingested", () => {
-    render(<ChatTab meeting={meeting} ingested={false} />);
+    render(
+      <ChatTab
+        meeting={meeting}
+        segments={segmentsFixture}
+        segmentsPending={false}
+        ingested={false}
+      />,
+    );
     expect(screen.getByRole("button", { name: /ingest transcript/i })).toBeInTheDocument();
   });
 
+  it("disables ingest when no transcript is available", () => {
+    render(<ChatTab meeting={meeting} segments={[]} segmentsPending={false} ingested={false} />);
+
+    expect(screen.getByText("No transcript available to summarize yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ingest transcript/i })).toBeDisabled();
+  });
+
   it("renders the chat input when ingested", () => {
-    render(<ChatTab meeting={meeting} ingested />);
+    render(
+      <ChatTab meeting={meeting} segments={segmentsFixture} segmentsPending={false} ingested />,
+    );
     expect(screen.getByRole("textbox", { name: /question/i })).toBeInTheDocument();
   });
 
@@ -80,16 +96,17 @@ describe("ChatTab", () => {
       return json(404, null);
     });
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested={false} />);
+    render(
+      <ChatTab
+        meeting={meeting}
+        segments={segmentsFixture}
+        segmentsPending={false}
+        ingested={false}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: /ingest transcript/i }));
 
-    await waitFor(() => {
-      const segmentCall = fetchMock.mock.calls.find(
-        ([url, init]) => String(url).endsWith("/meetings/m1/segments") && !init?.method,
-      );
-      expect(segmentCall).toBeDefined();
-    });
     await waitFor(() => {
       const ingestCall = fetchMock.mock.calls.find(
         ([url, init]) => String(url).endsWith("/meetings/m1/ingest") && init?.method === "POST",
@@ -128,7 +145,9 @@ describe("ChatTab", () => {
       return json(404, null);
     });
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested />);
+    render(
+      <ChatTab meeting={meeting} segments={segmentsFixture} segmentsPending={false} ingested />,
+    );
 
     await user.type(screen.getByRole("textbox", { name: /question/i }), "What did we decide?");
     await user.click(screen.getByRole("button", { name: /send/i }));
@@ -154,7 +173,9 @@ describe("ChatTab", () => {
   it("shows an error and keeps the user turn when askChat fails", async () => {
     stubFetch(() => json(500, { message: "boom" }));
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested />);
+    render(
+      <ChatTab meeting={meeting} segments={segmentsFixture} segmentsPending={false} ingested />,
+    );
 
     await user.type(screen.getByRole("textbox", { name: /question/i }), "What happened?");
     await user.click(screen.getByRole("button", { name: /send/i }));
@@ -175,7 +196,14 @@ describe("ChatTab", () => {
       return json(404, null);
     });
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested={false} />);
+    render(
+      <ChatTab
+        meeting={meeting}
+        segments={segmentsFixture}
+        segmentsPending={false}
+        ingested={false}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: /ingest transcript/i }));
 
@@ -197,7 +225,9 @@ describe("ChatTab", () => {
       return json(404, null);
     });
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested />);
+    render(
+      <ChatTab meeting={meeting} segments={segmentsFixture} segmentsPending={false} ingested />,
+    );
 
     for (let i = 0; i < 30; i++) {
       await user.type(screen.getByRole("textbox", { name: /question/i }), `Q${i}?`);
@@ -224,7 +254,9 @@ describe("ChatTab", () => {
       return json(404, null);
     });
     const user = userEvent.setup();
-    render(<ChatTab meeting={meeting} ingested />);
+    render(
+      <ChatTab meeting={meeting} segments={segmentsFixture} segmentsPending={false} ingested />,
+    );
 
     await user.type(screen.getByRole("textbox", { name: /question/i }), "Hello");
     await user.click(screen.getByRole("button", { name: /send/i }));

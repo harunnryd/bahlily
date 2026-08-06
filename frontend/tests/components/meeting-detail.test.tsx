@@ -30,7 +30,7 @@ function renderDetail() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MeetingDetail meeting={meeting} segments={[]} summary={null} />
+      <MeetingDetail meeting={meeting} segments={[]} segmentsPending={false} summary={null} />
     </QueryClientProvider>,
   );
 }

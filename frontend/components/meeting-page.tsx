@@ -33,7 +33,7 @@ export function MeetingPage() {
     enabled: id !== null,
   });
 
-  const { data: dataSegments } = useQuery({
+  const { data: dataSegments, isPending: segmentsPending } = useQuery({
     queryKey: ["segments", id],
     queryFn: () => listSegments(id as string),
     enabled: id !== null,
@@ -85,6 +85,11 @@ export function MeetingPage() {
   }
 
   return (
-    <MeetingDetail meeting={data} segments={dataSegments ?? []} summary={dataSummary ?? null} />
+    <MeetingDetail
+      meeting={data}
+      segments={dataSegments ?? []}
+      segmentsPending={segmentsPending}
+      summary={dataSummary ?? null}
+    />
   );
 }
