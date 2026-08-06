@@ -1,13 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { MeetingDetail } from "@/components/meeting-detail";
 import type { Meeting } from "@/lib/api/types";
-
-vi.mock("@/lib/api/storage", () => ({
-  getMeeting: vi.fn(),
-  listSpeakerProfiles: vi.fn().mockResolvedValue([]),
-}));
 
 const meeting: Meeting = {
   id: "m1",

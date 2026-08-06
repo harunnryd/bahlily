@@ -37,6 +37,20 @@ const segments: Segment[] = [
     speaker_cluster_label: "SPEAKER_01",
     speaker_profile_id: null,
   },
+  {
+    segment_id: 2,
+    text: "world",
+    confidence: 0.9,
+    engine: "whisper",
+    model_name: "small",
+    audio_start_time: 1,
+    audio_end_time: 2,
+    language: "en",
+    is_partial: false,
+    trace_id: "t1",
+    speaker_cluster_label: "SPEAKER_01",
+    speaker_profile_id: null,
+  },
 ];
 
 const speakerProfile: SpeakerProfile = {
@@ -86,6 +100,7 @@ describe("TranscriptTab", () => {
     renderTab(<TranscriptTab meeting={meeting} segments={segments} />);
     expect(screen.getByText("SPEAKER_01")).toBeInTheDocument();
     expect(screen.getByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("world")).toBeInTheDocument();
   });
 
   it("shows empty state when no segments", () => {

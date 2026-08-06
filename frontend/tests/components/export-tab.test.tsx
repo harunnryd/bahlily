@@ -98,7 +98,11 @@ describe("ExportTab", () => {
       );
       expect(exportCall).toBeDefined();
     });
-    await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)));
+    await waitFor(() =>
+      expect(createObjectURL).toHaveBeenCalledWith(
+        expect.objectContaining({ size: 10, type: "application/octet-stream" }),
+      ),
+    );
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake"));
   });

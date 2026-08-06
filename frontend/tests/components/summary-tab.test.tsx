@@ -221,9 +221,8 @@ describe("SummaryTab", () => {
   });
 
   it("shows an error when generation fails", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      const method = init?.method ?? "GET";
       if (url.endsWith("/templates")) return json(200, [template]);
       if (url.endsWith("/segments")) return json(200, segments);
       if (url.endsWith("/summarize")) return json(500, { message: "boom" });
