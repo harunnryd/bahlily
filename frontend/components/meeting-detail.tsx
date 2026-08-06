@@ -1,9 +1,10 @@
 "use client";
 
+import { SummaryTab } from "@/components/summary-tab";
 import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Meeting, Segment } from "@/lib/api/types";
+import type { Meeting, Segment, Summary } from "@/lib/api/types";
 
 const STATUS_CLASSES: Record<string, string> = {
   recording: "border-amber-500/30 bg-amber-500/10 text-amber-400",
@@ -16,9 +17,11 @@ const FALLBACK_STATUS_CLASSES =
 export function MeetingDetail({
   meeting,
   segments,
+  summary,
 }: {
   meeting: Meeting;
   segments: Segment[];
+  summary: Summary | null;
 }) {
   return (
     <main className="p-8">
@@ -53,7 +56,7 @@ export function MeetingDetail({
             <TranscriptTab meeting={meeting} segments={segments} />
           </TabsContent>
           <TabsContent value="summary">
-            <div data-testid="tab-summary" />
+            <SummaryTab meeting={meeting} summary={summary} />
           </TabsContent>
           <TabsContent value="chat">
             <div data-testid="tab-chat" />

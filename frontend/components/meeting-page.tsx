@@ -7,7 +7,7 @@ import { MeetingDetail } from "@/components/meeting-detail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api/client";
-import { getMeeting, listSegments } from "@/lib/api/storage";
+import { getMeeting, getSummary, listSegments } from "@/lib/api/storage";
 
 export function MeetingDetailSkeleton() {
   return (
@@ -36,6 +36,15 @@ export function MeetingPage() {
   const { data: dataSegments } = useQuery({
     queryKey: ["segments", id],
     queryFn: () => listSegments(id as string),
+    enabled: id !== null,
+  });
+
+  const { data: dataSummary } = useQuery({
+    queryKey: ["summary", id],
+    queryFn: () =>
+      getSummary(id as string).catch((e) =>
+        e instanceof ApiError && e.status === 404 ? null : Promise.reject(e),
+      ),
     enabled: id !== null,
   });
 
@@ -75,5 +84,11 @@ export function MeetingPage() {
     );
   }
 
-  return <MeetingDetail meeting={data} segments={dataSegments ?? []} />;
+  return (
+    <MeetingDetail
+      meeting={data}
+      segments={dataSegments ?? []}
+      summary={dataSummary ?? null}
+    />
+  );
 }
