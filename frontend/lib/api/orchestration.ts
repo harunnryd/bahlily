@@ -1,11 +1,6 @@
 import { request } from "./client";
 import { SERVICES } from "./config";
-import type {
-  Segment,
-  SummarizeResponse,
-  Template,
-  TemplateSpec,
-} from "./types";
+import type { Segment, SummarizeResponse, TemplateSpec } from "./types";
 
 const base = SERVICES.orchestration;
 
@@ -15,7 +10,7 @@ export function listTemplates(): Promise<TemplateSpec[]> {
 
 export function summarize(
   segments: Segment[],
-  template: Template,
+  template: TemplateSpec,
   provider: string,
   model: string,
 ): Promise<SummarizeResponse> {
@@ -28,13 +23,7 @@ export function summarize(
       end_time: s.audio_end_time,
       language: s.language,
     })),
-    template: {
-      name: template.name,
-      version: template.version,
-      system_prompt: template.system_prompt,
-      focus_instructions: template.focus_instructions,
-      few_shot_examples: template.few_shot_examples,
-    },
+    template,
     provider,
     model,
   };
