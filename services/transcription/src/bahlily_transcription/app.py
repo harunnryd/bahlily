@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import cast
 
 import structlog
-from fastapi import FastAPI, HTTPException
+from bahlily_capability import require_capability as bahlily_capability_require
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -104,7 +105,11 @@ async def _lifespan(_app: FastAPI) -> AsyncGenerator[None]:
             await _diarize_jobs.stop_sweeper()
 
 
-app = FastAPI(title="bahlily-transcription", lifespan=_lifespan)
+app = FastAPI(
+    title="bahlily-transcription",
+    lifespan=_lifespan,
+    dependencies=[Depends(bahlily_capability_require)],
+)
 
 
 def _engines() -> dict[str, tuple[WhisperEngine | ParakeetEngine, ModelRegistry]]:

@@ -1,11 +1,12 @@
 import { request } from "./client";
 import { SERVICES } from "./config";
+import { parseSummarizeResponse, parseTemplates } from "./guards";
 import type { Segment, SummarizeResponse, TemplateSpec } from "./types";
 
 const base = SERVICES.orchestration;
 
 export function listTemplates(): Promise<TemplateSpec[]> {
-  return request<TemplateSpec[]>(`${base}/templates`);
+  return request<unknown>(`${base}/templates`).then(parseTemplates);
 }
 
 export function summarize(
@@ -27,8 +28,8 @@ export function summarize(
     provider,
     model,
   };
-  return request<SummarizeResponse>(`${base}/summarize`, {
+  return request<unknown>(`${base}/summarize`, {
     method: "POST",
     body: JSON.stringify(payload),
-  });
+  }).then(parseSummarizeResponse);
 }

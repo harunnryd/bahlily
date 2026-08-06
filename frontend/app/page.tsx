@@ -29,7 +29,7 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
-  const { data, isPending, isError, error, refetch } = useQuery({
+  const { data, isPending, isError, error, refetch, isPlaceholderData } = useQuery({
     queryKey: ["meetings", offset],
     queryFn: () => listMeetings(PAGE_SIZE, offset),
     placeholderData: keepPreviousData,
@@ -109,7 +109,7 @@ export default function HomePage() {
               variant="outline"
               size="sm"
               onClick={() => setOffset((current) => current + PAGE_SIZE)}
-              disabled={!hasNextPage}
+              disabled={!hasNextPage || isPlaceholderData}
             >
               Next
             </Button>

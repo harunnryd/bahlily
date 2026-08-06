@@ -79,10 +79,28 @@ wheels = [
 ]
 
 [[package]]
+name = "bahlily-capability"
+version = "0.1.0"
+source = { directory = "../../packages/bahlily-capability" }
+dependencies = [
+    { name = "fastapi" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "fastapi", specifier = ">=0.140.13" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "ruff", specifier = ">=0.8" },
+]
+
+[[package]]
 name = "bahlily-export"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "bahlily-capability" },
     { name = "fastapi" },
     { name = "pydantic" },
     { name = "python-docx" },
@@ -102,6 +120,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bahlily-capability", directory = "../../packages/bahlily-capability" },
     { name = "fastapi", specifier = ">=0.140.13" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-docx", specifier = ">=1.2.0" },

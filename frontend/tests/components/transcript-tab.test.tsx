@@ -98,7 +98,7 @@ describe("TranscriptTab", () => {
   it("groups segments under their speaker label", () => {
     stubProfiles([]);
     renderTab(<TranscriptTab meeting={meeting} segments={segments} />);
-    expect(screen.getByText("SPEAKER_01")).toBeInTheDocument();
+    expect(screen.getAllByText("SPEAKER_01")).toHaveLength(1);
     expect(screen.getByText("hello")).toBeInTheDocument();
     expect(screen.getByText("world")).toBeInTheDocument();
   });

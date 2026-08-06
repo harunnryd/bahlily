@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated
 
+from bahlily_capability import require_capability
 from bahlily_logging.errors import BahlilyError
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +25,7 @@ from bahlily_chat.errors import (
 )
 from bahlily_chat.models import ChatRequest, ChatResponse, IngestRequest, IngestResponse
 
-app = FastAPI(title="bahlily-chat")
+app = FastAPI(title="bahlily-chat", dependencies=[Depends(require_capability)])
 
 app.add_middleware(
     CORSMiddleware,

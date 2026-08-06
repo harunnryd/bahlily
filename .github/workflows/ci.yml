@@ -195,10 +195,24 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm exec tsc --noEmit
-      - run: pnpm test
-      - run: pnpm build
+      - run: |
+          set -euo pipefail
+          pnpm exec prettier --check .
+      - run: |
+          set -euo pipefail
+          pnpm lint
+      - run: |
+          set -euo pipefail
+          pnpm exec next typegen
+      - run: |
+          set -euo pipefail
+          pnpm exec tsc --noEmit
+      - run: |
+          set -euo pipefail
+          pnpm test
+      - run: |
+          set -euo pipefail
+          pnpm build
 
   orchestration-eval:
     needs: changes

@@ -11,13 +11,27 @@ export class ApiError extends Error {
   }
 }
 
+function readCapability(): string | null {
+  const raw = process.env.NEXT_PUBLIC_BAHLILY_CAPABILITY?.trim();
+  return raw && raw.length > 0 ? raw : null;
+}
+
+function buildHeaders(init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const capability = readCapability();
+  if (capability !== null && !headers.has("x-bahlily-capability")) {
+    headers.set("x-bahlily-capability", capability);
+  }
+  return headers;
+}
+
 export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let resp: Response;
   try {
-    resp = await fetch(url, {
-      ...init,
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-    });
+    resp = await fetch(url, { ...init, headers: buildHeaders(init) });
   } catch {
     throw new ApiError(0, null, "service is offline", true);
   }

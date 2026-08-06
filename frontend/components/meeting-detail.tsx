@@ -27,7 +27,7 @@ export function MeetingDetail({
   summary: Summary | null;
 }) {
   return (
-    <main className="p-8">
+    <div className="p-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="space-y-2">
           <h1 className="text-2xl font-semibold">{meeting.title ?? "Untitled"}</h1>
@@ -76,6 +76,6 @@ export function MeetingDetail({
           </TabsContent>
         </Tabs>
       </div>
-    </main>
+    </div>
   );
 }

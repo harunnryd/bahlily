@@ -1,15 +1,23 @@
 import { request } from "./client";
 import { SERVICES } from "./config";
+import {
+  parseMeeting,
+  parseMeetings,
+  parseSegments,
+  parseSpeakerProfile,
+  parseSpeakerProfiles,
+  parseSummary,
+} from "./guards";
 import type { Meeting, Segment, SpeakerProfile, Summary } from "./types";
 
 const base = SERVICES.storage;
 
 export function listMeetings(limit = 20, offset = 0): Promise<Meeting[]> {
-  return request<Meeting[]>(`${base}/meetings?limit=${limit}&offset=${offset}`);
+  return request<unknown>(`${base}/meetings?limit=${limit}&offset=${offset}`).then(parseMeetings);
 }
 
 export function getMeeting(meetingId: string): Promise<Meeting> {
-  return request<Meeting>(`${base}/meetings/${meetingId}`);
+  return request<unknown>(`${base}/meetings/${meetingId}`).then(parseMeeting);
 }
 
 export function deleteMeeting(meetingId: string): Promise<void> {
@@ -17,15 +25,15 @@ export function deleteMeeting(meetingId: string): Promise<void> {
 }
 
 export function listSegments(meetingId: string): Promise<Segment[]> {
-  return request<Segment[]>(`${base}/meetings/${meetingId}/segments`);
+  return request<unknown>(`${base}/meetings/${meetingId}/segments`).then(parseSegments);
 }
 
 export function getSummary(meetingId: string): Promise<Summary> {
-  return request<Summary>(`${base}/meetings/${meetingId}/summary`);
+  return request<unknown>(`${base}/meetings/${meetingId}/summary`).then(parseSummary);
 }
 
 export function listSpeakerProfiles(): Promise<SpeakerProfile[]> {
-  return request<SpeakerProfile[]>(`${base}/speaker-profiles`);
+  return request<unknown>(`${base}/speaker-profiles`).then(parseSpeakerProfiles);
 }
 
 export function labelSpeaker(
@@ -33,10 +41,10 @@ export function labelSpeaker(
   clusterLabel: string,
   name: string,
 ): Promise<SpeakerProfile> {
-  return request<SpeakerProfile>(`${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`, {
+  return request<unknown>(`${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`, {
     method: "POST",
     body: JSON.stringify({ name }),
-  });
+  }).then((value) => parseSpeakerProfile(value, "labelSpeaker"));
 }
 
 export function saveSummary(
@@ -51,8 +59,8 @@ export function saveSummary(
     model: string;
   },
 ): Promise<Summary> {
-  return request<Summary>(`${base}/meetings/${meetingId}/summary`, {
+  return request<unknown>(`${base}/meetings/${meetingId}/summary`, {
     method: "POST",
     body: JSON.stringify(data),
-  });
+  }).then(parseSummary);
 }

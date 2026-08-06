@@ -16,10 +16,12 @@ dependencies = [
     "protobuf>=7.35.1",
     "structlog>=24.1",
     "bahlily-logging>=0.1.0",
+    "bahlily-capability>=0.1.0",
 ]
 
 [tool.uv.sources]
 bahlily-logging = { path = "../../packages/bahlily-logging" }
+bahlily-capability = { path = "../../packages/bahlily-capability" }
 
 [project.scripts]
 bahlily-storage = "bahlily_storage:main"

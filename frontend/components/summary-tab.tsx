@@ -44,8 +44,16 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
     enabled: summary === null,
   });
 
-  const selectedTemplate =
-    templates?.find((template) => template.name === templateName) ?? templates?.[0] ?? null;
+  const selectedTemplate = (() => {
+    if (templates === undefined) return null;
+    if (templateName !== null) {
+      const match = templates.find(
+        (template) => `${template.name}:${template.version}` === templateName,
+      );
+      if (match !== undefined) return match;
+    }
+    return templates[0] ?? null;
+  })();
 
   const generate = useMutation({
     mutationFn: async (template: TemplateSpec) => {
@@ -135,14 +143,24 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         ) : templatesError ? (
           <p className="text-sm text-red-300">Failed to load templates</p>
         ) : (
-          <Select value={selectedTemplate?.name ?? ""} onValueChange={setTemplateName}>
+          <Select
+            value={
+              selectedTemplate === null
+                ? ""
+                : `${selectedTemplate.name}:${selectedTemplate.version}`
+            }
+            onValueChange={setTemplateName}
+          >
             <SelectTrigger id="template-select" className="w-full">
               <SelectValue placeholder="Choose a template" />
             </SelectTrigger>
             <SelectContent>
               {templates?.map((template) => (
-                <SelectItem key={template.name} value={template.name}>
-                  {template.name}
+                <SelectItem
+                  key={`${template.name}:${template.version}`}
+                  value={`${template.name}:${template.version}`}
+                >
+                  {template.name} {template.version}
                 </SelectItem>
               ))}
             </SelectContent>

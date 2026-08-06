@@ -145,7 +145,7 @@ describe("SummaryTab", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /generate/i })).toBeInTheDocument();
-    expect(await screen.findByText("brief")).toBeInTheDocument();
+    expect(await screen.findByText("brief 1")).toBeInTheDocument();
   });
 
   it("disables generation when no transcript is available", async () => {

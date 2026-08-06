@@ -114,6 +114,7 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
             <div key={cluster.label} className="flex flex-wrap items-center gap-2">
               <SpeakerLegend clusters={[cluster]} />
               <RelabelForm
+                key={cluster.name ?? ""}
                 initialName={cluster.name ?? ""}
                 pending={relabel.isPending}
                 onSave={(name) => relabel.mutate({ label: cluster.label, name })}

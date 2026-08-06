@@ -6,6 +6,7 @@ import uuid
 from typing import Annotated
 
 import structlog
+from bahlily_capability import require_capability
 from bahlily_logging.errors import BahlilyError
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -64,7 +65,7 @@ from bahlily_storage.speaker_matching import best_match
 
 _log = structlog.get_logger()
 
-app = FastAPI(title="bahlily-storage")
+app = FastAPI(title="bahlily-storage", dependencies=[Depends(require_capability)])
 
 app.add_middleware(
     CORSMiddleware,

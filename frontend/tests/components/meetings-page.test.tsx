@@ -94,6 +94,54 @@ describe("Meetings dashboard", () => {
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
   });
 
+  it("disables Next while the previous page is shown for a delayed response", async () => {
+    const meetings = makeMeetings(20);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (init?.method === "DELETE") {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      const offsetMatch = /[?&]offset=(\d+)/.exec(url);
+      const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+      if (offset === 20) {
+        return new Promise<Response>((resolve) => {
+          setTimeout(
+            () =>
+              resolve(
+                new Response(JSON.stringify(makeMeetings(20)), {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            60,
+          );
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(meetings), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText("Meeting 1");
+
+    const next = screen.getByRole("button", { name: "Next" });
+    await user.click(next);
+    expect(next).toBeDisabled();
+
+    await user.click(next);
+    await waitFor(() => {
+      const offsets = listUrls(fetchMock).map((u) => /[?&]offset=(\d+)/.exec(u)?.[1]);
+      expect(offsets.filter((o) => o === "20")).toHaveLength(1);
+    });
+  });
+
   it("filters the fetched page by title", async () => {
     const fetchMock = stubFetch(makeMeetings(2));
     const user = userEvent.setup();

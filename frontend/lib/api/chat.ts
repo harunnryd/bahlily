@@ -1,5 +1,6 @@
 import { request } from "./client";
 import { SERVICES } from "./config";
+import { parseChatAnswer } from "./guards";
 import type { ChatAnswer, Segment } from "./types";
 
 const base = SERVICES.chat;
@@ -35,7 +36,7 @@ export function askChat(
   provider: string,
   model: string,
 ): Promise<ChatAnswer> {
-  return request<ChatAnswer>(`${base}/chat`, {
+  return request<unknown>(`${base}/chat`, {
     method: "POST",
     body: JSON.stringify({
       question,
@@ -44,5 +45,5 @@ export function askChat(
       provider,
       model,
     }),
-  });
+  }).then(parseChatAnswer);
 }
