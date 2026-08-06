@@ -6,7 +6,8 @@ set -euo pipefail
 # request between the frontend and the services behind the capability gate.
 
 if [[ -z "${BAHLILY_CAPABILITY:-}" ]]; then
-  readonly BAHLILY_CAPABILITY="$(head -c 32 /dev/urandom | xxd -p)"
+  BAHLILY_CAPABILITY="$(head -c 32 /dev/urandom | xxd -p -c 256)"
+  readonly BAHLILY_CAPABILITY
   export BAHLILY_CAPABILITY
 fi
 
