@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MeetingDetail } from "@/components/meeting-detail";
 import type { Meeting } from "@/lib/api/types";
 
@@ -35,6 +35,10 @@ function renderDetail() {
   );
 }
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("MeetingDetail", () => {
   it("renders the meeting title and four tabs", () => {
     renderDetail();
@@ -45,5 +49,12 @@ describe("MeetingDetail", () => {
     expect(screen.getByRole("tab", { name: /summary/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /chat/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /export/i })).toBeInTheDocument();
+  });
+
+  it("keeps the ChatTab mounted when chat is not the active tab", () => {
+    renderDetail();
+    expect(
+      screen.getByRole("button", { name: /ingest transcript/i, hidden: true }),
+    ).toBeInTheDocument();
   });
 });

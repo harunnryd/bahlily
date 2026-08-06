@@ -59,7 +59,7 @@ export function MeetingDetail({
           <TabsContent value="summary">
             <SummaryTab meeting={meeting} summary={summary} />
           </TabsContent>
-          <TabsContent value="chat">
+          <TabsContent value="chat" forceMount>
             <ChatTab meeting={meeting} ingested={false} />
           </TabsContent>
           <TabsContent value="export">
