@@ -1,5 +1,6 @@
 "use client";
 
+import { ChatTab } from "@/components/chat-tab";
 import { SummaryTab } from "@/components/summary-tab";
 import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +60,7 @@ export function MeetingDetail({
             <SummaryTab meeting={meeting} summary={summary} />
           </TabsContent>
           <TabsContent value="chat">
-            <div data-testid="tab-chat" />
+            <ChatTab meeting={meeting} ingested={false} />
           </TabsContent>
           <TabsContent value="export">
             <div data-testid="tab-export" />
