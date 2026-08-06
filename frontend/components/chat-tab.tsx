@@ -60,7 +60,7 @@ function IngestGate({
         {pending ? "Ingesting\u2026" : "Ingest transcript"}
       </Button>
       {segmentsPending === false && segments.length === 0 && (
-        <p className="text-muted-foreground text-sm">No transcript available to summarize yet</p>
+        <p className="text-muted-foreground text-sm">No transcript available for chat yet</p>
       )}
       {error !== null && <p className="text-sm text-red-300">{error}</p>}
     </div>

@@ -73,7 +73,7 @@ describe("ChatTab", () => {
   it("disables ingest when no transcript is available", () => {
     render(<ChatTab meeting={meeting} segments={[]} segmentsPending={false} ingested={false} />);
 
-    expect(screen.getByText("No transcript available to summarize yet")).toBeInTheDocument();
+    expect(screen.getByText("No transcript available for chat yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ingest transcript/i })).toBeDisabled();
   });
 
