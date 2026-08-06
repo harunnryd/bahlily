@@ -209,6 +209,43 @@ describe("ChatTab", () => {
     ).toBeInTheDocument();
   });
 
+  it("caps the history sent to askChat at 50 turns", async () => {
+    const chatBodies: Array<{ history: unknown[] }> = [];
+    stubFetch((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/chat") && init?.method === "POST") {
+        const body = init.body;
+        if (typeof body === "string") {
+          chatBodies.push(JSON.parse(body));
+        }
+        return json(200, { answer: `A${chatBodies.length}`, citations: [] });
+      }
+      return json(404, null);
+    });
+    const user = userEvent.setup();
+    render(<ChatTab meeting={meeting} ingested />);
+
+    for (let i = 0; i < 30; i++) {
+      await user.type(
+        screen.getByRole("textbox", { name: /question/i }),
+        `Q${i}?`,
+      );
+      await user.click(screen.getByRole("button", { name: /send/i }));
+      await screen.findByText(`A${i + 1}`);
+    }
+
+    await user.type(
+      screen.getByRole("textbox", { name: /question/i }),
+      "Q30?",
+    );
+    await user.click(screen.getByRole("button", { name: /send/i }));
+    await screen.findByText("A31");
+
+    await waitFor(() => expect(chatBodies.length).toBe(31));
+    const lastBody = chatBodies[chatBodies.length - 1]!;
+    expect(lastBody.history.length).toBeLessThanOrEqual(50);
+  });
+
   it("disables input and submit while a request is in flight", async () => {
     stubFetch((input, init) => {
       if (String(input).endsWith("/chat") && init?.method === "POST") {

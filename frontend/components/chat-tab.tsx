@@ -72,7 +72,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
     const trimmed = question.trim();
     if (trimmed === "" || pending) return;
 
-    const history: ChatTurn[] = turns.map(({ role, content }) => ({
+    const history: ChatTurn[] = turns.slice(-50).map(({ role, content }) => ({
       role,
       content,
     }));
