@@ -91,7 +91,6 @@ export default function HomePage() {
             meetings={filteredMeetings}
             onOpen={(id) => router.push(`/meetings?id=${id}`)}
             onDelete={(id) => setPendingDelete(id)}
-            onExport={() => console.warn("export from dashboard deferred to detail tab")}
           />
         )}
 

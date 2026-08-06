@@ -66,10 +66,12 @@ export function MeetingsTable({ meetings, onOpen, onDelete, onExport }: Meetings
                   <Eye />
                   Open
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => onExport?.(meeting.id)}>
-                  <FileDown />
-                  Export
-                </Button>
+                {onExport !== undefined && (
+                  <Button variant="ghost" size="sm" onClick={() => onExport(meeting.id)}>
+                    <FileDown />
+                    Export
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => onDelete?.(meeting.id)}>
                   <Trash2 />
                   Delete
