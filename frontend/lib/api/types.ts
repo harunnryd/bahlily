@@ -49,6 +49,14 @@ export interface Summary {
   created_at: string;
 }
 
+export interface TemplateSpec {
+  name: string;
+  version: string;
+  system_prompt: string;
+  focus_instructions: string | null;
+  few_shot_examples: Array<{ input: string; output: string }>;
+}
+
 export interface Template {
   id: string;
   name: string;
