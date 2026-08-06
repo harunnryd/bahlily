@@ -10,7 +10,11 @@ dependencies = [
     "uvicorn[standard]>=0.51.0",
     "python-docx>=1.2.0",
     "reportlab>=4.5.1",
+    "bahlily-capability>=0.1.0",
 ]
+
+[tool.uv.sources]
+bahlily-capability = { path = "../../packages/bahlily-capability" }
 
 [project.scripts]
 bahlily-export = "bahlily_export:main"

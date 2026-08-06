@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from bahlily_capability import require_capability
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
@@ -14,7 +16,17 @@ from bahlily_orchestration.models import SummarizeRequest, SummarizeResponse, Te
 from bahlily_orchestration.summarize import summarize
 from bahlily_orchestration.template_loader import list_templates
 
-app = FastAPI(title="bahlily-orchestration")
+app = FastAPI(
+    title="bahlily-orchestration",
+    dependencies=[Depends(require_capability)],
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _ERROR_STATUS_CODES: dict[type[Exception], int] = {
     UnsupportedProviderError: 400,

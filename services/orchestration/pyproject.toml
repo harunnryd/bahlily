@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.13.4",
     "bahlily-logging>=0.1.0",
+    "bahlily-capability>=0.1.0",
     "pyyaml>=6.0.3",
     "langchain>=1.3.14",
     "langgraph>=1.2.9",
@@ -25,6 +26,7 @@ dependencies = [
 
 [tool.uv.sources]
 bahlily-logging = { path = "../../packages/bahlily-logging" }
+bahlily-capability = { path = "../../packages/bahlily-capability" }
 
 [project.scripts]
 bahlily-orchestration = "bahlily_orchestration:main"
