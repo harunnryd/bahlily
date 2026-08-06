@@ -1,6 +1,7 @@
 "use client";
 
 import { ChatTab } from "@/components/chat-tab";
+import { ExportTab } from "@/components/export-tab";
 import { SummaryTab } from "@/components/summary-tab";
 import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +64,7 @@ export function MeetingDetail({
             <ChatTab meeting={meeting} ingested={false} />
           </TabsContent>
           <TabsContent value="export">
-            <div data-testid="tab-export" />
+            <ExportTab disabled={summary === null} summary={summary} />
           </TabsContent>
         </Tabs>
       </div>
