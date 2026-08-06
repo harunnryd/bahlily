@@ -23,6 +23,32 @@ export function MeetingDetailSkeleton() {
   );
 }
 
+function QueryErrorBanner({
+  title,
+  error,
+  onRetry,
+}: {
+  title: string;
+  error: unknown;
+  onRetry: () => void;
+}) {
+  const message =
+    error instanceof ApiError && error.offline
+      ? "Storage service unreachable"
+      : String(error instanceof Error ? error.message : error);
+  return (
+    <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/10 p-4">
+      <div className="text-sm text-red-300">
+        <p className="font-medium">{title}</p>
+        <p>{message}</p>
+      </div>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  );
+}
+
 export function MeetingPage() {
   const searchParams = useSearchParams();
   const id = searchParams.get("id");
@@ -33,18 +59,30 @@ export function MeetingPage() {
     enabled: id !== null,
   });
 
-  const { data: dataSegments, isPending: segmentsPending } = useQuery({
+  const {
+    data: dataSegments,
+    isPending: segmentsPending,
+    isError: segmentsIsError,
+    error: segmentsError,
+    refetch: refetchSegments,
+  } = useQuery({
     queryKey: ["segments", id],
     queryFn: () => listSegments(id as string),
     enabled: id !== null,
   });
 
-  const { data: dataSummary } = useQuery({
+  const {
+    data: dataSummary,
+    isError: summaryIsError,
+    error: summaryError,
+    refetch: refetchSummary,
+  } = useQuery({
     queryKey: ["summary", id],
     queryFn: () =>
-      getSummary(id as string).catch((e) =>
-        e instanceof ApiError && e.status === 404 ? null : Promise.reject(e),
-      ),
+      getSummary(id as string).catch((e) => {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }),
     enabled: id !== null,
   });
 
@@ -66,30 +104,40 @@ export function MeetingPage() {
     return (
       <main className="p-8">
         <div className="mx-auto max-w-5xl">
-          <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/10 p-4">
-            <div className="text-sm text-red-300">
-              <p className="font-medium">Failed to load meeting</p>
-              <p>
-                {error instanceof ApiError && error.offline
-                  ? "Storage service unreachable"
-                  : error.message}
-              </p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Retry
-            </Button>
-          </div>
+          <QueryErrorBanner
+            title="Failed to load meeting"
+            error={error}
+            onRetry={() => refetch()}
+          />
         </div>
       </main>
     );
   }
 
   return (
-    <MeetingDetail
-      meeting={data}
-      segments={dataSegments ?? []}
-      segmentsPending={segmentsPending}
-      summary={dataSummary ?? null}
-    />
+    <main className="p-8">
+      <div className="mx-auto max-w-5xl space-y-4">
+        {segmentsIsError && (
+          <QueryErrorBanner
+            title="Failed to load transcript"
+            error={segmentsError}
+            onRetry={() => refetchSegments()}
+          />
+        )}
+        {summaryIsError && (
+          <QueryErrorBanner
+            title="Failed to load summary"
+            error={summaryError}
+            onRetry={() => refetchSummary()}
+          />
+        )}
+        <MeetingDetail
+          meeting={data}
+          segments={dataSegments ?? []}
+          segmentsPending={segmentsPending}
+          summary={dataSummary ?? null}
+        />
+      </div>
+    </main>
   );
 }
