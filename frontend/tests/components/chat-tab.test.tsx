@@ -185,6 +185,30 @@ describe("ChatTab", () => {
     expect(await screen.findByText("boom")).toBeInTheDocument();
   });
 
+  it("shows an error and keeps the ingest button when ingest fails", async () => {
+    stubFetch((input, init) => {
+      const url = String(input);
+      if (url.endsWith("/meetings/m1/segments") && !init?.method) {
+        return json(200, segmentsFixture);
+      }
+      if (url.endsWith("/meetings/m1/ingest") && init?.method === "POST") {
+        return json(500, { message: "ingest failed" });
+      }
+      return json(404, null);
+    });
+    const user = userEvent.setup();
+    render(<ChatTab meeting={meeting} ingested={false} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /ingest transcript/i }),
+    );
+
+    expect(await screen.findByText("ingest failed")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /ingest transcript/i }),
+    ).toBeInTheDocument();
+  });
+
   it("disables input and submit while a request is in flight", async () => {
     stubFetch((input, init) => {
       if (String(input).endsWith("/chat") && init?.method === "POST") {
