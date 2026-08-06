@@ -42,7 +42,6 @@ repos:
         language: system
         files: \.(ts|tsx)$
         pass_filenames: false
-        always_run: true
 
       - id: cargo-fmt
         name: cargo fmt
