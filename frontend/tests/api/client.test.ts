@@ -70,7 +70,7 @@ describe("request", () => {
   });
 
   it("preserves Headers and tuple-array entries supplied by the caller", async () => {
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+    const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(new Response(JSON.stringify({ ok: true }))),
     );
     vi.stubGlobal("fetch", fetchMock);
