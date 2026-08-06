@@ -41,6 +41,22 @@ describe("request", () => {
     expect(err.offline).toBe(false);
   });
 
+  it("merges caller headers with the json content-type", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("http://storage/meetings", {
+      headers: { Authorization: "Bearer x" },
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://storage/meetings");
+    expect(init.headers).toEqual({
+      "content-type": "application/json",
+      Authorization: "Bearer x",
+    });
+  });
+
   it("marks offline when fetch rejects", async () => {
     vi.stubGlobal(
       "fetch",

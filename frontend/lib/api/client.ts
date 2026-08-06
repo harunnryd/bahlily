@@ -20,8 +20,8 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(url, {
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
       ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
     throw new ApiError(0, null, "service is offline", true);
