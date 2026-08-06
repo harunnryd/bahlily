@@ -54,12 +54,15 @@ describe("request", () => {
   });
 
   it("preserves Headers and tuple-array entries supplied by the caller", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ ok: true }))));
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true }))),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const headersInstance = new Headers({ Authorization: "Bearer H" });
     await request("http://storage/meetings", { headers: headersInstance });
-    const headers = fetchMock.mock.calls[0]![1]!.headers as Headers;
+    const [, headersInit] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const headers = headersInit.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer H");
     expect(headers.get("content-type")).toBe("application/json");
 
@@ -67,7 +70,8 @@ describe("request", () => {
     await request("http://storage/meetings", {
       headers: [["Authorization", "Bearer T"]],
     });
-    const tupleHeaders = fetchMock.mock.calls[0]![1]!.headers as Headers;
+    const [, tupleInit] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const tupleHeaders = tupleInit.headers as Headers;
     expect(tupleHeaders.get("Authorization")).toBe("Bearer T");
     expect(tupleHeaders.get("content-type")).toBe("application/json");
   });
