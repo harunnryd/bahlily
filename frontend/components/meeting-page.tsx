@@ -7,7 +7,7 @@ import { MeetingDetail } from "@/components/meeting-detail";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api/client";
-import { getMeeting } from "@/lib/api/storage";
+import { getMeeting, listSegments } from "@/lib/api/storage";
 
 export function MeetingDetailSkeleton() {
   return (
@@ -30,6 +30,12 @@ export function MeetingPage() {
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["meeting", id],
     queryFn: () => getMeeting(id as string),
+    enabled: id !== null,
+  });
+
+  const { data: dataSegments } = useQuery({
+    queryKey: ["segments", id],
+    queryFn: () => listSegments(id as string),
     enabled: id !== null,
   });
 
@@ -69,5 +75,5 @@ export function MeetingPage() {
     );
   }
 
-  return <MeetingDetail meeting={data} />;
+  return <MeetingDetail meeting={data} segments={dataSegments ?? []} />;
 }

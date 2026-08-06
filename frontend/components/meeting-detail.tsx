@@ -1,8 +1,9 @@
 "use client";
 
+import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Meeting } from "@/lib/api/types";
+import type { Meeting, Segment } from "@/lib/api/types";
 
 const STATUS_CLASSES: Record<string, string> = {
   recording: "border-amber-500/30 bg-amber-500/10 text-amber-400",
@@ -12,7 +13,13 @@ const STATUS_CLASSES: Record<string, string> = {
 const FALLBACK_STATUS_CLASSES =
   "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
 
-export function MeetingDetail({ meeting }: { meeting: Meeting }) {
+export function MeetingDetail({
+  meeting,
+  segments,
+}: {
+  meeting: Meeting;
+  segments: Segment[];
+}) {
   return (
     <main className="p-8">
       <div className="mx-auto max-w-5xl space-y-6">
@@ -43,7 +50,7 @@ export function MeetingDetail({ meeting }: { meeting: Meeting }) {
             <TabsTrigger value="export">Export</TabsTrigger>
           </TabsList>
           <TabsContent value="transcript">
-            <div data-testid="tab-transcript" />
+            <TranscriptTab meeting={meeting} segments={segments} />
           </TabsContent>
           <TabsContent value="summary">
             <div data-testid="tab-summary" />

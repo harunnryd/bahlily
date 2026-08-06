@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { MeetingDetail } from "@/components/meeting-detail";
 import type { Meeting } from "@/lib/api/types";
@@ -22,11 +23,24 @@ const meeting: Meeting = {
   has_summary: false,
 };
 
+function renderDetail() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MeetingDetail meeting={meeting} segments={[]} />
+    </QueryClientProvider>,
+  );
+}
+
 describe("MeetingDetail", () => {
   it("renders the meeting title and four tabs", () => {
-    render(<MeetingDetail meeting={meeting} />);
+    renderDetail();
     expect(screen.getByText("Sprint planning")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /transcript/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: /transcript/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /summary/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /chat/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /export/i })).toBeInTheDocument();
