@@ -94,18 +94,13 @@ describe("ExportTab", () => {
 
     await waitFor(() => {
       const exportCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).includes("/export") && init?.method === "POST",
+        ([url, init]) => String(url).includes("/export") && init?.method === "POST",
       );
       expect(exportCall).toBeDefined();
     });
-    await waitFor(() =>
-      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)),
-    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake"),
-    );
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake"));
   });
 
   it("uses the matching extension for the filename", async () => {

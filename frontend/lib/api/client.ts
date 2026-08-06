@@ -3,12 +3,7 @@ export class ApiError extends Error {
   code: string | null;
   offline: boolean;
 
-  constructor(
-    status: number,
-    code: string | null,
-    message: string,
-    offline = false,
-  ) {
+  constructor(status: number, code: string | null, message: string, offline = false) {
     super(message);
     this.status = status;
     this.code = code;

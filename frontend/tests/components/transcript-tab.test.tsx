@@ -48,24 +48,22 @@ const speakerProfile: SpeakerProfile = {
 };
 
 function stubProfiles(profiles: SpeakerProfile[]) {
-  const fetchMock = vi.fn(
-    (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      if (init?.method === "POST") {
-        return Promise.resolve(
-          new Response(JSON.stringify(speakerProfile), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }),
-        );
-      }
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (init?.method === "POST") {
       return Promise.resolve(
-        new Response(JSON.stringify(profiles), {
+        new Response(JSON.stringify(speakerProfile), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
       );
-    },
-  );
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(profiles), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -74,9 +72,7 @@ function renderTab(ui: ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 afterEach(() => {
@@ -101,10 +97,7 @@ describe("TranscriptTab", () => {
   it("shows a persisted speaker profile name for a linked cluster", async () => {
     stubProfiles([speakerProfile]);
     renderTab(
-      <TranscriptTab
-        meeting={meeting}
-        segments={[{ ...segments[0], speaker_profile_id: "p1" }]}
-      />,
+      <TranscriptTab meeting={meeting} segments={[{ ...segments[0], speaker_profile_id: "p1" }]} />,
     );
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.queryByText("SPEAKER_01")).not.toBeInTheDocument();
@@ -119,20 +112,15 @@ describe("TranscriptTab", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([, init]) => init?.method === "POST",
-      );
+      const call = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
       expect(call).toBeDefined();
-      expect(String(call![0])).toBe(
-        "http://127.0.0.1:8003/meetings/m1/speakers/SPEAKER_01/label",
-      );
+      expect(String(call![0])).toBe("http://127.0.0.1:8003/meetings/m1/speakers/SPEAKER_01/label");
       expect(JSON.parse(String(call![1]!.body))).toEqual({ name: "Alice" });
     });
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     await waitFor(() => {
       const profileGets = fetchMock.mock.calls.filter(
-        ([url, init]) =>
-          String(url).endsWith("/speaker-profiles") && !init?.method,
+        ([url, init]) => String(url).endsWith("/speaker-profiles") && !init?.method,
       );
       expect(profileGets.length).toBeGreaterThanOrEqual(2);
     });

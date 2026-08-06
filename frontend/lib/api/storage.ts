@@ -33,10 +33,10 @@ export function labelSpeaker(
   clusterLabel: string,
   name: string,
 ): Promise<SpeakerProfile> {
-  return request<SpeakerProfile>(
-    `${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`,
-    { method: "POST", body: JSON.stringify({ name }) },
-  );
+  return request<SpeakerProfile>(`${base}/meetings/${meetingId}/speakers/${clusterLabel}/label`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
 }
 
 export function saveSummary(

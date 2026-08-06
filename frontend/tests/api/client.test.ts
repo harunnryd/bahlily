@@ -22,14 +22,12 @@ describe("request", () => {
   it("throws ApiError with code and message from a BahlilyError body", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(
-            JSON.stringify({ code: "MEETING_NOT_FOUND", message: "nope" }),
-            { status: 404, headers: { "content-type": "application/json" } },
-          ),
-        ),
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ code: "MEETING_NOT_FOUND", message: "nope" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
     );
     const err = (await request("http://storage/meetings/x").catch(
       (e) => e as ApiError,
@@ -42,9 +40,7 @@ describe("request", () => {
   });
 
   it("merges caller headers with the json content-type", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify({ ok: true })));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
     await request("http://storage/meetings", {
       headers: { Authorization: "Bearer x" },
@@ -58,13 +54,8 @@ describe("request", () => {
   });
 
   it("marks offline when fetch rejects", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-    );
-    const err = (await request("http://storage/meetings").catch(
-      (e) => e as ApiError,
-    )) as ApiError;
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const err = (await request("http://storage/meetings").catch((e) => e as ApiError)) as ApiError;
     expect(err).toBeInstanceOf(ApiError);
     expect(err.offline).toBe(true);
   });

@@ -19,8 +19,7 @@ const STATUS_CLASSES: Record<string, string> = {
   completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 };
 
-const FALLBACK_STATUS_CLASSES =
-  "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
+const FALLBACK_STATUS_CLASSES = "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
 
 interface MeetingsTableProps {
   meetings: Meeting[];
@@ -29,16 +28,9 @@ interface MeetingsTableProps {
   onExport?: (id: string) => void;
 }
 
-export function MeetingsTable({
-  meetings,
-  onOpen,
-  onDelete,
-  onExport,
-}: MeetingsTableProps) {
+export function MeetingsTable({ meetings, onOpen, onDelete, onExport }: MeetingsTableProps) {
   if (meetings.length === 0) {
-    return (
-      <p className="text-muted-foreground py-8 text-center">No meetings yet</p>
-    );
+    return <p className="text-muted-foreground py-8 text-center">No meetings yet</p>;
   }
 
   return (
@@ -55,15 +47,11 @@ export function MeetingsTable({
       <TableBody>
         {meetings.map((meeting) => (
           <TableRow key={meeting.id}>
-            <TableCell className="font-medium">
-              {meeting.title ?? "Untitled"}
-            </TableCell>
+            <TableCell className="font-medium">{meeting.title ?? "Untitled"}</TableCell>
             <TableCell>
               <Badge
                 variant="outline"
-                className={
-                  STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES
-                }
+                className={STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES}
               >
                 {meeting.status}
               </Badge>
@@ -71,32 +59,18 @@ export function MeetingsTable({
             <TableCell className="text-muted-foreground">
               {new Date(meeting.started_at).toLocaleDateString()}
             </TableCell>
-            <TableCell className="text-muted-foreground">
-              {meeting.segments_count}
-            </TableCell>
+            <TableCell className="text-muted-foreground">{meeting.segments_count}</TableCell>
             <TableCell>
               <div className="flex justify-end gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onOpen?.(meeting.id)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => onOpen?.(meeting.id)}>
                   <Eye />
                   Open
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onExport?.(meeting.id)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => onExport?.(meeting.id)}>
                   <FileDown />
                   Export
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDelete?.(meeting.id)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => onDelete?.(meeting.id)}>
                   <Trash2 />
                   Delete
                 </Button>

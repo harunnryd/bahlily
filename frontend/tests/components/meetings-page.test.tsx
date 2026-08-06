@@ -1,10 +1,4 @@
-import {
-  cleanup,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,28 +30,24 @@ function makeMeetings(count: number): Meeting[] {
 }
 
 function stubFetch(meetings: Meeting[]) {
-  const fetchMock = vi.fn(
-    (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      if (init?.method === "DELETE") {
-        return Promise.resolve(new Response(null, { status: 204 }));
-      }
-      return Promise.resolve(
-        new Response(JSON.stringify(meetings), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
-    },
-  );
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (init?.method === "DELETE") {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify(meetings), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
 function listUrls(fetchMock: ReturnType<typeof stubFetch>) {
   return fetchMock.mock.calls
-    .filter(
-      ([url, init]) => String(url).includes("/meetings?") && !init?.method,
-    )
+    .filter(([url, init]) => String(url).includes("/meetings?") && !init?.method)
     .map(([url]) => String(url));
 }
 
@@ -99,9 +89,7 @@ describe("Meetings dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => {
-      expect(listUrls(fetchMock)).toContain(
-        "http://127.0.0.1:8003/meetings?limit=20&offset=20",
-      );
+      expect(listUrls(fetchMock)).toContain("http://127.0.0.1:8003/meetings?limit=20&offset=20");
     });
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
   });
@@ -113,10 +101,7 @@ describe("Meetings dashboard", () => {
 
     await screen.findByText("Meeting 1");
 
-    await user.type(
-      screen.getByPlaceholderText("Search meetings"),
-      "Meeting 2",
-    );
+    await user.type(screen.getByPlaceholderText("Search meetings"), "Meeting 2");
 
     expect(screen.getByText("Meeting 2")).toBeInTheDocument();
     expect(screen.queryByText("Meeting 1")).not.toBeInTheDocument();
@@ -137,16 +122,12 @@ describe("Meetings dashboard", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      const deleteCall = fetchMock.mock.calls.find(
-        ([, init]) => init?.method === "DELETE",
-      );
+      const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
       expect(deleteCall).toBeDefined();
       expect(String(deleteCall![0])).toBe("http://127.0.0.1:8003/meetings/m1");
     });
     await waitFor(() => expect(listUrls(fetchMock)).toHaveLength(2));
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("opens the meeting detail route", async () => {
@@ -163,22 +144,15 @@ describe("Meetings dashboard", () => {
   });
 
   it("shows an unreachable banner when the storage service is offline", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     renderPage();
 
-    expect(
-      await screen.findByText("Failed to load meetings"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Failed to load meetings")).toBeInTheDocument();
     expect(screen.getByText("Storage service unreachable")).toBeInTheDocument();
   });
 
   it("refetches from the error banner retry button", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValue(new TypeError("Failed to fetch"));
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderPage();

@@ -85,10 +85,6 @@ export function MeetingPage() {
   }
 
   return (
-    <MeetingDetail
-      meeting={data}
-      segments={dataSegments ?? []}
-      summary={dataSummary ?? null}
-    />
+    <MeetingDetail meeting={data} segments={dataSegments ?? []} summary={dataSummary ?? null} />
   );
 }

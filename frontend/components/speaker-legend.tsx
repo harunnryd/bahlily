@@ -5,11 +5,7 @@ export interface SpeakerLegendCluster {
   name: string | null;
 }
 
-export function SpeakerLegend({
-  clusters,
-}: {
-  clusters: SpeakerLegendCluster[];
-}) {
+export function SpeakerLegend({ clusters }: { clusters: SpeakerLegendCluster[] }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {clusters.map((cluster) => (

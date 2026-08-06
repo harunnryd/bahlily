@@ -43,9 +43,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
   });
 
   const selectedTemplate =
-    templates?.find((template) => template.name === templateName) ??
-    templates?.[0] ??
-    null;
+    templates?.find((template) => template.name === templateName) ?? templates?.[0] ?? null;
 
   const generate = useMutation({
     mutationFn: async (template: TemplateSpec) => {
@@ -78,9 +76,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         <p>{summary.overview}</p>
         {summary.key_points.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">
-              Key points
-            </h3>
+            <h3 className="text-muted-foreground text-sm font-medium">Key points</h3>
             <ul className="list-disc space-y-1 pl-5">
               {summary.key_points.map((point) => (
                 <li key={point}>{point}</li>
@@ -90,9 +86,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         )}
         {summary.action_items.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">
-              Action items
-            </h3>
+            <h3 className="text-muted-foreground text-sm font-medium">Action items</h3>
             <ul className="list-disc space-y-1 pl-5">
               {summary.action_items.map((item, index) => {
                 const description = stringValue(item.description);
@@ -100,9 +94,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
                 return (
                   <li key={index}>
                     {description ?? "Untitled action"}
-                    {owner !== null && (
-                      <span className="text-muted-foreground"> ({owner})</span>
-                    )}
+                    {owner !== null && <span className="text-muted-foreground"> ({owner})</span>}
                   </li>
                 );
               })}
@@ -111,18 +103,14 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         )}
         {summary.quotes.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">
-              Quotes
-            </h3>
+            <h3 className="text-muted-foreground text-sm font-medium">Quotes</h3>
             <ul className="space-y-1">
               {summary.quotes.map((quote, index) => {
                 const speaker = stringValue(quote.speaker);
                 const text = stringValue(quote.text);
                 return (
                   <li key={index}>
-                    {speaker !== null && (
-                      <span className="font-medium">{speaker}: </span>
-                    )}
+                    {speaker !== null && <span className="font-medium">{speaker}: </span>}
                     <span className="text-muted-foreground">{text ?? ""}</span>
                   </li>
                 );
@@ -138,10 +126,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
     <div className="max-w-xl space-y-4">
       <h2 className="text-lg font-semibold">Generate summary</h2>
       <div className="space-y-2">
-        <label
-          className="text-muted-foreground text-sm"
-          htmlFor="template-select"
-        >
+        <label className="text-muted-foreground text-sm" htmlFor="template-select">
           Template
         </label>
         {templatesPending ? (
@@ -149,10 +134,7 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         ) : templatesError ? (
           <p className="text-sm text-red-300">Failed to load templates</p>
         ) : (
-          <Select
-            value={selectedTemplate?.name ?? ""}
-            onValueChange={setTemplateName}
-          >
+          <Select value={selectedTemplate?.name ?? ""} onValueChange={setTemplateName}>
             <SelectTrigger id="template-select" className="w-full">
               <SelectValue placeholder="Choose a template" />
             </SelectTrigger>
@@ -180,15 +162,9 @@ export function SummaryTab({ meeting, summary }: SummaryTabProps) {
         <label className="text-muted-foreground text-sm" htmlFor="model">
           Model
         </label>
-        <Input
-          id="model"
-          value={model}
-          onChange={(event) => setModel(event.target.value)}
-        />
+        <Input id="model" value={model} onChange={(event) => setModel(event.target.value)} />
       </div>
-      {generate.isError && (
-        <p className="text-sm text-red-300">Failed to generate summary</p>
-      )}
+      {generate.isError && <p className="text-sm text-red-300">Failed to generate summary</p>}
       <Button
         onClick={() => {
           if (selectedTemplate !== null) {

@@ -19,13 +19,7 @@ function sanitizeFilename(title: string): string {
   return slug === "" ? "summary" : slug;
 }
 
-export function ExportTab({
-  disabled,
-  summary,
-}: {
-  disabled: boolean;
-  summary: Summary | null;
-}) {
+export function ExportTab({ disabled, summary }: { disabled: boolean; summary: Summary | null }) {
   const [pendingFormat, setPendingFormat] = useState<ExportFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,11 +47,7 @@ export function ExportTab({
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Export summary</h2>
-      {disabled && (
-        <p className="text-muted-foreground text-sm">
-          Generate a summary first
-        </p>
-      )}
+      {disabled && <p className="text-muted-foreground text-sm">Generate a summary first</p>}
       <div className="flex flex-wrap gap-2">
         {(["markdown", "docx", "pdf"] as const).map((format) => (
           <Button
@@ -66,9 +56,7 @@ export function ExportTab({
             disabled={disabled || pendingFormat !== null}
             onClick={() => handleExport(format)}
           >
-            {pendingFormat === format
-              ? "Exporting\u2026"
-              : format.toUpperCase()}
+            {pendingFormat === format ? "Exporting\u2026" : format.toUpperCase()}
           </Button>
         ))}
       </div>

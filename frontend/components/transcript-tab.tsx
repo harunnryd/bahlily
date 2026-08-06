@@ -3,10 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import {
-  SpeakerLegend,
-  type SpeakerLegendCluster,
-} from "@/components/speaker-legend";
+import { SpeakerLegend, type SpeakerLegendCluster } from "@/components/speaker-legend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { labelSpeaker, listSpeakerProfiles } from "@/lib/api/storage";
@@ -105,11 +102,7 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
   });
 
   if (segments.length === 0) {
-    return (
-      <p className="text-muted-foreground py-8 text-center">
-        No transcripts yet
-      </p>
-    );
+    return <p className="text-muted-foreground py-8 text-center">No transcripts yet</p>;
   }
 
   return (
@@ -118,26 +111,19 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
         <h2 className="text-muted-foreground text-sm font-medium">Speakers</h2>
         <div className="space-y-2">
           {clusters.map((cluster) => (
-            <div
-              key={cluster.label}
-              className="flex flex-wrap items-center gap-2"
-            >
+            <div key={cluster.label} className="flex flex-wrap items-center gap-2">
               <SpeakerLegend clusters={[cluster]} />
               <RelabelForm
                 initialName={cluster.name ?? ""}
                 pending={relabel.isPending}
-                onSave={(name) =>
-                  relabel.mutate({ label: cluster.label, name })
-                }
+                onSave={(name) => relabel.mutate({ label: cluster.label, name })}
               />
             </div>
           ))}
         </div>
       </div>
       <div className="space-y-3">
-        <h2 className="text-muted-foreground text-sm font-medium">
-          Transcript
-        </h2>
+        <h2 className="text-muted-foreground text-sm font-medium">Transcript</h2>
         <div className="space-y-1">
           {groups.map((group) =>
             group.segments.map((segment) => (

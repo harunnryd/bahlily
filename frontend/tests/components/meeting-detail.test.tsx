@@ -43,9 +43,7 @@ describe("MeetingDetail", () => {
   it("renders the meeting title and four tabs", () => {
     renderDetail();
     expect(screen.getByText("Sprint planning")).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: /transcript/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /transcript/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /summary/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /chat/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /export/i })).toBeInTheDocument();

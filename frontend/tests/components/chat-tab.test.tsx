@@ -46,9 +46,7 @@ function json(status: number, body: unknown): Promise<Response> {
   );
 }
 
-function stubFetch(
-  impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-) {
+function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
   const fetchMock = vi.fn(impl);
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -62,16 +60,12 @@ afterEach(() => {
 describe("ChatTab", () => {
   it("shows the ingest gate when not ingested", () => {
     render(<ChatTab meeting={meeting} ingested={false} />);
-    expect(
-      screen.getByRole("button", { name: /ingest transcript/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ingest transcript/i })).toBeInTheDocument();
   });
 
   it("renders the chat input when ingested", () => {
     render(<ChatTab meeting={meeting} ingested />);
-    expect(
-      screen.getByRole("textbox", { name: /question/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /question/i })).toBeInTheDocument();
   });
 
   it("ingests segments and flips to the chat input", async () => {
@@ -88,22 +82,17 @@ describe("ChatTab", () => {
     const user = userEvent.setup();
     render(<ChatTab meeting={meeting} ingested={false} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /ingest transcript/i }),
-    );
+    await user.click(screen.getByRole("button", { name: /ingest transcript/i }));
 
     await waitFor(() => {
       const segmentCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/meetings/m1/segments") && !init?.method,
+        ([url, init]) => String(url).endsWith("/meetings/m1/segments") && !init?.method,
       );
       expect(segmentCall).toBeDefined();
     });
     await waitFor(() => {
       const ingestCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/meetings/m1/ingest") &&
-          init?.method === "POST",
+        ([url, init]) => String(url).endsWith("/meetings/m1/ingest") && init?.method === "POST",
       );
       expect(ingestCall).toBeDefined();
       expect(JSON.parse(String(ingestCall![1]!.body))).toMatchObject({
@@ -115,12 +104,8 @@ describe("ChatTab", () => {
         ],
       });
     });
-    expect(
-      await screen.findByRole("textbox", { name: /question/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /ingest transcript/i }),
-    ).not.toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: /question/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ingest transcript/i })).not.toBeInTheDocument();
   });
 
   it("submits a question, appends user and assistant turns, shows citations", async () => {
@@ -145,10 +130,7 @@ describe("ChatTab", () => {
     const user = userEvent.setup();
     render(<ChatTab meeting={meeting} ingested />);
 
-    await user.type(
-      screen.getByRole("textbox", { name: /question/i }),
-      "What did we decide?",
-    );
+    await user.type(screen.getByRole("textbox", { name: /question/i }), "What did we decide?");
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     expect(await screen.findByText("What did we decide?")).toBeInTheDocument();
@@ -157,8 +139,7 @@ describe("ChatTab", () => {
 
     await waitFor(() => {
       const chatCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/chat") && init?.method === "POST",
+        ([url, init]) => String(url).endsWith("/chat") && init?.method === "POST",
       );
       expect(chatCall).toBeDefined();
       expect(JSON.parse(String(chatCall![1]!.body))).toMatchObject({
@@ -175,10 +156,7 @@ describe("ChatTab", () => {
     const user = userEvent.setup();
     render(<ChatTab meeting={meeting} ingested />);
 
-    await user.type(
-      screen.getByRole("textbox", { name: /question/i }),
-      "What happened?",
-    );
+    await user.type(screen.getByRole("textbox", { name: /question/i }), "What happened?");
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     expect(await screen.findByText("What happened?")).toBeInTheDocument();
@@ -199,14 +177,10 @@ describe("ChatTab", () => {
     const user = userEvent.setup();
     render(<ChatTab meeting={meeting} ingested={false} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /ingest transcript/i }),
-    );
+    await user.click(screen.getByRole("button", { name: /ingest transcript/i }));
 
     expect(await screen.findByText("ingest failed")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /ingest transcript/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ingest transcript/i })).toBeInTheDocument();
   });
 
   it("caps the history sent to askChat at 50 turns", async () => {
@@ -226,18 +200,12 @@ describe("ChatTab", () => {
     render(<ChatTab meeting={meeting} ingested />);
 
     for (let i = 0; i < 30; i++) {
-      await user.type(
-        screen.getByRole("textbox", { name: /question/i }),
-        `Q${i}?`,
-      );
+      await user.type(screen.getByRole("textbox", { name: /question/i }), `Q${i}?`);
       await user.click(screen.getByRole("button", { name: /send/i }));
       await screen.findByText(`A${i + 1}`);
     }
 
-    await user.type(
-      screen.getByRole("textbox", { name: /question/i }),
-      "Q30?",
-    );
+    await user.type(screen.getByRole("textbox", { name: /question/i }), "Q30?");
     await user.click(screen.getByRole("button", { name: /send/i }));
     await screen.findByText("A31");
 
@@ -250,10 +218,7 @@ describe("ChatTab", () => {
     stubFetch((input, init) => {
       if (String(input).endsWith("/chat") && init?.method === "POST") {
         return new Promise<Response>((resolve) => {
-          setTimeout(
-            () => resolve(json(200, { answer: "Hi", citations: [] })),
-            80,
-          );
+          setTimeout(() => resolve(json(200, { answer: "Hi", citations: [] })), 80);
         });
       }
       return json(404, null);
@@ -261,18 +226,11 @@ describe("ChatTab", () => {
     const user = userEvent.setup();
     render(<ChatTab meeting={meeting} ingested />);
 
-    await user.type(
-      screen.getByRole("textbox", { name: /question/i }),
-      "Hello",
-    );
+    await user.type(screen.getByRole("textbox", { name: /question/i }), "Hello");
     await user.click(screen.getByRole("button", { name: /send/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: /question/i })).toBeDisabled(),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /send/i })).toBeDisabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("textbox", { name: /question/i })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /send/i })).toBeDisabled());
 
     await waitFor(() => expect(screen.getByText("Hi")).toBeInTheDocument());
     expect(screen.getByRole("textbox", { name: /question/i })).toBeEnabled();

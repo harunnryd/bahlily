@@ -13,8 +13,7 @@ const STATUS_CLASSES: Record<string, string> = {
   completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
 };
 
-const FALLBACK_STATUS_CLASSES =
-  "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
+const FALLBACK_STATUS_CLASSES = "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
 
 export function MeetingDetail({
   meeting,
@@ -29,15 +28,11 @@ export function MeetingDetail({
     <main className="p-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">
-            {meeting.title ?? "Untitled"}
-          </h1>
+          <h1 className="text-2xl font-semibold">{meeting.title ?? "Untitled"}</h1>
           <div className="flex items-center gap-3">
             <Badge
               variant="outline"
-              className={
-                STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES
-              }
+              className={STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES}
             >
               {meeting.status}
             </Badge>

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -96,23 +91,17 @@ export default function HomePage() {
             meetings={filteredMeetings}
             onOpen={(id) => router.push(`/meetings?id=${id}`)}
             onDelete={(id) => setPendingDelete(id)}
-            onExport={() =>
-              console.warn("export from dashboard deferred to detail tab")
-            }
+            onExport={() => console.warn("export from dashboard deferred to detail tab")}
           />
         )}
 
         <div className="flex items-center justify-between">
-          <p className="text-sm text-zinc-500">
-            {data?.length ?? 0} meetings on this page
-          </p>
+          <p className="text-sm text-zinc-500">{data?.length ?? 0} meetings on this page</p>
           <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
-                setOffset((current) => Math.max(0, current - PAGE_SIZE))
-              }
+              onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
               disabled={offset === 0}
             >
               Previous
@@ -138,8 +127,7 @@ export default function HomePage() {
             <DialogHeader>
               <DialogTitle>Delete meeting?</DialogTitle>
               <DialogDescription>
-                This permanently removes the meeting, its segments, and its
-                summary.
+                This permanently removes the meeting, its segments, and its summary.
               </DialogDescription>
             </DialogHeader>
             {deleteMutation.isError && (

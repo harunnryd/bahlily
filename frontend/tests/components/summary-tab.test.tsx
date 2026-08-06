@@ -1,23 +1,13 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useQuery,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 
 import { SummaryTab } from "@/components/summary-tab";
 import { ApiError } from "@/lib/api/client";
 import { getSummary } from "@/lib/api/storage";
-import type {
-  Meeting,
-  Segment,
-  SummarizeResponse,
-  Summary,
-  TemplateSpec,
-} from "@/lib/api/types";
+import type { Meeting, Segment, SummarizeResponse, Summary, TemplateSpec } from "@/lib/api/types";
 
 const meeting: Meeting = {
   id: "m1",
@@ -104,9 +94,7 @@ function renderTab(ui: ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 function SummaryHarness({ id }: { id: string }) {
@@ -134,15 +122,8 @@ describe("SummaryTab", () => {
 
   it("shows the generate flow when no summary exists", async () => {
     stubTemplates();
-    renderTab(
-      <SummaryTab
-        meeting={{ ...meeting, has_summary: false }}
-        summary={null}
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: /generate/i }),
-    ).toBeInTheDocument();
+    renderTab(<SummaryTab meeting={{ ...meeting, has_summary: false }} summary={null} />);
+    expect(screen.getByRole("button", { name: /generate/i })).toBeInTheDocument();
     expect(await screen.findByText("brief")).toBeInTheDocument();
   });
 
@@ -168,15 +149,12 @@ describe("SummaryTab", () => {
     renderTab(<SummaryHarness id="m1" />);
 
     await screen.findByRole("button", { name: /generate/i });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /generate/i })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /generate/i })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: /generate/i }));
 
     await waitFor(() => {
       const summarizeCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/summarize") && init?.method === "POST",
+        ([url, init]) => String(url).endsWith("/summarize") && init?.method === "POST",
       );
       expect(summarizeCall).toBeDefined();
       expect(JSON.parse(String(summarizeCall![1]!.body))).toMatchObject({
@@ -188,9 +166,7 @@ describe("SummaryTab", () => {
 
     await waitFor(() => {
       const saveCall = fetchMock.mock.calls.find(
-        ([url, init]) =>
-          String(url).endsWith("/meetings/m1/summary") &&
-          init?.method === "POST",
+        ([url, init]) => String(url).endsWith("/meetings/m1/summary") && init?.method === "POST",
       );
       expect(saveCall).toBeDefined();
       expect(JSON.parse(String(saveCall![1]!.body))).toEqual({
@@ -219,21 +195,12 @@ describe("SummaryTab", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    renderTab(
-      <SummaryTab
-        meeting={{ ...meeting, has_summary: false }}
-        summary={null}
-      />,
-    );
+    renderTab(<SummaryTab meeting={{ ...meeting, has_summary: false }} summary={null} />);
 
     await screen.findByRole("button", { name: /generate/i });
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /generate/i })).toBeEnabled(),
-    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /generate/i })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: /generate/i }));
 
-    expect(
-      await screen.findByText("Failed to generate summary"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Failed to generate summary")).toBeInTheDocument();
   });
 });

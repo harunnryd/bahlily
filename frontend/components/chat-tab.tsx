@@ -20,13 +20,7 @@ interface RenderedTurn {
   citations: ChatAnswer["citations"];
 }
 
-function IngestGate({
-  meeting,
-  onIngested,
-}: {
-  meeting: Meeting;
-  onIngested: () => void;
-}) {
+function IngestGate({ meeting, onIngested }: { meeting: Meeting; onIngested: () => void }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,21 +70,12 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
       role,
       content,
     }));
-    setTurns((prev) => [
-      ...prev,
-      { role: "user", content: trimmed, citations: [] },
-    ]);
+    setTurns((prev) => [...prev, { role: "user", content: trimmed, citations: [] }]);
     setQuestion("");
     setPending(true);
     setError(null);
     try {
-      const answer = await askChat(
-        trimmed,
-        meeting.id,
-        history,
-        provider,
-        model,
-      );
+      const answer = await askChat(trimmed, meeting.id, history, provider, model);
       setTurns((prev) => [
         ...prev,
         {
@@ -110,9 +95,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
     <div className="flex h-[60vh] flex-col gap-4">
       <div className="flex-1 space-y-4 overflow-y-auto">
         {turns.length === 0 && (
-          <p className="text-muted-foreground text-sm">
-            Ask a question about this meeting.
-          </p>
+          <p className="text-muted-foreground text-sm">Ask a question about this meeting.</p>
         )}
         {turns.map((turn, index) => (
           <div key={index} className="space-y-1">
@@ -137,10 +120,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
       </div>
       <div className="flex flex-wrap gap-4">
         <div className="space-y-1">
-          <label
-            className="text-muted-foreground text-sm"
-            htmlFor="chat-provider"
-          >
+          <label className="text-muted-foreground text-sm" htmlFor="chat-provider">
             Provider
           </label>
           <Input
@@ -184,9 +164,7 @@ export function ChatTab({ meeting, ingested: initialIngested }: ChatTabProps) {
   const [ingested, setIngested] = useState(initialIngested);
 
   if (!ingested) {
-    return (
-      <IngestGate meeting={meeting} onIngested={() => setIngested(true)} />
-    );
+    return <IngestGate meeting={meeting} onIngested={() => setIngested(true)} />;
   }
   return <ChatPanel meeting={meeting} />;
 }
