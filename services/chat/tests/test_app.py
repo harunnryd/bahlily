@@ -65,6 +65,11 @@ def test_cors_simple_request_allows_webview_origin(client: TestClient) -> None:
     assert response.headers["access-control-allow-origin"] == "tauri://localhost"
 
 
+def test_cors_simple_request_allows_browser_origin(client: TestClient) -> None:
+    response = client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 def test_ingest_meeting(client: TestClient) -> None:
     response = client.post("/meetings/m1/ingest", json=_ingest_body())
     assert response.status_code == 201
