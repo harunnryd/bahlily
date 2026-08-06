@@ -6,6 +6,7 @@ import type { Meeting } from "@/lib/api/types";
 
 vi.mock("@/lib/api/storage", () => ({
   getMeeting: vi.fn(),
+  listSpeakerProfiles: vi.fn().mockResolvedValue([]),
 }));
 
 const meeting: Meeting = {

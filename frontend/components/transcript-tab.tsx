@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import {
@@ -9,7 +9,7 @@ import {
 } from "@/components/speaker-legend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { labelSpeaker } from "@/lib/api/storage";
+import { labelSpeaker, listSpeakerProfiles } from "@/lib/api/storage";
 import type { Meeting, Segment } from "@/lib/api/types";
 
 interface TranscriptTabProps {
@@ -64,6 +64,11 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
   const queryClient = useQueryClient();
   const [names, setNames] = useState<Record<string, string>>({});
 
+  const { data: profiles } = useQuery({
+    queryKey: ["speakerProfiles"],
+    queryFn: listSpeakerProfiles,
+  });
+
   const groups: Array<{ label: string; segments: Segment[] }> = [];
   const groupIndex = new Map<string, number>();
   for (const segment of segments) {
@@ -77,10 +82,17 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
     }
   }
 
-  const clusters: SpeakerLegendCluster[] = groups.map((group) => ({
-    label: group.label,
-    name: names[group.label] ?? null,
-  }));
+  const clusters: SpeakerLegendCluster[] = groups.map((group) => {
+    const speakerProfileId = group.segments[0]?.speaker_profile_id ?? null;
+    const profile =
+      speakerProfileId === null
+        ? undefined
+        : profiles?.find((item) => item.id === speakerProfileId);
+    return {
+      label: group.label,
+      name: profile?.name ?? names[group.label] ?? null,
+    };
+  });
 
   const relabel = useMutation({
     mutationFn: ({ label, name }: { label: string; name: string }) =>
