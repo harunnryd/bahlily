@@ -47,7 +47,7 @@ The shell owns process lifecycle for every sidecar: spawn, health-check, restart
 
 ## Deployment shape
 
-Local-first by default. Every service above runs as a sidecar spawned by the desktop shell, with zero mandatory network access. An optional, user-run sync service can be added later for multi-device or small-team use. It should be self-hostable, opt-in, and never a vendor-hosted cloud. Treat it as an additive module on top of a working local pipeline rather than a redesign of it, and leave the question of its UI surface (desktop-only, a full web dashboard, or read-only share links) for whenever it's actually being built.
+Local-first by default. Every service above runs as a sidecar spawned by the desktop shell, with zero mandatory network access. An optional, user-run sync service can be added later for multi-device or small-team use. It should be self-hostable and opt-in by default. A vendor-hosted, paid tier may be offered later as an additional convenience option — never a replacement for the local-first path, which stays free and default. Treat it as an additive module on top of a working local pipeline rather than a redesign of it, and leave the question of its UI surface (desktop-only, a full web dashboard, or read-only share links) for whenever it's actually being built.
 
 ## Maintainability
 

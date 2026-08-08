@@ -8,14 +8,14 @@ export function Footer() {
             bahlily
           </span>
         </div>
-        <div className="text-muted-foreground flex items-center gap-4 text-sm">
+        <div className="text-muted-foreground flex items-center gap-3 text-sm sm:gap-4">
           <a
             href="https://github.com/harunnryd/bahlily"
             className="hover:text-foreground transition-colors"
           >
             GitHub
           </a>
-          <span>MIT licensed</span>
+          <span className="hidden sm:inline">MIT licensed</span>
           <span>© 2026 Bahlily</span>
         </div>
       </div>

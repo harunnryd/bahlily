@@ -63,3 +63,17 @@ Phase 2: run a WER and latency benchmark on a fixed set of real recorded meeting
 Phase 3: spot-check data integrity on a realistic dataset before treating storage as stable, and have a rollback path ready for any future schema change.
 
 Phase 4 features: ship each behind its own settings toggle, so newer, less-proven features can be disabled independently of the stable core.
+
+## Exploratory directions (not yet sequenced)
+
+These are directions being considered, not committed phases — nothing here
+carries a phase number or an implied order relative to Phase 0–4 above.
+
+- **Live translation.** Real-time captions in the viewer's language during
+  a call. Not started; needs its own design spec once prioritized.
+- **Trackable action items.** Today's action items are a static list inside
+  the generated summary. Turning them into assignable, completable tasks is
+  a distinct feature, not yet designed.
+- **Hosted sync tier.** An optional, paid, vendor-hosted addition on top of
+  the local-first core (see "Deployment shape" in `docs/architecture.md`).
+  Local-first stays free and default regardless of whether this ships.

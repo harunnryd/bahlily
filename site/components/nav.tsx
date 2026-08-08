@@ -10,10 +10,10 @@ export function Nav() {
             bahlily
           </span>
         </Link>
-        <nav className="flex items-center gap-6">
+        <nav className="flex items-center gap-3 sm:gap-6">
           <a
             href="#features"
-            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+            className="text-muted-foreground hover:text-foreground hidden text-sm transition-colors sm:inline"
           >
             Features
           </a>
