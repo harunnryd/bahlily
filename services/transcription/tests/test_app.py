@@ -5,10 +5,12 @@ import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import grpc
 import grpc.aio
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -182,13 +184,34 @@ def test_get_diarize_job_not_found(client: TestClient) -> None:
     assert resp.json()["code"] == "TRANSCRIPTION_JOB_NOT_FOUND"
 
 
-def test_diarize_job_completes_and_is_polled_successfully(client: TestClient) -> None:
+def _poll_diarize_job_until(
+    client: TestClient, job_id: str, terminal_statuses: set[str], timeout_seconds: float = 10.0
+) -> httpx.Response:
+    deadline = time.monotonic() + timeout_seconds
+    poll = client.get(f"/diarize/{job_id}")
+    while poll.json()["status"] not in terminal_statuses:
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"diarize job never reached a terminal status in {terminal_statuses}"
+            )
+        time.sleep(0.05)
+        poll = client.get(f"/diarize/{job_id}")
+    return cast(httpx.Response, poll)
+
+
+def test_diarize_job_completes_and_is_polled_successfully() -> None:
+    # A persistent TestClient portal keeps one event loop alive across
+    # requests, so the background job's asyncio.create_task() survives to
+    # reach a terminal status instead of dying with a per-request loop.
+    from bahlily_transcription.app import app
+
     fake_result = DiarizationResult(
         turns=[DiarizationTurn(start=0.0, end=1.0, speaker_label="Speaker 1")],
         speakers={"Speaker 1": [0.1, 0.2]},
     )
 
     with (
+        TestClient(app) as client,
         patch.dict("os.environ", {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
         patch(
             "bahlily_transcription.app._diarize_engine.run",
@@ -199,23 +222,18 @@ def test_diarize_job_completes_and_is_polled_successfully(client: TestClient) ->
         assert resp.status_code == 202
         job_id = resp.json()["job_id"]
 
-        for _ in range(200):
-            poll = client.get(f"/diarize/{job_id}")
-            if poll.json()["status"] == "completed":
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("diarize job never completed")
+        poll = _poll_diarize_job_until(client, job_id, {"completed"})
 
     assert poll.json()["segments"][0]["speaker_cluster_label"] == "Speaker 1"
     assert poll.json()["speakers"][0]["cluster_label"] == "Speaker 1"
     assert poll.json()["speakers"][0]["voice_embedding"] == [0.1, 0.2]
 
 
-def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
-    client: TestClient,
-) -> None:
+def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error() -> None:
+    from bahlily_transcription.app import app
+
     with (
+        TestClient(app) as client,
         patch.dict("os.environ", {"BAHLILY_TRANSCRIPTION_HF_TOKEN": "test-token"}),
         patch(
             "bahlily_transcription.app._diarize_engine.run",
@@ -226,13 +244,7 @@ def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
         assert resp.status_code == 202
         job_id = resp.json()["job_id"]
 
-        for _ in range(200):
-            poll = client.get(f"/diarize/{job_id}")
-            if poll.json()["status"] in ("completed", "failed"):
-                break
-            time.sleep(0.05)
-        else:
-            raise AssertionError("diarize job never reached a terminal status")
+        poll = _poll_diarize_job_until(client, job_id, {"completed", "failed"})
 
     assert poll.json()["status"] == "failed"
     error = poll.json()["error"]
