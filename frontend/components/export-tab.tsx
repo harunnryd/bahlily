@@ -46,7 +46,7 @@ export function ExportTab({ disabled, summary }: { disabled: boolean; summary: S
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Export summary</h2>
+      <h2 className="text-lg font-medium">Export summary</h2>
       {disabled && <p className="text-muted-foreground text-sm">Generate a summary first</p>}
       <div className="flex flex-wrap gap-2">
         {(["markdown", "docx", "pdf"] as const).map((format) => (
@@ -60,7 +60,7 @@ export function ExportTab({ disabled, summary }: { disabled: boolean; summary: S
           </Button>
         ))}
       </div>
-      {error !== null && <p className="text-sm text-red-300">{error}</p>}
+      {error !== null && <p className="text-destructive text-sm">{error}</p>}
     </div>
   );
 }

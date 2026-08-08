@@ -12,14 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FALLBACK_STATUS_CLASSES, STATUS_CLASSES } from "@/lib/status-badge";
+import { cn } from "@/lib/utils";
 import type { Meeting } from "@/lib/api/types";
-
-const STATUS_CLASSES: Record<string, string> = {
-  recording: "border-amber-500/30 bg-amber-500/10 text-amber-400",
-  completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-};
-
-const FALLBACK_STATUS_CLASSES = "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
 
 interface MeetingsTableProps {
   meetings: Meeting[];
@@ -37,11 +32,11 @@ export function MeetingsTable({ meetings, onOpen, onDelete, onExport }: Meetings
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Title</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Started</TableHead>
-          <TableHead>Segments</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
+          <TableHead className="eyebrow">Title</TableHead>
+          <TableHead className="eyebrow">Status</TableHead>
+          <TableHead className="eyebrow">Started</TableHead>
+          <TableHead className="eyebrow">Segments</TableHead>
+          <TableHead className="eyebrow text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -51,15 +46,17 @@ export function MeetingsTable({ meetings, onOpen, onDelete, onExport }: Meetings
             <TableCell>
               <Badge
                 variant="outline"
-                className={STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES}
+                className={cn("eyebrow", STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES)}
               >
                 {meeting.status}
               </Badge>
             </TableCell>
-            <TableCell className="text-muted-foreground">
+            <TableCell className="text-muted-foreground font-mono text-sm">
               {new Date(meeting.started_at).toLocaleDateString()}
             </TableCell>
-            <TableCell className="text-muted-foreground">{meeting.segments_count}</TableCell>
+            <TableCell className="text-muted-foreground font-mono text-sm">
+              {meeting.segments_count}
+            </TableCell>
             <TableCell>
               <div className="flex justify-end gap-1">
                 <Button variant="ghost" size="sm" onClick={() => onOpen?.(meeting.id)}>

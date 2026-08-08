@@ -52,21 +52,14 @@ export default function HomePage() {
   return (
     <main className="p-8">
       <div className="mx-auto max-w-5xl space-y-6">
-        <h1 className="text-2xl font-semibold">Meetings</h1>
-
-        <div className="relative">
-          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search meetings"
-            className="pl-9"
-          />
+        <div className="space-y-1">
+          <p className="eyebrow text-muted-foreground">Dashboard</p>
+          <h1 className="text-2xl font-medium">Meetings</h1>
         </div>
 
         {isError && (
-          <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/10 p-4">
-            <div className="text-sm text-red-300">
+          <div className="border-destructive/30 bg-destructive/10 flex items-center justify-between rounded-md border p-4">
+            <div className="text-destructive text-sm">
               <p className="font-medium">Failed to load meetings</p>
               <p>
                 {error instanceof ApiError && error.offline
@@ -80,39 +73,53 @@ export default function HomePage() {
           </div>
         )}
 
-        {isPending ? (
-          <div className="space-y-2">
-            {Array.from({ length: 6 }, (_, index) => (
-              <Skeleton key={index} className="h-10 w-full" />
-            ))}
+        <div className="border-border space-y-4 rounded-xl border p-6">
+          <div className="relative">
+            <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search meetings"
+              className="pl-9"
+            />
           </div>
-        ) : (
-          <MeetingsTable
-            meetings={filteredMeetings}
-            onOpen={(id) => router.push(`/meetings?id=${id}`)}
-            onDelete={(id) => setPendingDelete(id)}
-          />
-        )}
 
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-zinc-500">{data?.length ?? 0} meetings on this page</p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
-              disabled={offset === 0}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setOffset((current) => current + PAGE_SIZE)}
-              disabled={!hasNextPage || isPlaceholderData}
-            >
-              Next
-            </Button>
+          {isPending ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }, (_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : (
+            <MeetingsTable
+              meetings={filteredMeetings}
+              onOpen={(id) => router.push(`/meetings?id=${id}`)}
+              onDelete={(id) => setPendingDelete(id)}
+            />
+          )}
+
+          <div className="border-border flex items-center justify-between border-t pt-4">
+            <p className="text-muted-foreground font-mono text-sm">
+              {data?.length ?? 0} meetings on this page
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
+                disabled={offset === 0}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setOffset((current) => current + PAGE_SIZE)}
+                disabled={!hasNextPage || isPlaceholderData}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -130,7 +137,7 @@ export default function HomePage() {
               </DialogDescription>
             </DialogHeader>
             {deleteMutation.isError && (
-              <p className="text-sm text-red-400">
+              <p className="text-destructive text-sm">
                 Failed to delete the meeting. Please try again.
               </p>
             )}

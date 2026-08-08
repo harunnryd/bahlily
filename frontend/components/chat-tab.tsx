@@ -7,6 +7,7 @@ import type { ChatAnswer, Meeting, Segment } from "@/lib/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface ChatTabProps {
   meeting: Meeting;
@@ -37,7 +38,7 @@ function IngestGate({
 
   return (
     <div className="max-w-xl space-y-4">
-      <h2 className="text-lg font-semibold">Chat with this transcript</h2>
+      <h2 className="text-lg font-medium">Chat with this transcript</h2>
       <p className="text-muted-foreground text-sm">
         Index the transcript so the chat service can answer questions about it.
       </p>
@@ -62,7 +63,7 @@ function IngestGate({
       {segmentsPending === false && segments.length === 0 && (
         <p className="text-muted-foreground text-sm">No transcript available for chat yet</p>
       )}
-      {error !== null && <p className="text-sm text-red-300">{error}</p>}
+      {error !== null && <p className="text-destructive text-sm">{error}</p>}
     </div>
   );
 }
@@ -107,21 +108,26 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
 
   return (
     <div className="flex h-[60vh] flex-col gap-4">
-      <div className="flex-1 space-y-4 overflow-y-auto">
+      <div className="bg-graphite text-graphite-foreground flex-1 space-y-4 overflow-y-auto rounded-xl p-4">
         {turns.length === 0 && (
-          <p className="text-muted-foreground text-sm">Ask a question about this meeting.</p>
+          <p className="text-graphite-foreground/60 text-sm">Ask a question about this meeting.</p>
         )}
         {turns.map((turn, index) => (
           <div key={index} className="space-y-1">
-            <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+            <p
+              className={cn(
+                "eyebrow",
+                turn.role === "user" ? "text-primary-on-graphite" : "text-graphite-foreground/60",
+              )}
+            >
               {turn.role === "user" ? "You" : "Assistant"}
             </p>
             <p className="whitespace-pre-wrap">{turn.content}</p>
             {turn.role === "assistant" && turn.citations.length > 0 && (
-              <ul className="text-muted-foreground space-y-1 border-l pl-3 text-xs">
+              <ul className="text-graphite-foreground/60 border-graphite-foreground/20 space-y-1 border-l pl-3 text-xs">
                 {turn.citations.map((citation) => (
                   <li key={citation.segment_id}>
-                    <span className="font-mono">
+                    <span className="text-primary-on-graphite font-mono">
                       [{citation.start_time ?? 0}-{citation.end_time ?? 0}]
                     </span>{" "}
                     {citation.text}
@@ -156,7 +162,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
           />
         </div>
       </div>
-      {error !== null && <p className="text-sm text-red-300">{error}</p>}
+      {error !== null && <p className="text-destructive text-sm">{error}</p>}
       <form className="flex flex-col gap-2" onSubmit={submit}>
         <Textarea
           value={question}
