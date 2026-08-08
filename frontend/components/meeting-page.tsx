@@ -37,8 +37,8 @@ function QueryErrorBanner({
       ? "Storage service unreachable"
       : String(error instanceof Error ? error.message : error);
   return (
-    <div className="flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/10 p-4">
-      <div className="text-sm text-red-300">
+    <div className="border-destructive/30 bg-destructive/10 flex items-center justify-between rounded-md border p-4">
+      <div className="text-destructive text-sm">
         <p className="font-medium">{title}</p>
         <p>{message}</p>
       </div>

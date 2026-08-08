@@ -1,3 +1,8 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench (app-page family)
+ * theme: Cobalt · nav: N9 edge-aligned minimal · footer: none (app has no footer)
+ * design-system: design.md · designed-as-app
+ */
+
 @import "tailwindcss";
 
 @plugin "tailwindcss-animate";
@@ -5,48 +10,40 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.269 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-}
+  --radius: 0.5rem;
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.269 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  /* Cobalt — cool engineered paper, electric-blue signal, mapped onto the
+     existing shadcn semantic token names so every component below keeps
+     working unchanged. */
+  --background: oklch(98.5% 0.004 250);
+  --foreground: oklch(24% 0.02 258);
+  --card: oklch(98.5% 0.004 250);
+  --card-foreground: oklch(24% 0.02 258);
+  --popover: oklch(98.5% 0.004 250);
+  --popover-foreground: oklch(24% 0.02 258);
+  --primary: oklch(58% 0.2 256);
+  --primary-foreground: oklch(98.5% 0.004 250);
+  --secondary: oklch(96% 0.006 250);
+  --secondary-foreground: oklch(24% 0.02 258);
+  --muted: oklch(96% 0.006 250);
+  --muted-foreground: oklch(34% 0.018 257 / 65%);
+  --accent: oklch(94% 0.012 250);
+  --accent-foreground: oklch(24% 0.02 258);
+  --destructive: oklch(58% 0.19 25);
+  --destructive-foreground: oklch(98.5% 0.004 250);
+  --success: oklch(62% 0.13 155);
+  --success-foreground: oklch(98.5% 0.004 250);
+  --warning: oklch(70% 0.14 75);
+  --warning-foreground: oklch(24% 0.02 258);
+  --border: oklch(90% 0.006 250);
+  --input: oklch(90% 0.006 250);
+  --ring: oklch(58% 0.2 256);
+  --graphite: oklch(22% 0.016 260);
+  --graphite-foreground: oklch(94% 0.008 250);
+
+  --font-display: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-body: var(--font-inter), "Inter", ui-sans-serif, sans-serif;
+  --font-mono-stack: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
 }
 
 @theme inline {
@@ -70,16 +67,47 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-graphite: var(--graphite);
+  --color-graphite-foreground: var(--graphite-foreground);
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-display);
+  --font-mono: var(--font-mono-stack);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    font-style: normal;
+  }
+}
+
+@layer utilities {
+  .eyebrow {
+    font-family: var(--font-mono-stack);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 }

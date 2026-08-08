@@ -179,7 +179,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
     return (
       <div className="space-y-6">
         <div className="space-y-1">
-          <h2 className="text-2xl font-semibold">{summary.title}</h2>
+          <h2 className="text-2xl font-medium">{summary.title}</h2>
           <p className="text-muted-foreground text-sm">
             {summary.provider} / {summary.model}
           </p>
@@ -187,7 +187,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         <p>{summary.overview}</p>
         {summary.key_points.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">Key points</h3>
+            <h3 className="eyebrow text-muted-foreground">Key points</h3>
             <ul className="list-disc space-y-1 pl-5">
               {summary.key_points.map((point) => (
                 <li key={point}>{point}</li>
@@ -197,7 +197,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         )}
         {summary.action_items.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">Action items</h3>
+            <h3 className="eyebrow text-muted-foreground">Action items</h3>
             <ul className="list-disc space-y-1 pl-5">
               {summary.action_items.map((item, index) => {
                 const description = stringValue(item.description);
@@ -214,7 +214,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         )}
         {summary.quotes.length > 0 && (
           <div className="space-y-2">
-            <h3 className="text-muted-foreground text-sm font-medium">Quotes</h3>
+            <h3 className="eyebrow text-muted-foreground">Quotes</h3>
             <ul className="space-y-1">
               {summary.quotes.map((quote, index) => {
                 const speaker = stringValue(quote.speaker);
@@ -235,7 +235,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
 
   return (
     <div className="max-w-xl space-y-4">
-      <h2 className="text-lg font-semibold">Generate summary</h2>
+      <h2 className="text-lg font-medium">Generate summary</h2>
       <div className="space-y-2">
         <label className="text-muted-foreground text-sm" htmlFor="template-select">
           Template
@@ -243,7 +243,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         {templatesPending ? (
           <Skeleton className="h-9 w-full" />
         ) : templatesError ? (
-          <p className="text-sm text-red-300">Failed to load templates</p>
+          <p className="text-destructive text-sm">Failed to load templates</p>
         ) : (
           <div className="flex items-center gap-2">
             <Select value={selectedTemplate?.id ?? ""} onValueChange={setTemplateId}>
@@ -321,7 +321,7 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
       {segmentsPending === false && segments.length === 0 && (
         <p className="text-muted-foreground text-sm">No transcript available to summarize yet</p>
       )}
-      {generate.isError && <p className="text-sm text-red-300">Failed to generate summary</p>}
+      {generate.isError && <p className="text-destructive text-sm">Failed to generate summary</p>}
       <Button
         onClick={() => {
           if (selectedTemplate !== null && segments.length > 0) {

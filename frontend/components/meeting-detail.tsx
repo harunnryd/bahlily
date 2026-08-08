@@ -1,19 +1,23 @@
 "use client";
 
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+
 import { ChatTab } from "@/components/chat-tab";
 import { ExportTab } from "@/components/export-tab";
 import { SummaryTab } from "@/components/summary-tab";
 import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import type { Meeting, Segment, Summary } from "@/lib/api/types";
 
 const STATUS_CLASSES: Record<string, string> = {
-  recording: "border-amber-500/30 bg-amber-500/10 text-amber-400",
-  completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+  recording: "border-warning/30 bg-warning/10 text-warning",
+  completed: "border-success/30 bg-success/10 text-success",
 };
 
-const FALLBACK_STATUS_CLASSES = "border-zinc-500/30 bg-zinc-500/10 text-zinc-300";
+const FALLBACK_STATUS_CLASSES = "border-muted-foreground/30 bg-muted text-muted-foreground";
 
 export function MeetingDetail({
   meeting,
@@ -29,16 +33,24 @@ export function MeetingDetail({
   return (
     <div className="p-8">
       <div className="mx-auto max-w-5xl space-y-6">
+        <Link
+          href="/"
+          className="text-muted-foreground hover:text-foreground eyebrow inline-flex items-center gap-1.5 transition-colors"
+        >
+          <ArrowLeft className="size-3" />
+          Meetings
+        </Link>
+
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">{meeting.title ?? "Untitled"}</h1>
+          <h1 className="text-2xl font-medium">{meeting.title ?? "Untitled"}</h1>
           <div className="flex items-center gap-3">
             <Badge
               variant="outline"
-              className={STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES}
+              className={cn("eyebrow", STATUS_CLASSES[meeting.status] ?? FALLBACK_STATUS_CLASSES)}
             >
               {meeting.status}
             </Badge>
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground font-mono text-sm">
               {new Date(meeting.started_at).toLocaleDateString()}
             </p>
           </div>
@@ -51,10 +63,10 @@ export function MeetingDetail({
             <TabsTrigger value="chat">Chat</TabsTrigger>
             <TabsTrigger value="export">Export</TabsTrigger>
           </TabsList>
-          <TabsContent value="transcript">
+          <TabsContent value="transcript" className="border-border rounded-xl border p-6">
             <TranscriptTab meeting={meeting} segments={segments} />
           </TabsContent>
-          <TabsContent value="summary">
+          <TabsContent value="summary" className="border-border rounded-xl border p-6">
             <SummaryTab
               meeting={meeting}
               segments={segments}
@@ -62,7 +74,11 @@ export function MeetingDetail({
               summary={summary}
             />
           </TabsContent>
-          <TabsContent value="chat" forceMount>
+          <TabsContent
+            value="chat"
+            forceMount
+            className="border-border rounded-xl border p-6 data-[state=inactive]:hidden"
+          >
             <ChatTab
               key={meeting.id}
               meeting={meeting}
@@ -71,7 +87,7 @@ export function MeetingDetail({
               ingested={false}
             />
           </TabsContent>
-          <TabsContent value="export">
+          <TabsContent value="export" className="border-border rounded-xl border p-6">
             <ExportTab disabled={summary === null} summary={summary} />
           </TabsContent>
         </Tabs>
