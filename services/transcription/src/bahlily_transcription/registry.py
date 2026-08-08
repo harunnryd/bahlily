@@ -49,11 +49,18 @@ def _verify_files(model_path: Path, files: tuple[ModelFile, ...]) -> bool:
 
 
 class ModelRegistry:
-    def __init__(self, engine: str, models_dir: Path, manifests_dir: Path) -> None:
+    def __init__(
+        self,
+        engine: str,
+        models_dir: Path,
+        manifests_dir: Path,
+        manifest_name: str | None = None,
+    ) -> None:
         self._engine = engine
         self._models_dir = models_dir / engine
         self._models_dir.mkdir(parents=True, exist_ok=True)
         self._manifests_dir = manifests_dir
+        self._manifest_name = manifest_name or engine
         self._manifest: dict[str, ModelInfo] = {}
         self._status: dict[str, ModelStatus] = {}
         self._in_flight: set[str] = set()
@@ -208,7 +215,7 @@ class ModelRegistry:
             self._status[name] = ModelStatus.MISSING
 
     def _load_manifest(self) -> None:
-        manifest_path = self._manifests_dir / f"{self._engine}.yaml"
+        manifest_path = self._manifests_dir / f"{self._manifest_name}.yaml"
         with manifest_path.open() as f:
             raw = yaml.safe_load(f)
         if not isinstance(raw, dict) or "models" not in raw or not isinstance(raw["models"], list):

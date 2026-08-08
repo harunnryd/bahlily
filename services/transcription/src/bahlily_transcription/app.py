@@ -48,7 +48,7 @@ from bahlily_transcription.models import (
 from bahlily_transcription.parakeet_engine import ParakeetEngine
 from bahlily_transcription.registry import ModelRegistry
 from bahlily_transcription.speaker_match_client import SpeakerMatchClient
-from bahlily_transcription.whisper_engine import WhisperEngine
+from bahlily_transcription.whisper_engine import WhisperEngine, _is_apple_silicon
 from bahlily_transcription.worker import SessionWorker
 
 _log = structlog.get_logger()
@@ -57,7 +57,14 @@ _MODELS_DIR = Path(os.environ.get("BAHLILY_MODELS_DIR", str(Path.home() / ".bahl
 _MANIFESTS_DIR = Path(str(resources.files("bahlily_transcription") / "manifests"))
 
 _whisper_engine = WhisperEngine(models_dir=_MODELS_DIR / "whisper")
-_whisper_registry = ModelRegistry("whisper", _MODELS_DIR, _MANIFESTS_DIR)
+# mlx_whisper needs mlx-community's weights.npz/safetensors layout, which is
+# incompatible with the ctranslate2 layout faster-whisper's repos ship - so
+# Apple Silicon reads model names against a separate manifest pointing at the
+# mlx-community repos instead.
+_whisper_manifest_name = "whisper_mlx" if _is_apple_silicon() else "whisper"
+_whisper_registry = ModelRegistry(
+    "whisper", _MODELS_DIR, _MANIFESTS_DIR, manifest_name=_whisper_manifest_name
+)
 _parakeet_registry = ModelRegistry("parakeet", _MODELS_DIR, _MANIFESTS_DIR)
 _parakeet_engine = ParakeetEngine(
     models_dir=_MODELS_DIR / "parakeet",

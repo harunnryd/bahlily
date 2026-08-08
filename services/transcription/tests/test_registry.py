@@ -332,6 +332,26 @@ def test_manifest_loader_accepts_real_lowercase_sha(models_dir: Path, manifests_
     assert info.files[0].sha256 == real_sha
 
 
+def test_manifest_name_overrides_engine_derived_manifest_file(
+    models_dir: Path, manifests_dir: Path
+) -> None:
+    (manifests_dir / "whisper_mlx.yaml").write_text(
+        "engine: whisper\n"
+        "models:\n"
+        "  - name: tiny\n"
+        "    repo_id: mlx-community/whisper-tiny\n"
+        "    files:\n"
+        "      - path: weights.npz\n"
+        "        sha256: " + "c" * 64 + "\n"
+        "    size_bytes: 74418444\n"
+        "    tier: fast\n"
+    )
+    registry = ModelRegistry("whisper", models_dir, manifests_dir, manifest_name="whisper_mlx")
+    info = registry.list_models()[0]
+    assert info.repo_id == "mlx-community/whisper-tiny"
+    assert info.files[0].path == "weights.npz"
+
+
 @pytest.mark.asyncio
 async def test_download_succeeds_with_real_sha_after_placeholder_removed(
     registry: ModelRegistry,
