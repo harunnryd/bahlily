@@ -50,4 +50,11 @@ describe("MeetingDetail", () => {
       screen.getByRole("button", { name: /ingest transcript/i, hidden: true }),
     ).toBeInTheDocument();
   });
+
+  it("renders a breadcrumb link back to the meetings list", () => {
+    renderDetail();
+    const breadcrumb = screen.getByRole("link", { name: /meetings/i });
+    expect(breadcrumb).toBeInTheDocument();
+    expect(breadcrumb).toHaveAttribute("href", "/");
+  });
 });

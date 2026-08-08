@@ -9,15 +9,9 @@ import { SummaryTab } from "@/components/summary-tab";
 import { TranscriptTab } from "@/components/transcript-tab";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FALLBACK_STATUS_CLASSES, STATUS_CLASSES } from "@/lib/status-badge";
 import { cn } from "@/lib/utils";
 import type { Meeting, Segment, Summary } from "@/lib/api/types";
-
-const STATUS_CLASSES: Record<string, string> = {
-  recording: "border-warning/30 bg-warning/10 text-warning",
-  completed: "border-success/30 bg-success/10 text-success",
-};
-
-const FALLBACK_STATUS_CLASSES = "border-muted-foreground/30 bg-muted text-muted-foreground";
 
 export function MeetingDetail({
   meeting,

@@ -117,7 +117,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
             <p
               className={cn(
                 "eyebrow",
-                turn.role === "user" ? "text-primary" : "text-graphite-foreground/60",
+                turn.role === "user" ? "text-primary-on-graphite" : "text-graphite-foreground/60",
               )}
             >
               {turn.role === "user" ? "You" : "Assistant"}
@@ -127,7 +127,7 @@ function ChatPanel({ meeting }: { meeting: Meeting }) {
               <ul className="text-graphite-foreground/60 border-graphite-foreground/20 space-y-1 border-l pl-3 text-xs">
                 {turn.citations.map((citation) => (
                   <li key={citation.segment_id}>
-                    <span className="text-primary font-mono">
+                    <span className="text-primary-on-graphite font-mono">
                       [{citation.start_time ?? 0}-{citation.end_time ?? 0}]
                     </span>{" "}
                     {citation.text}

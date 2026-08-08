@@ -66,7 +66,7 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
           {groups.map((group) =>
             group.segments.map((segment) => (
               <p key={segment.segment_id} className="flex gap-3 py-1.5 first:pt-0 last:pb-0">
-                <span className="text-primary shrink-0 font-mono text-sm">
+                <span className="text-primary-on-graphite shrink-0 font-mono text-sm">
                   {formatTimestamp(segment.audio_start_time)}
                 </span>
                 <span>{segment.text}</span>

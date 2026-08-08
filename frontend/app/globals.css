@@ -7,8 +7,6 @@
 
 @plugin "tailwindcss-animate";
 
-@custom-variant dark (&:is(.dark *));
-
 :root {
   --radius: 0.5rem;
 
@@ -21,22 +19,23 @@
   --card-foreground: oklch(24% 0.02 258);
   --popover: oklch(98.5% 0.004 250);
   --popover-foreground: oklch(24% 0.02 258);
-  --primary: oklch(58% 0.2 256);
+  --primary: oklch(50% 0.2 256);
   --primary-foreground: oklch(98.5% 0.004 250);
+  --primary-on-graphite: oklch(72% 0.15 256);
   --secondary: oklch(96% 0.006 250);
   --secondary-foreground: oklch(24% 0.02 258);
   --muted: oklch(96% 0.006 250);
-  --muted-foreground: oklch(34% 0.018 257 / 65%);
+  --muted-foreground: oklch(45% 0.018 257);
   --accent: oklch(94% 0.012 250);
   --accent-foreground: oklch(24% 0.02 258);
-  --destructive: oklch(58% 0.19 25);
+  --destructive: oklch(50% 0.19 25);
   --destructive-foreground: oklch(98.5% 0.004 250);
-  --success: oklch(62% 0.13 155);
+  --success: oklch(50% 0.13 155);
   --success-foreground: oklch(98.5% 0.004 250);
-  --warning: oklch(70% 0.14 75);
+  --warning: oklch(55% 0.14 75);
   --warning-foreground: oklch(24% 0.02 258);
-  --border: oklch(90% 0.006 250);
-  --input: oklch(90% 0.006 250);
+  --border: oklch(84% 0.008 250);
+  --input: oklch(84% 0.008 250);
   --ring: oklch(58% 0.2 256);
   --graphite: oklch(22% 0.016 260);
   --graphite-foreground: oklch(94% 0.008 250);
@@ -59,6 +58,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-on-graphite: var(--primary-on-graphite);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
