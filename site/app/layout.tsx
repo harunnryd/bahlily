@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Footer } from "@/components/footer";
+import { Nav } from "@/components/nav";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -33,7 +35,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-screen bg-background text-foreground">
+        <Nav />
         {children}
+        <Footer />
       </body>
     </html>
   );
