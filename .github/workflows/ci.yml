@@ -32,6 +32,7 @@ jobs:
       orchestration: ${{ steps.filter.outputs.orchestration }}
       workflow: ${{ steps.filter.outputs.workflow }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      site: ${{ steps.filter.outputs.site }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -59,6 +60,10 @@ jobs:
               - '.github/workflows/*.yaml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+              - '.pre-commit-config.yaml'
+            site:
+              - 'site/**'
               - '.github/workflows/ci.yml'
               - '.pre-commit-config.yaml'
 
@@ -194,7 +199,51 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+      - run: |
+          set -euo pipefail
+          pnpm exec prettier --check .
+      - run: |
+          set -euo pipefail
+          pnpm lint
+      - run: |
+          set -euo pipefail
+          pnpm exec next typegen
+      - run: |
+          set -euo pipefail
+          pnpm exec tsc --noEmit
+      - run: |
+          set -euo pipefail
+          pnpm test
+      - run: |
+          set -euo pipefail
+          pnpm build
+
+  site:
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
       - run: |
           set -euo pipefail
           pnpm exec prettier --check .

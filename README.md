@@ -60,12 +60,14 @@ bahlily/
 │   ├── calendar/
 │   ├── export/
 │   └── storage/
-└── frontend/
+├── frontend/
+└── site/
 ```
 
 - `shell/` is the Tauri (Rust) desktop shell: window, tray, updater. `audio-core/` is the one Rust business-logic crate, handling mic+system capture, real-time mixing, and VAD.
 - `services/` holds the Python sidecar services, one responsibility each: `transcription` (Whisper + Parakeet + diarization), `orchestration` (LangChain/LangGraph summarization, prompt templates, multi-provider LLM, DeepEval), `chat` (RAG over transcripts), `calendar` (meeting-link detection, local auto-start), `export` (Markdown/DOCX/PDF renderers), `storage` (the single authoritative SQLite owner).
 - `frontend/` is the Next.js/React UI, talking to the Python services and the Rust shell.
+- `site/` is the public marketing site (a separate, standalone Next.js static export, no shared code with `frontend/`, no server, deployed independently).
 
 No cross-language monorepo tool (Turborepo, Nx). Each service uses its own language's native tooling: Cargo for Rust, `uv` for Python, pnpm for the frontend.
 

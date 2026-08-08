@@ -40,7 +40,14 @@ repos:
         name: frontend eslint
         entry: bash -c 'cd frontend && pnpm lint'
         language: system
-        files: \.(ts|tsx)$
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
+
+      - id: site-eslint
+        name: site eslint
+        entry: bash -c 'cd site && pnpm lint'
+        language: system
+        files: ^site/.*\.(ts|tsx)$
         pass_filenames: false
 
       - id: cargo-fmt
