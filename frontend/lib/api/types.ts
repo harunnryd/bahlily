@@ -55,6 +55,8 @@ export interface TemplateSpec {
   system_prompt: string;
   focus_instructions: string | null;
   few_shot_examples: Array<{ input: string; output: string }>;
+  id: string | null;
+  source: "bundled" | "custom" | null;
 }
 
 export interface Template {

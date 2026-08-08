@@ -26,4 +26,5 @@ def load_template(name: str) -> TemplateSpec:
 
 def _load_from_yaml(content: str) -> TemplateSpec:
     data = yaml.safe_load(content)
-    return TemplateSpec.model_validate(data)
+    template = TemplateSpec.model_validate(data)
+    return template.model_copy(update={"id": template.name, "source": "bundled"})

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from bahlily_capability import require_capability
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +15,7 @@ from bahlily_orchestration.errors import (
     UnsupportedProviderError,
 )
 from bahlily_orchestration.models import SummarizeRequest, SummarizeResponse, TemplateSpec
+from bahlily_orchestration.storage_client import StorageTemplateClient
 from bahlily_orchestration.summarize import summarize
 from bahlily_orchestration.template_loader import list_templates
 
@@ -20,6 +23,8 @@ app = FastAPI(
     title="bahlily-orchestration",
     dependencies=[Depends(require_capability)],
 )
+
+_storage_client = StorageTemplateClient(storage_url=os.environ.get("BAHLILY_STORAGE_URL"))
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,8 +56,9 @@ def health() -> dict[str, str]:
 
 
 @app.get("/templates")
-def get_templates() -> list[TemplateSpec]:
-    return list_templates()
+async def get_templates() -> list[TemplateSpec]:
+    custom = await _storage_client.list_custom_templates()
+    return [*list_templates(), *custom]
 
 
 @app.post("/summarize")

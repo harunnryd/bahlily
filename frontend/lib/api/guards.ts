@@ -5,6 +5,7 @@ import type {
   SpeakerProfile,
   SummarizeResponse,
   Summary,
+  Template,
   TemplateSpec,
 } from "./types";
 import { ApiError } from "./client";
@@ -153,6 +154,10 @@ function parseSpeakerProfiles(value: unknown): SpeakerProfile[] {
   return value.map((item, index) => parseSpeakerProfile(item, `speakerProfiles[${index}]`));
 }
 
+function isTemplateSource(value: unknown): value is "bundled" | "custom" | null {
+  return value === "bundled" || value === "custom" || value === null;
+}
+
 function parseTemplateSpec(value: unknown, context: string): TemplateSpec {
   if (!isObject(value)) fail(`${context}: expected object`);
   return {
@@ -161,12 +166,28 @@ function parseTemplateSpec(value: unknown, context: string): TemplateSpec {
     system_prompt: requireField(value, "system_prompt", isString, context),
     focus_instructions: requireField(value, "focus_instructions", isStringOrNull, context),
     few_shot_examples: requireField(value, "few_shot_examples", isFewShotArray, context),
+    id: requireField(value, "id", isStringOrNull, context),
+    source: requireField(value, "source", isTemplateSource, context),
   };
 }
 
 function parseTemplates(value: unknown): TemplateSpec[] {
   if (!Array.isArray(value)) fail("templates: expected array");
   return value.map((item, index) => parseTemplateSpec(item, `templates[${index}]`));
+}
+
+function parseTemplate(value: unknown, context: string): Template {
+  if (!isObject(value)) fail(`${context}: expected object`);
+  return {
+    id: requireField(value, "id", isString, context),
+    name: requireField(value, "name", isString, context),
+    version: requireField(value, "version", isString, context),
+    system_prompt: requireField(value, "system_prompt", isString, context),
+    focus_instructions: requireField(value, "focus_instructions", isStringOrNull, context),
+    few_shot_examples: requireField(value, "few_shot_examples", isFewShotArray, context),
+    created_at: requireField(value, "created_at", isString, context),
+    updated_at: requireField(value, "updated_at", isString, context),
+  };
 }
 
 function parseSummarizeResponse(value: unknown, context = "summarizeResponse"): SummarizeResponse {
@@ -243,6 +264,7 @@ export {
   parseSpeakerProfiles,
   parseSummarizeResponse,
   parseSummary,
+  parseTemplate,
   parseTemplateSpec,
   parseTemplates,
 };

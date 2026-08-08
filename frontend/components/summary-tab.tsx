@@ -3,7 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -13,8 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { listTemplates, summarize } from "@/lib/api/orchestration";
-import { saveSummary } from "@/lib/api/storage";
+import { createTemplate, deleteTemplate, patchTemplate, saveSummary } from "@/lib/api/storage";
 import type { Meeting, Segment, Summary, TemplateSpec } from "@/lib/api/types";
 
 interface SummaryTabProps {
@@ -28,11 +37,98 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function TemplateEditDialog({
+  template,
+  open,
+  onOpenChange,
+}: {
+  template: TemplateSpec | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(template?.name ?? "");
+  const [systemPrompt, setSystemPrompt] = useState(template?.system_prompt ?? "");
+  const [focusInstructions, setFocusInstructions] = useState(template?.focus_instructions ?? "");
+
+  const save = useMutation({
+    mutationFn: () => {
+      const data = {
+        name: name.trim(),
+        system_prompt: systemPrompt.trim(),
+        focus_instructions: focusInstructions.trim() || null,
+      };
+      return template !== null ? patchTemplate(template.id as string, data) : createTemplate(data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+      onOpenChange(false);
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{template === null ? "New template" : "Edit template"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-muted-foreground text-sm" htmlFor="template-name">
+              Name
+            </label>
+            <Input id="template-name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-muted-foreground text-sm" htmlFor="template-system-prompt">
+              System prompt
+            </label>
+            <Textarea
+              id="template-system-prompt"
+              rows={5}
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-muted-foreground text-sm" htmlFor="template-focus">
+              Focus instructions (optional)
+            </label>
+            <Textarea
+              id="template-focus"
+              rows={3}
+              value={focusInstructions}
+              onChange={(e) => setFocusInstructions(e.target.value)}
+            />
+          </div>
+        </div>
+        {save.isError && (
+          <DialogFooter>
+            <p className="text-destructive text-sm">Something went wrong. Try again.</p>
+          </DialogFooter>
+        )}
+        <DialogFooter>
+          <Button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || name.trim() === "" || systemPrompt.trim() === ""}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function SummaryTab({ meeting, segments, segmentsPending, summary }: SummaryTabProps) {
   const queryClient = useQueryClient();
-  const [templateName, setTemplateName] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const [provider, setProvider] = useState("ollama");
   const [model, setModel] = useState("llama3");
+  const [editDialog, setEditDialog] = useState<{ open: boolean; template: TemplateSpec | null }>({
+    open: false,
+    template: null,
+  });
 
   const {
     data: templates,
@@ -46,10 +142,8 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
 
   const selectedTemplate = (() => {
     if (templates === undefined) return null;
-    if (templateName !== null) {
-      const match = templates.find(
-        (template) => `${template.name}:${template.version}` === templateName,
-      );
+    if (templateId !== null) {
+      const match = templates.find((template) => template.id === templateId);
       if (match !== undefined) return match;
     }
     return templates[0] ?? null;
@@ -70,6 +164,14 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["summary", meeting.id] });
+    },
+  });
+
+  const removeTemplate = useMutation({
+    mutationFn: (id: string) => deleteTemplate(id),
+    onSuccess: () => {
+      setTemplateId(null);
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
     },
   });
 
@@ -143,30 +245,63 @@ export function SummaryTab({ meeting, segments, segmentsPending, summary }: Summ
         ) : templatesError ? (
           <p className="text-sm text-red-300">Failed to load templates</p>
         ) : (
-          <Select
-            value={
-              selectedTemplate === null
-                ? ""
-                : `${selectedTemplate.name}:${selectedTemplate.version}`
-            }
-            onValueChange={setTemplateName}
-          >
-            <SelectTrigger id="template-select" className="w-full">
-              <SelectValue placeholder="Choose a template" />
-            </SelectTrigger>
-            <SelectContent>
-              {templates?.map((template) => (
-                <SelectItem
-                  key={`${template.name}:${template.version}`}
-                  value={`${template.name}:${template.version}`}
+          <div className="flex items-center gap-2">
+            <Select value={selectedTemplate?.id ?? ""} onValueChange={setTemplateId}>
+              <SelectTrigger id="template-select" className="w-full">
+                <SelectValue placeholder="Choose a template" />
+              </SelectTrigger>
+              <SelectContent>
+                {templates?.map((template) => (
+                  <SelectItem key={template.id} value={template.id as string}>
+                    <span className="flex items-center gap-2">
+                      <span>{template.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {template.source === "custom" ? "Custom" : "Built-in"}
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setEditDialog({ open: true, template: null })}
+            >
+              New
+            </Button>
+            {selectedTemplate?.source === "custom" && (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditDialog({ open: true, template: selectedTemplate })}
                 >
-                  {template.name} {template.version}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={removeTemplate.isPending}
+                  onClick={() => removeTemplate.mutate(selectedTemplate.id as string)}
+                >
+                  Delete
+                </Button>
+              </>
+            )}
+          </div>
         )}
       </div>
+      {editDialog.open && (
+        <TemplateEditDialog
+          template={editDialog.template}
+          open
+          onOpenChange={(open) => setEditDialog((previous) => ({ ...previous, open }))}
+        />
+      )}
       <div className="space-y-2">
         <label className="text-muted-foreground text-sm" htmlFor="provider">
           Provider

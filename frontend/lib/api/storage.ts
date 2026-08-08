@@ -7,8 +7,9 @@ import {
   parseSpeakerProfile,
   parseSpeakerProfiles,
   parseSummary,
+  parseTemplate,
 } from "./guards";
-import type { Meeting, Segment, SpeakerProfile, Summary } from "./types";
+import type { Meeting, Segment, SpeakerProfile, Summary, Template } from "./types";
 
 const base = SERVICES.storage;
 
@@ -100,4 +101,43 @@ export function saveSummary(
     },
     parseSummary,
   );
+}
+
+export function createTemplate(data: {
+  name: string;
+  system_prompt: string;
+  focus_instructions?: string | null;
+  few_shot_examples?: Array<{ input: string; output: string }>;
+}): Promise<Template> {
+  return request<Template>(
+    `${base}/templates`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    (value) => parseTemplate(value, "createTemplate"),
+  );
+}
+
+export function patchTemplate(
+  templateId: string,
+  data: {
+    name?: string;
+    system_prompt?: string;
+    focus_instructions?: string | null;
+    few_shot_examples?: Array<{ input: string; output: string }>;
+  },
+): Promise<Template> {
+  return request<Template>(
+    `${base}/templates/${templateId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    },
+    (value) => parseTemplate(value, "patchTemplate"),
+  );
+}
+
+export function deleteTemplate(templateId: string): Promise<void> {
+  return request<void>(`${base}/templates/${templateId}`, { method: "DELETE" });
 }
