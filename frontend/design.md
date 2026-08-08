@@ -30,7 +30,7 @@ so there is one family:
 - `--color-graphite` oklch(22% 0.016 260) — the one dark band (transcript / code-like surfaces)
 - `--color-primary-on-graphite` oklch(72% 0.15 256) — accent text/labels on the graphite band, since the paper-background accent is too dark to read there
 - `--color-success` oklch(50% 0.13 155)
-- `--color-warning` oklch(55% 0.14 75)
+- `--color-warning` oklch(48% 0.14 75)
 - `--color-danger` oklch(50% 0.19 25)
 
 ## Typography
