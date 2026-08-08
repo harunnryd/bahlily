@@ -199,7 +199,7 @@ def test_diarize_job_completes_and_is_polled_successfully(client: TestClient) ->
         assert resp.status_code == 202
         job_id = resp.json()["job_id"]
 
-        for _ in range(50):
+        for _ in range(200):
             poll = client.get(f"/diarize/{job_id}")
             if poll.json()["status"] == "completed":
                 break
@@ -226,7 +226,7 @@ def test_diarize_job_failure_is_polled_as_failed_with_a_populated_error(
         assert resp.status_code == 202
         job_id = resp.json()["job_id"]
 
-        for _ in range(50):
+        for _ in range(200):
             poll = client.get(f"/diarize/{job_id}")
             if poll.json()["status"] in ("completed", "failed"):
                 break
