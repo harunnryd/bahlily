@@ -1,12 +1,9 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { SpeakerLegend, type SpeakerLegendCluster } from "@/components/speaker-legend";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { labelSpeaker, listSpeakerProfiles } from "@/lib/api/storage";
+import { listSpeakerProfiles } from "@/lib/api/storage";
 import type { Meeting, Segment } from "@/lib/api/types";
 
 interface TranscriptTabProps {
@@ -21,46 +18,7 @@ function formatTimestamp(seconds: number): string {
   return `[${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}]`;
 }
 
-function RelabelForm({
-  initialName,
-  pending,
-  onSave,
-}: {
-  initialName: string;
-  pending: boolean;
-  onSave: (name: string) => void;
-}) {
-  const [name, setName] = useState(initialName);
-
-  return (
-    <form
-      className="flex gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const trimmed = name.trim();
-        if (trimmed) {
-          onSave(trimmed);
-        }
-      }}
-    >
-      <Input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Speaker name"
-        aria-label="Speaker name"
-        className="h-8 w-48"
-      />
-      <Button type="submit" size="sm" disabled={pending}>
-        Save
-      </Button>
-    </form>
-  );
-}
-
 export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
-  const queryClient = useQueryClient();
-  const [names, setNames] = useState<Record<string, string>>({});
-
   const { data: profiles } = useQuery({
     queryKey: ["speakerProfiles"],
     queryFn: listSpeakerProfiles,
@@ -87,18 +45,9 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
         : profiles?.find((item) => item.id === speakerProfileId);
     return {
       label: group.label,
-      name: profile?.name ?? names[group.label] ?? null,
+      name: profile?.name ?? null,
+      profileId: speakerProfileId,
     };
-  });
-
-  const relabel = useMutation({
-    mutationFn: ({ label, name }: { label: string; name: string }) =>
-      labelSpeaker(meeting.id, label, name),
-    onSuccess: (_profile, { label, name }) => {
-      setNames((previous) => ({ ...previous, [label]: name }));
-      queryClient.invalidateQueries({ queryKey: ["segments", meeting.id] });
-      queryClient.invalidateQueries({ queryKey: ["speakerProfiles"] });
-    },
   });
 
   if (segments.length === 0) {
@@ -109,19 +58,7 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
     <div className="space-y-6">
       <div className="space-y-3">
         <h2 className="text-muted-foreground text-sm font-medium">Speakers</h2>
-        <div className="space-y-2">
-          {clusters.map((cluster) => (
-            <div key={cluster.label} className="flex flex-wrap items-center gap-2">
-              <SpeakerLegend clusters={[cluster]} />
-              <RelabelForm
-                key={cluster.name ?? ""}
-                initialName={cluster.name ?? ""}
-                pending={relabel.isPending}
-                onSave={(name) => relabel.mutate({ label: cluster.label, name })}
-              />
-            </div>
-          ))}
-        </div>
+        <SpeakerLegend meetingId={meeting.id} clusters={clusters} />
       </div>
       <div className="space-y-3">
         <h2 className="text-muted-foreground text-sm font-medium">Transcript</h2>

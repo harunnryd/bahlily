@@ -224,7 +224,7 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
         sconn.close()
 
     assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
-    assert versions == {"0007"}  # upgraded all the way to head, not stuck at 0001
+    assert versions == {"0008"}  # upgraded all the way to head, not stuck at 0001
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
@@ -244,16 +244,16 @@ async def test_upgrade_to_head_is_noop_when_already_at_head(
         versions = {row[0] for row in conn.execute("SELECT version_num FROM alembic_version")}
     finally:
         conn.close()
-    assert versions == {"0007"}
+    assert versions == {"0008"}
 
 
-def test_migration_0007_is_head() -> None:
+def test_migration_0008_is_head() -> None:
     from alembic.script import ScriptDirectory
 
     from bahlily_storage import db
 
     script = ScriptDirectory.from_config(db.alembic_config())
-    assert script.get_current_head() == "0007"
+    assert script.get_current_head() == "0008"
 
 
 # Mirrors migrations/versions/0002_timezone_aware_datetimes.py's `_COLUMNS` —

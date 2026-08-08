@@ -55,6 +55,31 @@ export function labelSpeaker(
   );
 }
 
+export function patchSpeakerProfile(profileId: string, name: string): Promise<SpeakerProfile> {
+  return request<SpeakerProfile>(
+    `${base}/speaker-profiles/${profileId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    },
+    (value) => parseSpeakerProfile(value, "patchSpeakerProfile"),
+  );
+}
+
+export function mergeSpeakerProfiles(
+  profileId: string,
+  otherProfileId: string,
+): Promise<SpeakerProfile> {
+  return request<SpeakerProfile>(
+    `${base}/speaker-profiles/${profileId}/merge`,
+    {
+      method: "POST",
+      body: JSON.stringify({ other_profile_id: otherProfileId }),
+    },
+    (value) => parseSpeakerProfile(value, "mergeSpeakerProfiles"),
+  );
+}
+
 export function saveSummary(
   meetingId: string,
   data: {

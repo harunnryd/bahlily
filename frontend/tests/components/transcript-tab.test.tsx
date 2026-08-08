@@ -123,8 +123,9 @@ describe("TranscriptTab", () => {
     const user = userEvent.setup();
     renderTab(<TranscriptTab meeting={meeting} segments={segments} />);
 
+    await user.click(screen.getByText("SPEAKER_01"));
     await user.type(screen.getByPlaceholderText("Speaker name"), "Alice");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Rename" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
