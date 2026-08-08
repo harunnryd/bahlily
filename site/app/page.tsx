@@ -1,7 +1,17 @@
+import { FeatureRows } from "@/components/feature-rows";
+import { Hero } from "@/components/hero";
+import { OssBand } from "@/components/oss-band";
+import { PositioningStatement } from "@/components/positioning-statement";
+import { WaitlistSection } from "@/components/waitlist-section";
+
 export default function LandingPage() {
   return (
-    <main className="mx-auto max-w-6xl px-6 py-16">
-      <h1 className="text-3xl font-medium">Bahlily</h1>
+    <main>
+      <Hero />
+      <PositioningStatement />
+      <FeatureRows />
+      <OssBand />
+      <WaitlistSection />
     </main>
   );
 }
