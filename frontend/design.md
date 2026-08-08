@@ -1,7 +1,7 @@
-# Design — Bahlily
+# Design: Bahlily
 
 A locked design system for this app. Every page redesign reads this file before
-emitting code. Do not regenerate per page — extend or amend this file when the
+emitting code. Do not regenerate per page; extend or amend this file when the
 system needs to grow.
 
 ## Genre
@@ -11,15 +11,15 @@ modern-minimal
 ## Macrostructure family
 
 Bahlily is a functioning tool (meeting review, transcripts, chat, export), not a
-marketing site — it has no landing/pricing pages. Every route is an **app page**,
+marketing site, and it has no landing/pricing pages. Every route is an **app page**,
 so there is one family:
 
-- App pages: **Workbench** — small functional headings, frame-based content
+- App pages: **Workbench**, small functional headings, frame-based content
   blocks (cards as "frames"), hairline dividers instead of drop-shadows, a
   sticky/settled action row rather than marketing CTAs. Data (tables,
   transcripts, chat turns) is the primary content; chrome stays quiet.
 
-## Theme — Cobalt
+## Theme: Cobalt
 
 - `--color-paper` oklch(98.5% 0.004 250)
 - `--color-ink` oklch(24% 0.02 258)
@@ -27,8 +27,8 @@ so there is one family:
 - `--color-accent` oklch(50% 0.20 256)
 - `--color-accent-ink` oklch(98.5% 0.004 250)
 - `--color-focus` oklch(58% 0.20 256)
-- `--color-graphite` oklch(22% 0.016 260) — the one dark band (transcript / code-like surfaces)
-- `--color-primary-on-graphite` oklch(72% 0.15 256) — accent text/labels on the graphite band, since the paper-background accent is too dark to read there
+- `--color-graphite` oklch(22% 0.016 260), the one dark band (transcript / code-like surfaces)
+- `--color-primary-on-graphite` oklch(72% 0.15 256), accent text/labels on the graphite band, since the paper-background accent is too dark to read there
 - `--color-success` oklch(50% 0.13 155)
 - `--color-warning` oklch(48% 0.14 75)
 - `--color-danger` oklch(50% 0.19 25)
@@ -37,9 +37,9 @@ so there is one family:
 
 - Display: Space Grotesk, weight 500/600, style normal
 - Body: Inter, weight 400/500
-- Mono: JetBrains Mono, weight 400/500 — eyebrows, meta, timestamps, status chips, UPPERCASE, tracking 0.06em
+- Mono: JetBrains Mono, weight 400/500, used for eyebrows, meta, timestamps, status chips, UPPERCASE, tracking 0.06em
 - Display tracking: -0.02em
-- Type scale: plain Tailwind text-size utilities (text-2xl, text-lg, etc.) applied directly — no semantic type-scale token exists.
+- Type scale: plain Tailwind text-size utilities (text-2xl, text-lg, etc.) applied directly; no semantic type-scale token exists.
 
 ## Spacing
 
@@ -48,8 +48,8 @@ No semantic spacing tokens exist yet. Pages use raw Tailwind utility spacing
 
 ## Motion
 
-- Easing: none defined — this is a motion-cut build with no easing tokens.
-- Reveal pattern: none — this is a working tool, not a marketing page. Data appears instantly.
+- Easing: none defined; this is a motion-cut build with no easing tokens.
+- Reveal pattern: none, this is a working tool, not a marketing page. Data appears instantly.
 - Reduced-motion fallback: n/a (no reveals to begin with)
 
 ## Microinteractions stance
@@ -80,7 +80,7 @@ No semantic spacing tokens exist yet. Pages use raw Tailwind utility spacing
 ## What pages MAY differ on
 
 - Layout density (the dashboard is table-led; meeting detail is tab-led).
-- Whether a section uses the graphite dark band — used on the transcript panel and
+- Whether a section uses the graphite dark band, used on the transcript panel and
   the chat log (both are log-like content, matching Cobalt's "code is the hero"
   signature move). Not used anywhere else.
 
@@ -89,14 +89,14 @@ No semantic spacing tokens exist yet. Pages use raw Tailwind utility spacing
 A single edge-aligned minimal bar (N9) in `components/app-shell.tsx`, wired
 through `app/layout.tsx` so every route shares it: wordmark left, a quiet
 static label right, hairline bottom border. Meeting detail additionally
-carries a `← Meetings` breadcrumb above its own heading — there is no nav
+carries a `← Meetings` breadcrumb above its own heading; there is no nav
 destination for it otherwise.
 
 ## Exports
 
 ### tokens.css
 
-See `app/globals.css` — tokens are declared directly in the project's existing
+See `app/globals.css`: tokens are declared directly in the project's existing
 Tailwind v4 `@theme inline` block rather than a separate file, to avoid a second
 source of truth alongside the pre-existing shadcn/ui token names this app already
 uses (`--background`, `--foreground`, `--primary`, etc). The Cobalt values above

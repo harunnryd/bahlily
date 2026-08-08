@@ -10,7 +10,7 @@
 :root {
   --radius: 0.5rem;
 
-  /* Cobalt — cool engineered paper, electric-blue signal, mapped onto the
+  /* Cobalt: cool engineered paper, electric-blue signal, mapped onto the
      existing shadcn semantic token names so every component below keeps
      working unchanged. */
   --background: oklch(98.5% 0.004 250);
@@ -91,6 +91,7 @@
   }
   body {
     @apply bg-background text-foreground;
+
     font-family: var(--font-body);
   }
   h1,

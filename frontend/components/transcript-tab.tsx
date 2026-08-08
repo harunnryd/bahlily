@@ -62,7 +62,12 @@ export function TranscriptTab({ meeting, segments }: TranscriptTabProps) {
       </div>
       <div className="space-y-3">
         <h2 className="eyebrow text-muted-foreground">Transcript</h2>
-        <div className="bg-graphite text-graphite-foreground divide-graphite-foreground/10 max-h-[32rem] divide-y overflow-y-auto rounded-xl p-4">
+        <div
+          className="bg-graphite text-graphite-foreground divide-graphite-foreground/10 focus-visible:ring-ring max-h-[32rem] divide-y overflow-y-auto rounded-xl p-4 focus-visible:ring-2 focus-visible:outline-none"
+          tabIndex={0}
+          role="region"
+          aria-label="Transcript"
+        >
           {groups.map((group) =>
             group.segments.map((segment) => (
               <p key={segment.segment_id} className="flex gap-3 py-1.5 first:pt-0 last:pb-0">
