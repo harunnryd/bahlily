@@ -94,7 +94,7 @@ destination for it otherwise.
 
 ## Exports
 
-### tokens.css
+### app/globals.css
 
 See `app/globals.css`: tokens are declared directly in the project's existing
 Tailwind v4 `@theme inline` block rather than a separate file, to avoid a second
