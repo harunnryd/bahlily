@@ -37,6 +37,7 @@ from bahlily_storage.repos import (
     SpeakerProfileRepo,
     SummaryRepo,
     TemplateRepo,
+    UnmatchedClusterEmbeddingRepo,
 )
 from bahlily_storage.schemas import (
     BatchSegmentItem,
@@ -56,6 +57,7 @@ from bahlily_storage.schemas import (
     PatchMeetingRequest,
     PatchSpeakerProfileRequest,
     PatchTemplateRequest,
+    PutClusterEmbeddingRequest,
     SegmentResponse,
     SpeakerProfileResponse,
     SummaryResponse,
@@ -591,6 +593,27 @@ async def match_speaker_profile_bulk(
     )
 
 
+@app.put("/meetings/{meeting_id}/speakers/{cluster_label}/embedding", status_code=204)
+async def put_cluster_embedding(
+    meeting_id: str,
+    cluster_label: str,
+    req: PutClusterEmbeddingRequest,
+    session: SessionDep,
+) -> None:
+    meeting_repo = MeetingRepo(session)
+    if await meeting_repo.get(meeting_id) is None:
+        raise StorageMeetingNotFoundError(meeting_id)
+
+    pending_repo = UnmatchedClusterEmbeddingRepo(session)
+    await pending_repo.upsert(
+        meeting_id,
+        cluster_label,
+        json.dumps(req.voice_embedding),
+        datetime.datetime.now(datetime.UTC),
+    )
+    await session.commit()
+
+
 @app.post("/meetings/{meeting_id}/speakers/{cluster_label}/label")
 async def label_speaker_in_meeting(
     meeting_id: str,
@@ -603,9 +626,15 @@ async def label_speaker_in_meeting(
         raise StorageMeetingNotFoundError(meeting_id)
 
     profile_repo = SpeakerProfileRepo(session)
+    pending_repo = UnmatchedClusterEmbeddingRepo(session)
     profile = await profile_repo.get_by_name(req.name)
     if profile is None:
-        if req.voice_embedding is None:
+        voice_embedding = req.voice_embedding
+        if voice_embedding is None:
+            pending = await pending_repo.get(meeting_id, cluster_label)
+            if pending is not None:
+                voice_embedding = json.loads(pending.voice_embedding)
+        if voice_embedding is None:
             raise HTTPException(
                 status_code=422,
                 detail=f"name '{req.name}' is new; voice_embedding required",
@@ -613,7 +642,7 @@ async def label_speaker_in_meeting(
         profile = SpeakerProfile(
             id=str(uuid.uuid4()),
             name=req.name,
-            voice_embedding=json.dumps(req.voice_embedding),
+            voice_embedding=json.dumps(voice_embedding),
             created_at=datetime.datetime.now(datetime.UTC),
             updated_at=datetime.datetime.now(datetime.UTC),
         )
@@ -634,6 +663,7 @@ async def label_speaker_in_meeting(
     if linked == 0:
         await session.rollback()
         raise StorageSpeakerClusterNotFoundError(meeting_id, cluster_label)
+    await pending_repo.delete(meeting_id, cluster_label)
     await session.commit()
     _log.info(
         "label_speaker_cluster",

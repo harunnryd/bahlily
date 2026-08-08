@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from sqlalchemy import CursorResult, select, update
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bahlily_storage.models import Meeting, Segment, SpeakerProfile, Summary, SummaryTemplate
+from bahlily_storage.models import (
+    Meeting,
+    Segment,
+    SpeakerProfile,
+    Summary,
+    SummaryTemplate,
+    UnmatchedClusterEmbedding,
+)
 
 
 class MeetingRepo:
@@ -320,3 +328,49 @@ class SpeakerProfileRepo:
     async def list_all_for_matching(self) -> list[SpeakerProfile]:
         result = await self._s.execute(select(SpeakerProfile))
         return list(result.scalars().all())
+
+
+class UnmatchedClusterEmbeddingRepo:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+
+    async def upsert(
+        self,
+        meeting_id: str,
+        cluster_label: str,
+        voice_embedding: str,
+        created_at: object,
+    ) -> None:
+        stmt = (
+            sqlite_insert(UnmatchedClusterEmbedding)
+            .values(
+                meeting_id=meeting_id,
+                cluster_label=cluster_label,
+                voice_embedding=voice_embedding,
+                created_at=created_at,
+            )
+            .on_conflict_do_update(
+                index_elements=["meeting_id", "cluster_label"],
+                set_={"voice_embedding": voice_embedding, "created_at": created_at},
+            )
+        )
+        await self._s.execute(stmt)
+        await self._s.flush()
+
+    async def get(self, meeting_id: str, cluster_label: str) -> UnmatchedClusterEmbedding | None:
+        result = await self._s.execute(
+            select(UnmatchedClusterEmbedding).where(
+                UnmatchedClusterEmbedding.meeting_id == meeting_id,
+                UnmatchedClusterEmbedding.cluster_label == cluster_label,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def delete(self, meeting_id: str, cluster_label: str) -> None:
+        await self._s.execute(
+            sa_delete(UnmatchedClusterEmbedding).where(
+                UnmatchedClusterEmbedding.meeting_id == meeting_id,
+                UnmatchedClusterEmbedding.cluster_label == cluster_label,
+            )
+        )
+        await self._s.flush()

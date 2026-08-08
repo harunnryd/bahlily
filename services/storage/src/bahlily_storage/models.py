@@ -143,3 +143,28 @@ class SpeakerProfile(Base):
     voice_embedding: Mapped[str]
     created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
     updated_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())
+
+
+class UnmatchedClusterEmbedding(Base):
+    """A diarization cluster's voice embedding, held until a human names it.
+
+    Diarization computes this once per cluster and it's gone the moment the
+    caller stops holding the response - there's nowhere else it lives. This
+    table is that missing hand-off point between diarization and the label
+    endpoint, which needs an embedding to create a brand-new `SpeakerProfile`.
+    """
+
+    __tablename__ = "unmatched_cluster_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "meeting_id", "cluster_label", name="uq_unmatched_cluster_embeddings_meeting_cluster"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    meeting_id: Mapped[str] = mapped_column(
+        ForeignKey("meetings.id", ondelete="CASCADE"), index=True
+    )
+    cluster_label: Mapped[str]
+    voice_embedding: Mapped[str]
+    created_at: Mapped[datetime.datetime] = mapped_column(UtcDateTime())

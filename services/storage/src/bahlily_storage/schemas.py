@@ -215,6 +215,12 @@ class LabelSpeakerRequest(BaseModel):
     voice_embedding: VoiceEmbedding | None = None
 
 
+class PutClusterEmbeddingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_embedding: VoiceEmbedding = Field(min_length=1)
+
+
 class MergeSpeakersRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     other_profile_id: str = Field(min_length=1)

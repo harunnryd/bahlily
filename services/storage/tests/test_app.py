@@ -977,6 +977,108 @@ def test_label_speaker_requires_embedding_for_new_profile(client: TestClient) ->
     assert resp.status_code == 422
 
 
+def test_label_speaker_uses_pending_embedding_when_none_supplied(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hello",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+            ]
+        },
+    )
+    put_resp = client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": [0.2] * 512},
+    )
+    assert put_resp.status_code == 204
+
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "NewName"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "NewName"
+    segs = client.get("/meetings/m1/segments").json()
+    assert segs[0]["speaker_profile_id"] == resp.json()["id"]
+
+
+def test_label_speaker_consumes_pending_embedding_only_once(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BAHLILY_STORAGE_EMBEDDING_DIM", "512")
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    client.post(
+        "/meetings/m1/segments/batch",
+        json={
+            "segments": [
+                {
+                    "segment_id": 1,
+                    "text": "hello",
+                    "is_partial": False,
+                    "engine": "whisper",
+                    "model_name": "small",
+                    "audio_start_time": 0.0,
+                    "audio_end_time": 1.0,
+                    "trace_id": "t1",
+                    "speaker_cluster_label": "SPEAKER_01",
+                },
+            ]
+        },
+    )
+    client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": [0.2] * 512},
+    )
+    first = client.post("/meetings/m1/speakers/SPEAKER_01/label", json={"name": "Alice"})
+    assert first.status_code == 200
+
+    resp = client.post(
+        "/meetings/m1/speakers/SPEAKER_01/label",
+        json={"name": "Bob"},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_cluster_embedding_rejects_unknown_meeting(client: TestClient) -> None:
+    resp = client.put(
+        "/meetings/does-not-exist/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": [0.1] * 512},
+    )
+    assert resp.status_code == 404
+
+
+def test_put_cluster_embedding_rejects_empty_embedding(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    resp = client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": []},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_cluster_embedding_rejects_unknown_field(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    resp = client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": [0.1] * 512, "extra": "nope"},
+    )
+    assert resp.status_code == 422
+
+
 def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:
     embedding = [0.1] * 512
     first = client.post("/speaker-profiles", json={"name": "Alice", "voice_embedding": embedding})

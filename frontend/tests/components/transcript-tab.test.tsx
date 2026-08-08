@@ -61,11 +61,33 @@ const speakerProfile: SpeakerProfile = {
   updated_at: "2026-08-01T00:00:00Z",
 };
 
+const otherProfile: SpeakerProfile = {
+  id: "p2",
+  name: "Bob",
+  voice_embedding: [],
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-01T00:00:00Z",
+};
+
 function stubProfiles(profiles: SpeakerProfile[]) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    if (init?.method === "POST") {
+    const url = String(input);
+    if (init?.method === "POST" && url.endsWith("/merge")) {
+      const survivorId = url.split("/speaker-profiles/")[1]?.split("/merge")[0];
+      const survivor = profiles.find((p) => p.id === survivorId) ?? speakerProfile;
       return Promise.resolve(
-        new Response(JSON.stringify(speakerProfile), {
+        new Response(JSON.stringify(survivor), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as { name?: string };
+      const matched = profiles.find((p) => p.name === body.name);
+      const response = matched ?? { ...speakerProfile, name: body.name ?? speakerProfile.name };
+      return Promise.resolve(
+        new Response(JSON.stringify(response), {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
@@ -123,8 +145,9 @@ describe("TranscriptTab", () => {
     const user = userEvent.setup();
     renderTab(<TranscriptTab meeting={meeting} segments={segments} />);
 
+    await user.click(screen.getByText("SPEAKER_01"));
     await user.type(screen.getByPlaceholderText("Speaker name"), "Alice");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Rename" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
@@ -139,5 +162,47 @@ describe("TranscriptTab", () => {
       );
       expect(profileGets.length).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  it("reassigns a cluster to an existing speaker profile", async () => {
+    const fetchMock = stubProfiles([otherProfile]);
+    const user = userEvent.setup();
+    renderTab(<TranscriptTab meeting={meeting} segments={segments} />);
+
+    await user.click(screen.getByText("SPEAKER_01"));
+    await user.click(screen.getByRole("combobox", { name: "Reassign to existing speaker" }));
+    await user.click(screen.getByRole("option", { name: "Bob" }));
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url, init]) =>
+        String(url).endsWith("/label") ? init?.method === "POST" : false,
+      );
+      expect(call).toBeDefined();
+      expect(String(call![0])).toBe("http://127.0.0.1:8003/meetings/m1/speakers/SPEAKER_01/label");
+      expect(JSON.parse(String(call![1]!.body))).toEqual({ name: "Bob" });
+    });
+    expect(await screen.findByText("Bob")).toBeInTheDocument();
+  });
+
+  it("merges the current speaker profile into another existing one", async () => {
+    const fetchMock = stubProfiles([speakerProfile, otherProfile]);
+    const user = userEvent.setup();
+    renderTab(
+      <TranscriptTab meeting={meeting} segments={[{ ...segments[0], speaker_profile_id: "p1" }]} />,
+    );
+
+    await user.click(await screen.findByText("Alice"));
+    await user.click(screen.getByRole("combobox", { name: "Merge into another speaker" }));
+    await user.click(screen.getByRole("option", { name: "Bob" }));
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/merge"));
+      expect(call).toBeDefined();
+      expect(String(call![0])).toBe("http://127.0.0.1:8003/speaker-profiles/p2/merge");
+      expect(JSON.parse(String(call![1]!.body))).toEqual({ other_profile_id: "p1" });
+    });
+    expect(await screen.findByRole("button", { name: "Bob" })).toBeInTheDocument();
   });
 });
