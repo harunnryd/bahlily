@@ -12,7 +12,7 @@ import grpc.aio
 import pytest
 from fastapi.testclient import TestClient
 
-from bahlily_transcription.app import _diarize_jobs, _sessions
+from bahlily_transcription.app import _diarize_jobs, _select_whisper_manifest_name, _sessions
 from bahlily_transcription.diarize_engine import DiarizationResult, DiarizationTurn
 from bahlily_transcription.grpc_client import AudioCoreClient
 from bahlily_transcription.jobs import DiarizeJobState, SessionState
@@ -25,6 +25,16 @@ def client() -> TestClient:
     from bahlily_transcription.app import app
 
     return TestClient(app)
+
+
+def test_select_whisper_manifest_name_uses_mlx_on_apple_silicon() -> None:
+    with patch("bahlily_transcription.app._is_apple_silicon", return_value=True):
+        assert _select_whisper_manifest_name() == "whisper_mlx"
+
+
+def test_select_whisper_manifest_name_uses_default_off_apple_silicon() -> None:
+    with patch("bahlily_transcription.app._is_apple_silicon", return_value=False):
+        assert _select_whisper_manifest_name() == "whisper"
 
 
 def test_health_returns_ok(client: TestClient) -> None:

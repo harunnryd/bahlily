@@ -57,11 +57,17 @@ _MODELS_DIR = Path(os.environ.get("BAHLILY_MODELS_DIR", str(Path.home() / ".bahl
 _MANIFESTS_DIR = Path(str(resources.files("bahlily_transcription") / "manifests"))
 
 _whisper_engine = WhisperEngine(models_dir=_MODELS_DIR / "whisper")
+
+
 # mlx_whisper needs mlx-community's weights.npz/safetensors layout, which is
 # incompatible with the ctranslate2 layout faster-whisper's repos ship - so
 # Apple Silicon reads model names against a separate manifest pointing at the
 # mlx-community repos instead.
-_whisper_manifest_name = "whisper_mlx" if _is_apple_silicon() else "whisper"
+def _select_whisper_manifest_name() -> str:
+    return "whisper_mlx" if _is_apple_silicon() else "whisper"
+
+
+_whisper_manifest_name = _select_whisper_manifest_name()
 _whisper_registry = ModelRegistry(
     "whisper", _MODELS_DIR, _MANIFESTS_DIR, manifest_name=_whisper_manifest_name
 )
