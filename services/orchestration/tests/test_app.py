@@ -1,9 +1,10 @@
 import itertools
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
 from bahlily_orchestration.app import app
+from bahlily_orchestration.models import TemplateSpec
 from tests.utils import FakeToolCallingModel, tool_call_message
 
 client = TestClient(app)
@@ -28,8 +29,31 @@ def test_cors_simple_request_allows_browser_origin() -> None:
 def test_templates_lists_built_in_templates() -> None:
     response = client.get("/templates")
     assert response.status_code == 200
-    names = {t["name"] for t in response.json()}
+    templates = response.json()
+    names = {t["name"] for t in templates}
     assert names == {"general", "one-on-one", "sales-call"}
+    assert all(t["source"] == "bundled" for t in templates)
+    assert {t["id"] for t in templates} == names
+
+
+def test_templates_merges_custom_templates_from_storage() -> None:
+    custom = TemplateSpec(
+        id="t1",
+        source="custom",
+        name="Standup",
+        version="1.0.0",
+        system_prompt="summarize standups",
+    )
+    with patch(
+        "bahlily_orchestration.app._storage_client.list_custom_templates",
+        new=AsyncMock(return_value=[custom]),
+    ):
+        response = client.get("/templates")
+    assert response.status_code == 200
+    templates = response.json()
+    custom_entries = [t for t in templates if t["source"] == "custom"]
+    assert custom_entries == [custom.model_dump()]
+    assert {t["name"] for t in templates} == {"general", "one-on-one", "sales-call", "Standup"}
 
 
 def test_summarize_returns_200_with_structured_response() -> None:

@@ -7,7 +7,14 @@ import type { ReactElement } from "react";
 import { SummaryTab } from "@/components/summary-tab";
 import { ApiError } from "@/lib/api/client";
 import { getSummary } from "@/lib/api/storage";
-import type { Meeting, Segment, SummarizeResponse, Summary, TemplateSpec } from "@/lib/api/types";
+import type {
+  Meeting,
+  Segment,
+  SummarizeResponse,
+  Summary,
+  Template,
+  TemplateSpec,
+} from "@/lib/api/types";
 
 const meeting: Meeting = {
   id: "m1",
@@ -43,6 +50,8 @@ const template: TemplateSpec = {
   system_prompt: "Summarize concisely.",
   focus_instructions: null,
   few_shot_examples: [],
+  id: "brief",
+  source: "bundled",
 };
 
 const segments: Segment[] = [
@@ -61,6 +70,27 @@ const segments: Segment[] = [
     speaker_profile_id: null,
   },
 ];
+
+const customTemplate: TemplateSpec = {
+  name: "Standup",
+  version: "1.0.0",
+  system_prompt: "Summarize standups.",
+  focus_instructions: null,
+  few_shot_examples: [],
+  id: "t1",
+  source: "custom",
+};
+
+const customTemplateStorageResponse: Template = {
+  id: "t1",
+  name: "Standup",
+  version: "1.0.0",
+  system_prompt: "Summarize standups.",
+  focus_instructions: null,
+  few_shot_examples: [],
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-01T00:00:00Z",
+};
 
 const summarizeResponse: SummarizeResponse = {
   summary: {
@@ -145,7 +175,8 @@ describe("SummaryTab", () => {
       />,
     );
     expect(screen.getByRole("button", { name: /generate/i })).toBeInTheDocument();
-    expect(await screen.findByText("brief 1")).toBeInTheDocument();
+    expect(await screen.findByText("brief")).toBeInTheDocument();
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
   });
 
   it("disables generation when no transcript is available", async () => {
@@ -244,5 +275,97 @@ describe("SummaryTab", () => {
     await user.click(screen.getByRole("button", { name: /generate/i }));
 
     expect(await screen.findByText("Failed to generate summary")).toBeInTheDocument();
+  });
+
+  it("creates a new custom template", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/templates") && init?.method === "POST") {
+        return json(201, customTemplateStorageResponse);
+      }
+      if (url.endsWith("/templates")) return json(200, [template]);
+      if (url.endsWith("/segments")) return json(200, segments);
+      return json(404, null);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderTab(
+      <SummaryTab
+        meeting={{ ...meeting, has_summary: false }}
+        segments={segments}
+        segmentsPending={false}
+        summary={null}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "New" }));
+    await user.type(screen.getByLabelText("Name"), "Standup");
+    await user.type(screen.getByLabelText("System prompt"), "Summarize standups.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/templates") && i?.method === "POST",
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]!.body))).toEqual({
+        name: "Standup",
+        system_prompt: "Summarize standups.",
+        focus_instructions: null,
+      });
+    });
+  });
+
+  it("edits and deletes an existing custom template", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/templates/t1") && init?.method === "PATCH") {
+        return json(200, { ...customTemplateStorageResponse, name: "Weekly standup" });
+      }
+      if (url.endsWith("/templates/t1") && init?.method === "DELETE") {
+        return json(204, null);
+      }
+      if (url.endsWith("/templates")) return json(200, [customTemplate]);
+      if (url.endsWith("/segments")) return json(200, segments);
+      return json(404, null);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderTab(
+      <SummaryTab
+        meeting={{ ...meeting, has_summary: false }}
+        segments={segments}
+        segmentsPending={false}
+        summary={null}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const nameInput = screen.getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Weekly standup");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/templates/t1") && i?.method === "PATCH",
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call![1]!.body))).toEqual({
+        name: "Weekly standup",
+        system_prompt: "Summarize standups.",
+        focus_instructions: null,
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([u, i]) => String(u).endsWith("/templates/t1") && i?.method === "DELETE",
+      );
+      expect(call).toBeDefined();
+    });
   });
 });

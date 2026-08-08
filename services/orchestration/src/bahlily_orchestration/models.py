@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -23,6 +25,8 @@ class TemplateSpec(BaseModel):
     system_prompt: str
     focus_instructions: str | None = None
     few_shot_examples: list[FewShotExample] = []
+    id: str | None = None
+    source: Literal["bundled", "custom"] | None = None
 
 
 class ActionItem(BaseModel):
