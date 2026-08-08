@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { OssBand } from "@/components/oss-band";
+
+afterEach(cleanup);
 
 describe("OssBand", () => {
   it("links to GitHub and claims no fabricated metrics", () => {

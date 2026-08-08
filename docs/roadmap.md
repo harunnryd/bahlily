@@ -49,7 +49,7 @@ bahlily/
 └── site/
 ```
 
-`shell/` is the Tauri Rust shell (window, tray, updater, notifications); `audio-core/` is the one Rust business-logic module, handling capture, mixing, and VAD. Under `services/`: `transcription` wraps `faster-whisper`, `onnx-asr`, and `pyannote.audio` (pulled in by the opt-in `diarization` extra); `orchestration` wraps LangChain/LangGraph and the multi-provider LLM client, with DeepEval; `chat` is RAG plus an optional MCP surface; `calendar` wraps the Google Calendar/MS Graph APIs and `icalendar`; `export` wraps `python-docx` and `weasyprint`/`reportlab`; `storage` is the single SQLite owner. `frontend/` is the Next.js/React UI. `site/` is the standalone public marketing site — a separate Next.js static export with no shared code or deploy pipeline with `frontend/`.
+`shell/` is the Tauri Rust shell (window, tray, updater, notifications); `audio-core/` is the one Rust business-logic module, handling capture, mixing, and VAD. Under `services/`: `transcription` wraps `faster-whisper`, `onnx-asr`, and `pyannote.audio` (pulled in by the opt-in `diarization` extra); `orchestration` wraps LangChain/LangGraph and the multi-provider LLM client, with DeepEval; `chat` is RAG plus an optional MCP surface; `calendar` wraps the Google Calendar/MS Graph APIs and `icalendar`; `export` wraps `python-docx` and `weasyprint`/`reportlab`; `storage` is the single SQLite owner. `frontend/` is the Next.js/React UI. `site/` is the standalone public marketing site: a separate Next.js static export with no shared code or deploy pipeline with `frontend/`.
 
 Each `services/*` directory should be independently runnable, with its own `pyproject.toml`/entrypoint and its own tests. Someone should be able to work on one service without standing up the rest of the stack.
 
@@ -67,7 +67,7 @@ Phase 4 features: ship each behind its own settings toggle, so newer, less-prove
 
 ## Exploratory directions (not yet sequenced)
 
-These are directions being considered, not committed phases — nothing here
+These are directions being considered, not committed phases; nothing here
 carries a phase number or an implied order relative to Phase 0–4 above.
 
 - **Live translation.** Real-time captions in the viewer's language during

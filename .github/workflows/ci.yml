@@ -199,7 +199,9 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
       - run: |
           set -euo pipefail
           pnpm exec prettier --check .
@@ -239,7 +241,9 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: site/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
       - run: |
           set -euo pipefail
           pnpm exec prettier --check .
