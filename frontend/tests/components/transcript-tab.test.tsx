@@ -203,5 +203,6 @@ describe("TranscriptTab", () => {
       expect(String(call![0])).toBe("http://127.0.0.1:8003/speaker-profiles/p2/merge");
       expect(JSON.parse(String(call![1]!.body))).toEqual({ other_profile_id: "p1" });
     });
+    expect(await screen.findByRole("button", { name: "Bob" })).toBeInTheDocument();
   });
 });
