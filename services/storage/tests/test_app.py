@@ -1036,17 +1036,6 @@ def test_label_speaker_consumes_pending_embedding_only_once(
                     "trace_id": "t1",
                     "speaker_cluster_label": "SPEAKER_01",
                 },
-                {
-                    "segment_id": 2,
-                    "text": "world",
-                    "is_partial": False,
-                    "engine": "whisper",
-                    "model_name": "small",
-                    "audio_start_time": 1.0,
-                    "audio_end_time": 2.0,
-                    "trace_id": "t2",
-                    "speaker_cluster_label": "SPEAKER_02",
-                },
             ]
         },
     )
@@ -1054,10 +1043,11 @@ def test_label_speaker_consumes_pending_embedding_only_once(
         "/meetings/m1/speakers/SPEAKER_01/embedding",
         json={"voice_embedding": [0.2] * 512},
     )
-    client.post("/meetings/m1/speakers/SPEAKER_01/label", json={"name": "Alice"})
+    first = client.post("/meetings/m1/speakers/SPEAKER_01/label", json={"name": "Alice"})
+    assert first.status_code == 200
 
     resp = client.post(
-        "/meetings/m1/speakers/SPEAKER_02/label",
+        "/meetings/m1/speakers/SPEAKER_01/label",
         json={"name": "Bob"},
     )
     assert resp.status_code == 422
@@ -1069,6 +1059,24 @@ def test_put_cluster_embedding_rejects_unknown_meeting(client: TestClient) -> No
         json={"voice_embedding": [0.1] * 512},
     )
     assert resp.status_code == 404
+
+
+def test_put_cluster_embedding_rejects_empty_embedding(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    resp = client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": []},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_cluster_embedding_rejects_unknown_field(client: TestClient) -> None:
+    client.post("/meetings", json={"id": "m1", "started_at": "2026-08-05T10:00:00Z"})
+    resp = client.put(
+        "/meetings/m1/speakers/SPEAKER_01/embedding",
+        json={"voice_embedding": [0.1] * 512, "extra": "nope"},
+    )
+    assert resp.status_code == 422
 
 
 def test_label_speaker_reuses_existing_profile_by_name(client: TestClient) -> None:

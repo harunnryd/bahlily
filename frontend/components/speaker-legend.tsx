@@ -94,6 +94,7 @@ function SpeakerEditDialog({
     },
   });
 
+  const isMutating = rename.isPending || reassign.isPending || merge.isPending;
   const failed = rename.isError || reassign.isError || merge.isError;
 
   return (
@@ -109,7 +110,7 @@ function SpeakerEditDialog({
             onSubmit={(event) => {
               event.preventDefault();
               const trimmed = name.trim();
-              if (trimmed) rename.mutate(trimmed);
+              if (!isMutating && trimmed) rename.mutate(trimmed);
             }}
           >
             <Input
@@ -118,7 +119,7 @@ function SpeakerEditDialog({
               placeholder="Speaker name"
               aria-label="Speaker name"
             />
-            <Button type="submit" size="sm" disabled={rename.isPending}>
+            <Button type="submit" size="sm" disabled={isMutating}>
               Rename
             </Button>
           </form>
@@ -126,7 +127,7 @@ function SpeakerEditDialog({
           {otherProfiles.length > 0 && (
             <div className="flex gap-2">
               <Select value={reassignTarget} onValueChange={setReassignTarget}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full" aria-label="Reassign to existing speaker">
                   <SelectValue placeholder="Reassign to existing speaker" />
                 </SelectTrigger>
                 <SelectContent>
@@ -140,7 +141,7 @@ function SpeakerEditDialog({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!reassignTarget || reassign.isPending}
+                disabled={!reassignTarget || isMutating}
                 onClick={() => reassign.mutate(reassignTarget)}
               >
                 Reassign
@@ -151,7 +152,7 @@ function SpeakerEditDialog({
           {cluster.profileId && otherProfiles.length > 0 && (
             <div className="flex gap-2">
               <Select value={mergeTarget} onValueChange={setMergeTarget}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full" aria-label="Merge into another speaker">
                   <SelectValue placeholder="Merge into another speaker" />
                 </SelectTrigger>
                 <SelectContent>
@@ -165,7 +166,7 @@ function SpeakerEditDialog({
               <Button
                 size="sm"
                 variant="destructive"
-                disabled={!mergeTarget || merge.isPending}
+                disabled={!mergeTarget || isMutating}
                 onClick={() => merge.mutate(mergeTarget)}
               >
                 Merge
@@ -207,12 +208,15 @@ export function SpeakerLegend({
         const displayName = overrides[cluster.label] ?? cluster.name;
         return (
           <div key={cluster.label}>
-            <Badge
-              variant="outline"
-              className="cursor-pointer"
-              onClick={() => setOpenLabel(cluster.label)}
-            >
-              {displayName ?? cluster.label}
+            <Badge asChild variant="outline">
+              <button
+                type="button"
+                className="cursor-pointer"
+                aria-haspopup="dialog"
+                onClick={() => setOpenLabel(cluster.label)}
+              >
+                {displayName ?? cluster.label}
+              </button>
             </Badge>
             {openLabel === cluster.label && (
               <SpeakerEditDialog

@@ -223,8 +223,30 @@ async def test_upgrade_to_head_stamps_preexisting_create_all_db(
     finally:
         sconn.close()
 
-    assert {"meetings", "segments", "summaries", "alembic_version"}.issubset(tables_after)
+    assert {
+        "meetings",
+        "segments",
+        "summaries",
+        "unmatched_cluster_embeddings",
+        "alembic_version",
+    }.issubset(tables_after)
     assert versions == {"0008"}  # upgraded all the way to head, not stuck at 0001
+
+    sconn = sqlite3.connect(str(db_path))
+    try:
+        sconn.execute(
+            "INSERT INTO unmatched_cluster_embeddings "
+            "(meeting_id, cluster_label, voice_embedding, created_at) "
+            "VALUES ('m1', 'SPEAKER_01', '[]', '2026-08-05T10:00:00Z')"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            sconn.execute(
+                "INSERT INTO unmatched_cluster_embeddings "
+                "(meeting_id, cluster_label, voice_embedding, created_at) "
+                "VALUES ('m1', 'SPEAKER_01', '[]', '2026-08-05T10:00:01Z')"
+            )
+    finally:
+        sconn.close()
 
 
 async def test_upgrade_to_head_is_noop_when_already_at_head(
