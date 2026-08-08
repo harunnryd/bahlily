@@ -5,8 +5,7 @@ export function OssBand() {
         <div className="max-w-xl space-y-4">
           <p className="eyebrow text-graphite-foreground/60">Open source</p>
           <h2 className="text-2xl font-medium">
-            Local-first, MIT-licensed, built on Whisper and your choice of LLM
-            provider.
+            Local-first, MIT-licensed, built on Whisper and your choice of LLM provider.
           </h2>
           <a
             href="https://github.com/harunnryd/bahlily"

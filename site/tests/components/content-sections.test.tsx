@@ -9,9 +9,7 @@ afterEach(cleanup);
 describe("PositioningStatement", () => {
   it("frames multi-language support as a direction, not a shipped guarantee", () => {
     render(<PositioningStatement />);
-    expect(
-      screen.getByText(/a direction we're building toward/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/a direction we're building toward/i)).toBeInTheDocument();
   });
 });
 

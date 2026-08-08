@@ -35,11 +35,7 @@ export function WaitlistForm() {
   };
 
   if (state === "success") {
-    return (
-      <p className="text-foreground text-sm font-medium">
-        You&apos;re on the list.
-      </p>
-    );
+    return <p className="text-foreground text-sm font-medium">You&apos;re on the list.</p>;
   }
 
   return (

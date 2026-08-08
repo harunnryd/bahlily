@@ -25,8 +25,7 @@ export function Hero() {
             Meeting intelligence that runs on your machine.
           </h1>
           <p className="text-muted-foreground text-lg">
-            Transcribe, diarize, summarize, and chat with every meeting — all
-            running locally.
+            Transcribe, diarize, summarize, and chat with every meeting — all running locally.
           </p>
           <div className="flex flex-wrap items-center gap-4">
             <a
@@ -49,21 +48,12 @@ export function Hero() {
           </div>
         </div>
         <div className="bg-graphite text-graphite-foreground rounded-xl p-4">
-          <p className="eyebrow text-graphite-foreground/60 mb-3">
-            transcript.live
-          </p>
+          <p className="eyebrow text-graphite-foreground/60 mb-3">transcript.live</p>
           <div className="divide-graphite-foreground/10 divide-y">
             {DEMO_LINES.map((line) => (
-              <p
-                key={line.time}
-                className="flex gap-3 py-2 text-sm first:pt-0 last:pb-0"
-              >
-                <span className="text-primary shrink-0 font-mono">
-                  [{line.time}]
-                </span>
-                <span className="text-graphite-foreground/60 shrink-0">
-                  {line.speaker}:
-                </span>
+              <p key={line.time} className="flex gap-3 py-2 text-sm first:pt-0 last:pb-0">
+                <span className="text-primary shrink-0 font-mono">[{line.time}]</span>
+                <span className="text-graphite-foreground/60 shrink-0">{line.speaker}:</span>
                 <span>{line.text}</span>
               </p>
             ))}

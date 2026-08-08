@@ -15,9 +15,7 @@ describe("WaitlistForm", () => {
     await user.click(screen.getByRole("button", { name: "Join waitlist" }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Enter a valid email address."),
-      ).toBeInTheDocument();
+      expect(screen.getByText("Enter a valid email address.")).toBeInTheDocument();
     });
   });
 

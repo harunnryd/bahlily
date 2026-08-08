@@ -22,10 +22,23 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
 });
 
+const title = "Bahlily — meeting intelligence that runs on your machine";
+const description =
+  "Transcribe, diarize, summarize, and chat with every meeting, running locally. Open source, MIT licensed.";
+
 export const metadata = {
-  title: "Bahlily — meeting intelligence that runs on your machine",
-  description:
-    "Transcribe, diarize, summarize, and chat with every meeting, running locally. Open source, MIT licensed.",
+  title,
+  description,
+  openGraph: {
+    title,
+    description,
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

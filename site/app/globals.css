@@ -54,6 +54,9 @@
   body {
     overflow-x: clip;
   }
+  html {
+    scroll-padding-top: 3.5rem;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);

@@ -7,8 +7,7 @@ interface Feature {
 const SHIPPED: Feature[] = [
   {
     title: "Transcript & Speakers",
-    description:
-      "Automatic diarization, with speaker profiles that carry across meetings.",
+    description: "Automatic diarization, with speaker profiles that carry across meetings.",
     wide: true,
   },
   {
@@ -19,8 +18,7 @@ const SHIPPED: Feature[] = [
   },
   {
     title: "Chat with your meeting",
-    description:
-      "Ask questions, get answers with citations back to the transcript.",
+    description: "Ask questions, get answers with citations back to the transcript.",
     wide: false,
   },
   {
@@ -46,9 +44,7 @@ const EXPLORING: Feature[] = [
 
 function FeatureCard({ feature }: { feature: Feature }) {
   return (
-    <div
-      className={`border-border space-y-2 border-l pl-4 ${feature.wide ? "lg:col-span-2" : ""}`}
-    >
+    <div className={`border-border space-y-2 border-l pl-4 ${feature.wide ? "lg:col-span-2" : ""}`}>
       <h3 className="font-medium">{feature.title}</h3>
       <p className="text-muted-foreground text-sm">{feature.description}</p>
     </div>
@@ -57,10 +53,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
 
 export function FeatureRows() {
   return (
-    <section
-      id="features"
-      className="border-border mx-auto max-w-6xl border-t px-6 py-16"
-    >
+    <section id="features" className="border-border mx-auto max-w-6xl border-t px-6 py-16">
       <div className="space-y-10">
         <div className="space-y-4">
           <p className="eyebrow text-muted-foreground">Shipped today</p>

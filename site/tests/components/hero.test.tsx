@@ -22,12 +22,14 @@ describe("Hero", () => {
 
   it("links the primary CTA to the waitlist anchor and the secondary CTA to GitHub", () => {
     render(<Hero />);
-    expect(
-      screen.getByRole("link", { name: "Join the waitlist" }),
-    ).toHaveAttribute("href", "#waitlist");
-    expect(
-      screen.getByRole("link", { name: "View source on GitHub →" }),
-    ).toHaveAttribute("href", "https://github.com/harunnryd/bahlily");
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute(
+      "href",
+      "#waitlist",
+    );
+    expect(screen.getByRole("link", { name: "View source on GitHub →" })).toHaveAttribute(
+      "href",
+      "https://github.com/harunnryd/bahlily",
+    );
   });
 
   it("never mentions translation — that's an unshipped feature and stays out of the hero", () => {
